@@ -104,7 +104,7 @@ async def _resolve_operator_numero(chat_id: str, message: dict[str, Any]) -> str
         if contact is not None and str(contact.get("user_id", "")) == chat_id:
             operador = _find_operator_by_phone(session, contact["phone_number"])
             if operador is None:
-                await send_telegram_message(chat_id, NUMERO_NO_HABILITADO_TEXTO)
+                await send_telegram_message(chat_id, NUMERO_NO_HABILITADO_TEXTO, reply_markup=CONTACT_REQUEST_MARKUP)
                 return None
             operador.telegram_chat_id = chat_id
             session.commit()

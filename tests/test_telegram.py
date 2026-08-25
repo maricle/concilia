@@ -188,10 +188,10 @@ def test_sharing_contact_matches_regardless_of_mobile_nine_or_country_code(monke
 
 
 def test_sharing_contact_with_unmatched_phone_is_rejected(monkeypatch):
-    sent: list[tuple[str, str]] = []
+    sent: list[tuple[str, str, dict | None]] = []
 
     async def fake_send(chat_id: str, text: str, reply_markup: dict | None = None) -> None:
-        sent.append((chat_id, text))
+        sent.append((chat_id, text, reply_markup))
 
     monkeypatch.setattr(telegram, "send_telegram_message", fake_send)
 
@@ -206,7 +206,7 @@ def test_sharing_contact_with_unmatched_phone_is_rejected(monkeypatch):
     )
 
     assert response.status_code == 200
-    assert sent == [("555", telegram.NUMERO_NO_HABILITADO_TEXTO)]
+    assert sent == [("555", telegram.NUMERO_NO_HABILITADO_TEXTO, telegram.CONTACT_REQUEST_MARKUP)]
 
 
 def test_already_linked_chat_skips_phone_request(monkeypatch):
