@@ -74,6 +74,12 @@ def _find_operator_by_phone(session: Session, phone_number: str) -> Operator | N
         numero_digitos = re.sub(r"\D", "", operador.whatsapp_numero)
         if numero_digitos and digitos.endswith(numero_digitos):
             return operador
+    logging.warning(
+        "Contacto de Telegram sin operador coincidente: telefono=%r digitos=%r candidatos=%r",
+        phone_number,
+        digitos,
+        [re.sub(r"\D", "", o.whatsapp_numero) for o in candidatos],
+    )
     return None
 
 
