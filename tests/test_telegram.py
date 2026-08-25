@@ -91,7 +91,7 @@ def test_photo_message_is_extracted_and_saved_to_test_store(monkeypatch):
     async def fake_download(file_id: str) -> tuple[bytes, str]:
         return b"fake-photo-bytes", "photos/file.jpg"
 
-    def fake_extract(content_type: str, data: bytes) -> ExtractedTransfer:
+    def fake_extract(content_type: str, data: bytes, cuentas_validas=None) -> ExtractedTransfer:
         return ExtractedTransfer(Decimal("100.00"), datetime(2026, 8, 24), "OP-999", cuenta_receptora="empresa.mp")
 
     saved: list[bytes] = []
@@ -134,7 +134,7 @@ def test_second_photo_while_a_draft_is_pending_does_not_orphan_the_first(monkeyp
 
     extract_calls = []
 
-    def fake_extract(content_type: str, data: bytes) -> ExtractedTransfer:
+    def fake_extract(content_type: str, data: bytes, cuentas_validas=None) -> ExtractedTransfer:
         extract_calls.append(1)
         return ExtractedTransfer(Decimal("100.00"), datetime(2026, 8, 24), "OP-PRIMERO", cuenta_receptora="empresa.mp")
 
@@ -173,7 +173,7 @@ def test_photo_message_with_unreadable_receipt_asks_to_resend(monkeypatch):
 
     monkeypatch.setattr(telegram, "send_telegram_message", fake_send)
     monkeypatch.setattr(telegram, "_download_telegram_file", fake_download)
-    monkeypatch.setattr(telegram, "extract_transfer", lambda content_type, data: None)
+    monkeypatch.setattr(telegram, "extract_transfer", lambda content_type, data, cuentas_validas=None: None)
 
     response = client.post(
         "/telegram/webhook",

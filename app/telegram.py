@@ -11,7 +11,7 @@ from .config import get_settings
 from .conversation import ConversationService
 from .db import SessionLocal
 from .extraction import extract_transfer
-from .models import Operator
+from .models import BankAccount, Operator
 from .storage import save_comprobante_prueba
 
 router = APIRouter()
@@ -176,7 +176,9 @@ async def receive_telegram_update(
         return {"status": "ignored"}
 
     contenido, _ = await _download_telegram_file(file_id)
-    transfer = extract_transfer(content_type, contenido)
+    with SessionLocal() as session:
+        cuentas_validas = [(c.alias, c.numero_cuenta) for c in session.scalars(select(BankAccount)).all()]
+    transfer = extract_transfer(content_type, contenido, cuentas_validas)
     if transfer is None:
         await send_telegram_message(
             chat_id,

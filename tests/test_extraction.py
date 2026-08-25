@@ -5,7 +5,18 @@ from decimal import Decimal
 import pytest
 
 from app import extraction
-from app.extraction import _es_valor_valido, _has_minimum_fields, extract_transfer
+from app.extraction import _build_tool, _es_valor_valido, _has_minimum_fields, extract_transfer
+
+
+def test_build_tool_without_cuentas_leaves_cuenta_receptora_freeform():
+    tool = _build_tool([])
+    assert "enum" not in tool["input_schema"]["properties"]["cuenta_receptora"]
+
+
+def test_build_tool_with_cuentas_constrains_cuenta_receptora_to_aliases():
+    tool = _build_tool([("empresa.mp", "123"), ("empresa.galicia", "456")])
+    schema = tool["input_schema"]["properties"]["cuenta_receptora"]
+    assert schema["enum"] == ["empresa.mp", "empresa.galicia", None]
 
 
 @pytest.mark.parametrize(
@@ -58,8 +69,10 @@ class _FakeResponse:
 class _FakeMessages:
     def __init__(self, responses: list[dict | None]):
         self._responses = list(responses)
+        self.calls: list[dict] = []
 
     def create(self, **kwargs) -> _FakeResponse:
+        self.calls.append(kwargs)
         resultado = self._responses.pop(0)
         if resultado is None:
             return _FakeResponse(content=[])
@@ -106,6 +119,22 @@ def test_extract_transfer_registers_with_missing_fecha_and_numero_operacion(monk
     assert transfer.monto == Decimal("500")
     assert transfer.numero_operacion is None
     assert antes - timedelta(seconds=5) <= transfer.fecha_transaccion <= despues + timedelta(seconds=5)
+
+
+def test_extract_transfer_passes_cuentas_validas_as_enum_to_the_model(monkeypatch):
+    resultado = {"monto": 500, "fecha_transaccion": "2026-08-24", "numero_operacion": "OP-1", "cuenta_receptora": "empresa.mp"}
+    fake_client = _FakeAnthropic([resultado])
+    monkeypatch.setattr(extraction, "Anthropic", lambda api_key: fake_client)
+
+    transfer = extract_transfer("image/jpeg", b"fake-bytes", [("empresa.mp", "123"), ("empresa.galicia", "456")])
+
+    assert transfer.cuenta_receptora == "empresa.mp"
+    tool_usado = fake_client.messages.calls[0]["tools"][0]
+    assert tool_usado["input_schema"]["properties"]["cuenta_receptora"]["enum"] == [
+        "empresa.mp",
+        "empresa.galicia",
+        None,
+    ]
 
 
 def test_extract_transfer_treats_placeholder_numero_operacion_as_missing(monkeypatch):

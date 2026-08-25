@@ -10,33 +10,57 @@ from .conversation import ExtractedTransfer
 HAIKU_MODEL = "claude-haiku-4-5-20251001"
 SONNET_MODEL = "claude-sonnet-5"
 
-_TOOL = {
-    "name": "registrar_transferencia",
-    "description": "Estructura los datos de una transferencia bancaria a partir de un comprobante.",
-    "input_schema": {
-        "type": "object",
-        "properties": {
-            "monto": {"type": ["number", "null"], "description": "Monto de la transferencia"},
-            "fecha_transaccion": {
-                "type": ["string", "null"],
-                "description": "Fecha de la operacion, formato YYYY-MM-DD",
+def _build_tool(cuentas_validas: list[tuple[str, str]]) -> dict:
+    """Arma el schema de la herramienta de extraccion. Si se pasan cuentas_validas
+    (alias, numero_cuenta) de las cuentas bancarias de la empresa, cuenta_receptora
+    queda restringido a elegir uno de esos alias exactos (o null) en vez de
+    transcribir libremente un CBU/CVU: es mucho mas confiable que Claude compare
+    contra una lista corta a que transcriba 22 digitos sin error y que despues
+    nosotros lo matcheemos, y evita que confunda la cuenta de origen con la de
+    destino."""
+    if cuentas_validas:
+        listado = "; ".join(f"'{alias}' (numero de cuenta {numero})" for alias, numero in cuentas_validas)
+        cuenta_receptora_schema = {
+            "type": ["string", "null"],
+            "enum": [alias for alias, _ in cuentas_validas] + [None],
+            "description": (
+                "Cual de las cuentas bancarias de la empresa RECIBE el dinero en este comprobante (la seccion "
+                "'Para'/'Destino' -- nunca la de quien envia, 'De'/'Origen'). Las cuentas posibles son: "
+                f"{listado}. Devolve exactamente el alias tal como esta escrito si el comprobante corresponde "
+                "a una de esas cuentas, o null si no corresponde a ninguna."
+            ),
+        }
+    else:
+        cuenta_receptora_schema = {
+            "type": ["string", "null"],
+            "description": (
+                "Identificador de la cuenta que RECIBE el dinero (el destinatario, la seccion 'Para' o "
+                "'Destino' del comprobante) -- nunca la cuenta de quien envia ('De'/'Origen'). Puede ser "
+                "CBU, CVU o alias, el que figure."
+            ),
+        }
+    return {
+        "name": "registrar_transferencia",
+        "description": "Estructura los datos de una transferencia bancaria a partir de un comprobante.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "monto": {"type": ["number", "null"], "description": "Monto de la transferencia"},
+                "fecha_transaccion": {
+                    "type": ["string", "null"],
+                    "description": "Fecha de la operacion, formato YYYY-MM-DD",
+                },
+                "numero_operacion": {"type": ["string", "null"], "description": "Numero de operacion o referencia"},
+                "banco_emisor": {
+                    "type": ["string", "null"],
+                    "description": "Banco desde el que se hizo la transferencia",
+                },
+                "cuenta_receptora": cuenta_receptora_schema,
+                "titular": {"type": ["string", "null"], "description": "Titular de la cuenta si figura"},
             },
-            "numero_operacion": {"type": ["string", "null"], "description": "Numero de operacion o referencia"},
-            "banco_emisor": {"type": ["string", "null"], "description": "Banco desde el que se hizo la transferencia"},
-            "cuenta_receptora": {
-                "type": ["string", "null"],
-                "description": (
-                    "Identificador de la cuenta que RECIBE el dinero (el destinatario, la seccion 'Para' o "
-                    "'Destino' del comprobante) -- nunca la cuenta de quien envia ('De'/'Origen'). Puede ser "
-                    "CBU, CVU o alias, el que figure. Si el comprobante muestra cuentas de origen y destino, "
-                    "usa siempre la de destino."
-                ),
-            },
-            "titular": {"type": ["string", "null"], "description": "Titular de la cuenta si figura"},
+            "required": [],
         },
-        "required": [],
-    },
-}
+    }
 
 SYSTEM_PROMPT = (
     "Sos un asistente que lee comprobantes de transferencias bancarias en espanol y extrae sus datos "
@@ -63,13 +87,13 @@ def _content_block(content_type: str, data: bytes) -> dict:
     return {"type": "image", "source": {"type": "base64", "media_type": content_type, "data": encoded}}
 
 
-def _call_model(client: Anthropic, model: str, content_type: str, data: bytes) -> dict | None:
+def _call_model(client: Anthropic, model: str, content_type: str, data: bytes, tool: dict) -> dict | None:
     response = client.messages.create(
         model=model,
         max_tokens=1024,
         system=SYSTEM_PROMPT,
-        tools=[_TOOL],
-        tool_choice={"type": "tool", "name": _TOOL["name"]},
+        tools=[tool],
+        tool_choice={"type": "tool", "name": tool["name"]},
         messages=[
             {
                 "role": "user",
@@ -113,14 +137,19 @@ def _parse_fecha_o_actual(valor: object) -> datetime:
     return datetime.utcnow()
 
 
-def extract_transfer(content_type: str, data: bytes) -> ExtractedTransfer | None:
+def extract_transfer(
+    content_type: str, data: bytes, cuentas_validas: list[tuple[str, str]] | None = None
+) -> ExtractedTransfer | None:
     """Interpreta un comprobante con Claude. Devuelve None si no se pudo leer el monto
-    con confianza (el unico dato que bloquea el registro)."""
+    con confianza (el unico dato que bloquea el registro). cuentas_validas es la lista
+    de (alias, numero_cuenta) de las cuentas bancarias de la empresa, para que Claude
+    elija cual de ellas recibio el pago en vez de transcribir un CBU/CVU a mano."""
     client = Anthropic(api_key=get_settings().anthropic_api_key)
+    tool = _build_tool(cuentas_validas or [])
 
-    result = _call_model(client, HAIKU_MODEL, content_type, data)
+    result = _call_model(client, HAIKU_MODEL, content_type, data, tool)
     if not _has_minimum_fields(result):
-        result = _call_model(client, SONNET_MODEL, content_type, data)
+        result = _call_model(client, SONNET_MODEL, content_type, data, tool)
     if not _has_minimum_fields(result):
         return None
 
