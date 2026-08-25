@@ -180,26 +180,29 @@ def match_statement(
 
     for linea in lineas:
         candidatos = [m for m in pool if m.id not in usados]
-        por_fecha = [m for m in candidatos if _dentro_de_fecha(m, linea, tolerancia_dias)]
-        exactos = [m for m in por_fecha if m.monto == linea.monto]
 
+        # El numero de operacion es el dato mas confiable cuando esta disponible en
+        # ambos lados: un match exacto de referencia manda por encima de la fecha,
+        # porque el monto/fecha extraidos del comprobante pueden venir mal (OCR,
+        # error de tipeo del vendedor) sin que eso signifique que no es el mismo
+        # movimiento. Si el monto o la fecha no coinciden igual, queda "con diferencia"
+        # en vez de "conciliado", para que el administrador lo revise.
         if linea.referencia:
-            por_referencia = [m for m in exactos if m.numero_operacion == linea.referencia]
+            por_referencia = [m for m in candidatos if m.numero_operacion == linea.referencia]
             if len(por_referencia) == 1:
-                _asignar(linea, por_referencia[0], ReconciliationState.CONCILIADO, usados)
+                candidato = por_referencia[0]
+                coincide = candidato.monto == linea.monto and _dentro_de_fecha(candidato, linea, tolerancia_dias)
+                estado = ReconciliationState.CONCILIADO if coincide else ReconciliationState.CON_DIFERENCIA
+                _asignar(linea, candidato, estado, usados)
+                continue
+            if len(por_referencia) > 1:
                 continue
 
+        por_fecha = [m for m in candidatos if _dentro_de_fecha(m, linea, tolerancia_dias)]
+        exactos = [m for m in por_fecha if m.monto == linea.monto]
         if len(exactos) == 1:
             _asignar(linea, exactos[0], ReconciliationState.CONCILIADO, usados)
             continue
-        if len(exactos) > 1:
-            continue
-
-        if linea.referencia:
-            con_diferencia = [m for m in por_fecha if m.numero_operacion == linea.referencia]
-            if len(con_diferencia) == 1:
-                _asignar(linea, con_diferencia[0], ReconciliationState.CON_DIFERENCIA, usados)
-                continue
 
 
 def _asignar(

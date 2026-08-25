@@ -188,3 +188,28 @@ def test_matching_reference_with_different_amount_is_flagged_con_diferencia(sess
     assert linea.movimiento_id == movimiento.id
     assert linea.estado == StatementLineState.CONCILIADA
     assert movimiento.estado_conciliacion == ReconciliationState.CON_DIFERENCIA
+
+
+def test_matching_reference_with_far_off_date_is_flagged_con_diferencia_not_pending(session):
+    """Reproduce un caso real: el comprobante quedo con la fecha (y el monto) mal
+    cargados, pero el numero de operacion es identico al de la linea del banco. La
+    referencia exacta tiene que ganarle al filtro de tolerancia de fecha, en vez de
+    dejar la linea sin candidatos por estar la fecha del comprobante muy lejos."""
+    cuenta = BankAccount(banco="Nacion", numero_cuenta="1", alias="Principal")
+    session.add(cuenta)
+    session.flush()
+    movimiento = _crear_movimiento(
+        session,
+        numero_operacion="OP-1",
+        monto=Decimal("12342.00"),
+        fecha_transaccion=datetime(2026, 6, 3),
+    )
+    resumen, linea = _crear_resumen_y_linea(
+        session, cuenta.id, monto=Decimal("127782.00"), fecha=datetime(2026, 8, 21), referencia="OP-1"
+    )
+
+    match_statement(session, resumen, [linea])
+
+    assert linea.movimiento_id == movimiento.id
+    assert linea.estado == StatementLineState.CONCILIADA
+    assert movimiento.estado_conciliacion == ReconciliationState.CON_DIFERENCIA
