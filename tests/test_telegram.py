@@ -163,6 +163,30 @@ def test_sharing_contact_links_operator_by_matching_local_phone_suffix(monkeypat
         assert operador.telegram_chat_id == "444"
 
 
+def test_sharing_contact_matches_regardless_of_mobile_nine_or_country_code(monkeypatch):
+    _register_operator("+54 9 3794800628")
+
+    sent: list[tuple[str, str]] = []
+
+    async def fake_send(chat_id: str, text: str, reply_markup: dict | None = None) -> None:
+        sent.append((chat_id, text))
+
+    monkeypatch.setattr(telegram, "send_telegram_message", fake_send)
+
+    response = client.post(
+        "/telegram/webhook",
+        json={
+            "message": {
+                "chat": {"id": 777},
+                "contact": {"phone_number": "+54 3794 80 0628", "user_id": 777},
+            }
+        },
+    )
+
+    assert response.status_code == 200
+    assert sent == [("777", telegram.NUMERO_VINCULADO_TEXTO)]
+
+
 def test_sharing_contact_with_unmatched_phone_is_rejected(monkeypatch):
     sent: list[tuple[str, str]] = []
 

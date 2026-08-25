@@ -63,22 +63,31 @@ def _find_operator_by_chat_id(session: Session, chat_id: str) -> Operator | None
     )
 
 
+def _ultimos_digitos(numero: str, cantidad: int = 10) -> str | None:
+    digitos = re.sub(r"\D", "", numero)
+    if len(digitos) < cantidad:
+        return None
+    return digitos[-cantidad:]
+
+
 def _find_operator_by_phone(session: Session, phone_number: str) -> Operator | None:
-    digitos = re.sub(r"\D", "", phone_number)
-    if not digitos:
+    """Compara solo los ultimos 10 digitos: en Argentina el "9" de movil, el codigo de
+    pais y el formato varian segun quien cargo el numero, pero los ultimos 10 digitos
+    (el numero local) son siempre los mismos de un lado y del otro."""
+    clave = _ultimos_digitos(phone_number)
+    if clave is None:
         return None
     candidatos = session.scalars(
         select(Operator).where(Operator.activo.is_(True), Operator.telegram_chat_id.is_(None))
     ).all()
     for operador in candidatos:
-        numero_digitos = re.sub(r"\D", "", operador.whatsapp_numero)
-        if numero_digitos and digitos.endswith(numero_digitos):
+        if _ultimos_digitos(operador.whatsapp_numero) == clave:
             return operador
     logging.warning(
-        "Contacto de Telegram sin operador coincidente: telefono=%r digitos=%r candidatos=%r",
+        "Contacto de Telegram sin operador coincidente: telefono=%r ultimos_digitos=%r candidatos=%r",
         phone_number,
-        digitos,
-        [re.sub(r"\D", "", o.whatsapp_numero) for o in candidatos],
+        clave,
+        [_ultimos_digitos(o.whatsapp_numero) for o in candidatos],
     )
     return None
 
