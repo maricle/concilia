@@ -25,7 +25,12 @@ _TOOL = {
             "banco_emisor": {"type": ["string", "null"], "description": "Banco desde el que se hizo la transferencia"},
             "cuenta_receptora": {
                 "type": ["string", "null"],
-                "description": "Identificador de la cuenta receptora si figura: CBU, CVU o alias (cualquiera de los tres que aparezca en el comprobante)",
+                "description": (
+                    "Identificador de la cuenta que RECIBE el dinero (el destinatario, la seccion 'Para' o "
+                    "'Destino' del comprobante) -- nunca la cuenta de quien envia ('De'/'Origen'). Puede ser "
+                    "CBU, CVU o alias, el que figure. Si el comprobante muestra cuentas de origen y destino, "
+                    "usa siempre la de destino."
+                ),
             },
             "titular": {"type": ["string", "null"], "description": "Titular de la cuenta si figura"},
         },

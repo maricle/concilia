@@ -1,3 +1,4 @@
+import logging
 import re
 from dataclasses import dataclass
 from datetime import datetime
@@ -33,11 +34,17 @@ def _find_cuenta_bancaria(session: Session, cuenta_receptora: str | None) -> Ban
         return None
     normalizado = cuenta_receptora.strip().lower()
     digitos = re.sub(r"\D", "", cuenta_receptora)
-    for cuenta in session.scalars(select(BankAccount)).all():
+    cuentas = session.scalars(select(BankAccount)).all()
+    for cuenta in cuentas:
         if cuenta.alias.strip().lower() == normalizado:
             return cuenta
         if digitos and digitos == re.sub(r"\D", "", cuenta.numero_cuenta):
             return cuenta
+    logging.warning(
+        "Cuenta receptora sin match: extraida=%r cuentas_registradas=%r",
+        cuenta_receptora,
+        [(c.alias, c.numero_cuenta) for c in cuentas],
+    )
     return None
 
 
