@@ -1,50 +1,70 @@
 {% extends "base.html" %}
 {% block title %}Operadores - Concilia{% endblock %}
 {% block content %}
-<h1>Operadores / Vendedores</h1>
+<h1 class="h3 mb-4 text-gray-800">Operadores / Vendedores</h1>
 
-<table>
-  <thead>
-    <tr><th>Nombre</th><th>Numero</th><th>Telegram vinculado</th><th>Tipo</th><th>Estado</th><th></th><th></th></tr>
-  </thead>
-  <tbody>
-    {% for operador in operadores %}
-    <tr>
-      <td>{{ operador.nombre }}</td>
-      <td>{{ operador.whatsapp_numero }}</td>
-      <td>{{ operador.telegram_chat_id or "-" }}</td>
-      <td>{{ operador.tipo }}</td>
-      <td>
-        {% if operador.activo %}<span class="badge-activo">Activo</span>{% else %}<span class="badge-inactivo">Inactivo</span>{% endif %}
-      </td>
-      <td><a href="/config/operadores/{{ operador.id }}/editar">Editar</a></td>
-      <td>
-        <form class="inline" method="post" action="/config/operadores/{{ operador.id }}/toggle">
-          <button type="submit">{{ "Desactivar" if operador.activo else "Activar" }}</button>
-        </form>
-      </td>
-    </tr>
-    {% else %}
-    <tr><td colspan="7">Todavia no hay operadores dados de alta.</td></tr>
-    {% endfor %}
-  </tbody>
-</table>
+<div class="card shadow mb-4">
+  <div class="card-header py-3">
+    <h6 class="m-0 font-weight-bold text-primary">Listado</h6>
+  </div>
+  <div class="card-body">
+    <div class="table-responsive">
+      <table class="table table-bordered" width="100%" cellspacing="0">
+        <thead>
+          <tr><th>Nombre</th><th>Numero</th><th>Telegram vinculado</th><th>Tipo</th><th>Estado</th><th></th><th></th></tr>
+        </thead>
+        <tbody>
+          {% for operador in operadores %}
+          <tr>
+            <td>{{ operador.nombre }}</td>
+            <td>{{ operador.whatsapp_numero }}</td>
+            <td>{{ operador.telegram_chat_id or "-" }}</td>
+            <td>{{ operador.tipo }}</td>
+            <td>
+              {% if operador.activo %}<span class="badge-activo">Activo</span>{% else %}<span class="badge-inactivo">Inactivo</span>{% endif %}
+            </td>
+            <td><a href="/config/operadores/{{ operador.id }}/editar" class="btn btn-sm btn-outline-primary">Editar</a></td>
+            <td>
+              <form method="post" action="/config/operadores/{{ operador.id }}/toggle">
+                <button type="submit" class="btn btn-sm btn-outline-secondary">{{ "Desactivar" if operador.activo else "Activar" }}</button>
+              </form>
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="7">Todavia no hay operadores dados de alta.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
 
-<h2>Nuevo operador</h2>
-<form class="card" method="post" action="/config/operadores">
-  <label>Nombre
-    <input type="text" name="nombre" required>
-  </label>
-  <label>Numero de telefono (sin codigo de pais, ej. 3794579133)
-    <input type="text" name="whatsapp_numero" required>
-  </label>
-  <label>Tipo
-    <select name="tipo">
-      <option value="Reparto">Reparto</option>
-      <option value="Administrativo">Administrativo</option>
-    </select>
-  </label>
-  <button type="submit">Dar de alta</button>
-  {% if error %}<p class="error">{{ error }}</p>{% endif %}
-</form>
+<div class="card shadow mb-4">
+  <div class="card-header py-3">
+    <h6 class="m-0 font-weight-bold text-primary">Nuevo operador</h6>
+  </div>
+  <div class="card-body">
+    <form method="post" action="/config/operadores">
+      <div class="form-row">
+        <div class="form-group col-md-4">
+          <label>Nombre</label>
+          <input type="text" class="form-control" name="nombre" required>
+        </div>
+        <div class="form-group col-md-4">
+          <label>Numero de telefono (sin codigo de pais, ej. 3794579133)</label>
+          <input type="text" class="form-control" name="whatsapp_numero" required>
+        </div>
+        <div class="form-group col-md-4">
+          <label>Tipo</label>
+          <select class="form-control" name="tipo">
+            <option value="Reparto">Reparto</option>
+            <option value="Administrativo">Administrativo</option>
+          </select>
+        </div>
+      </div>
+      {% if error %}<p class="text-danger small">{{ error }}</p>{% endif %}
+      <button type="submit" class="btn btn-primary">Dar de alta</button>
+    </form>
+  </div>
+</div>
 {% endblock %}

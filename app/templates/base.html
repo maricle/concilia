@@ -4,34 +4,76 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{% block title %}Concilia{% endblock %}</title>
+<link href="https://cdn.jsdelivr.net/gh/StartBootstrap/startbootstrap-sb-admin-2@4.1.4/vendor/fontawesome-free/css/all.min.css" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/gh/StartBootstrap/startbootstrap-sb-admin-2@4.1.4/css/sb-admin-2.min.css" rel="stylesheet">
 <style>
-  body { font-family: system-ui, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1rem; color: #1a1a1a; }
-  nav { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; border-bottom: 1px solid #ddd; padding-bottom: 1rem; }
-  nav a { margin-right: 1rem; color: #1a1a1a; text-decoration: none; font-weight: 600; }
-  table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
-  th, td { text-align: left; padding: 0.5rem; border-bottom: 1px solid #eee; }
-  form.inline { display: inline; }
-  .card { background: #f7f7f8; border: 1px solid #e2e2e2; border-radius: 8px; padding: 1.5rem; max-width: 420px; }
-  label { display: block; margin-top: 0.75rem; font-size: 0.9rem; }
-  input, select { width: 100%; padding: 0.4rem; margin-top: 0.25rem; box-sizing: border-box; }
-  button { margin-top: 1rem; padding: 0.5rem 1rem; cursor: pointer; }
-  .badge-activo { color: #0a7d2e; font-weight: 600; }
-  .badge-inactivo { color: #b3261e; font-weight: 600; }
-  .error { color: #b3261e; margin-top: 0.75rem; }
+  :root { --accent: #4f46e5; }
+  .btn-primary { background-color: var(--accent); border-color: var(--accent); }
+  .btn-primary:hover, .btn-primary:focus, .btn-primary:active { background-color: #4338ca !important; border-color: #4338ca !important; }
+  .text-primary { color: var(--accent) !important; }
+  a { color: var(--accent); }
+  .sidebar { background: linear-gradient(180deg, #1a1d29 10%, #12141d 100%) !important; }
+  .sidebar .nav-item .nav-link { color: rgba(255, 255, 255, .8); }
+  .sidebar .nav-item .nav-link:hover, .sidebar .nav-item.active .nav-link { color: #fff; }
+  .sidebar .sidebar-brand { color: #fff; }
+  .sidebar-divider { border-top: 1px solid rgba(255, 255, 255, .15); }
+  .sidebar-heading { color: rgba(255, 255, 255, .4); }
+  .badge-activo { background-color: #dcfce7; color: #15803d; padding: .35em .65em; border-radius: .35rem; font-weight: 600; }
+  .badge-inactivo { background-color: #fee2e2; color: #b91c1c; padding: .35em .65em; border-radius: .35rem; font-weight: 600; }
+  .login-wrapper { min-height: 100vh; display: flex; align-items: center; justify-content: center; background: #f8f9fc; }
 </style>
 </head>
-<body>
+<body id="page-top">
 {% if user %}
-<nav>
-  <div>
-    <a href="/comprobantes">Movimientos</a>
-    <a href="/conciliaciones">Conciliaciones</a>
-    <a href="/config/operadores">Operadores</a>
-    <a href="/config/cuentas">Cuentas bancarias</a>
+<div id="wrapper">
+  <ul class="navbar-nav sidebar sidebar-dark accordion" id="accordionSidebar">
+    <a class="sidebar-brand d-flex align-items-center justify-content-center" href="/comprobantes">
+      <div class="sidebar-brand-icon"><i class="fas fa-university"></i></div>
+      <div class="sidebar-brand-text mx-3">Concilia</div>
+    </a>
+    <hr class="sidebar-divider my-0">
+    <li class="nav-item {{ 'active' if request.url.path == '/comprobantes' }}">
+      <a class="nav-link" href="/comprobantes"><i class="fas fa-fw fa-file-invoice-dollar"></i><span>Comprobantes</span></a>
+    </li>
+    <li class="nav-item {{ 'active' if request.url.path == '/conciliaciones' }}">
+      <a class="nav-link" href="/conciliaciones"><i class="fas fa-fw fa-balance-scale"></i><span>Conciliaciones</span></a>
+    </li>
+    <hr class="sidebar-divider">
+    <div class="sidebar-heading">Configuracion</div>
+    <li class="nav-item {{ 'active' if request.url.path == '/config/operadores' }}">
+      <a class="nav-link" href="/config/operadores"><i class="fas fa-fw fa-users"></i><span>Operadores</span></a>
+    </li>
+    <li class="nav-item {{ 'active' if request.url.path == '/config/cuentas' }}">
+      <a class="nav-link" href="/config/cuentas"><i class="fas fa-fw fa-piggy-bank"></i><span>Cuentas bancarias</span></a>
+    </li>
+    <hr class="sidebar-divider d-none d-md-block">
+  </ul>
+  <div id="content-wrapper" class="d-flex flex-column">
+    <div id="content">
+      <nav class="navbar navbar-expand navbar-light bg-white topbar mb-4 static-top shadow">
+        <ul class="navbar-nav ml-auto align-items-center">
+          <li class="nav-item mr-3 text-gray-600 small">{{ user.nombre }}</li>
+          <li class="nav-item">
+            <form method="post" action="/logout">
+              <button type="submit" class="btn btn-sm btn-outline-secondary">Salir</button>
+            </form>
+          </li>
+        </ul>
+      </nav>
+      <div class="container-fluid">
+        {% block content %}{% endblock %}
+      </div>
+    </div>
   </div>
-  <div>{{ user.nombre }} &middot; <form class="inline" method="post" action="/logout"><button type="submit">Salir</button></form></div>
-</nav>
+</div>
+{% else %}
+<div class="login-wrapper">
+  {% block login_content %}{% endblock %}
+</div>
 {% endif %}
-{% block content %}{% endblock %}
+<script src="https://cdn.jsdelivr.net/gh/StartBootstrap/startbootstrap-sb-admin-2@4.1.4/vendor/jquery/jquery.min.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/StartBootstrap/startbootstrap-sb-admin-2@4.1.4/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/StartBootstrap/startbootstrap-sb-admin-2@4.1.4/vendor/jquery-easing/jquery.easing.min.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/StartBootstrap/startbootstrap-sb-admin-2@4.1.4/js/sb-admin-2.min.js"></script>
 </body>
 </html>

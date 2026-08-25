@@ -1,102 +1,139 @@
 {% extends "base.html" %}
 {% block title %}Conciliaciones - Concilia{% endblock %}
 {% block content %}
-<h1>Conciliaciones</h1>
+<h1 class="h3 mb-4 text-gray-800">Conciliaciones</h1>
 
-{% if error %}<p class="error">{{ error }}</p>{% endif %}
+{% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
 
-<h2>Importar resumen bancario</h2>
-<form class="card" method="post" action="/conciliaciones/importar" enctype="multipart/form-data">
-  <label>Cuenta bancaria
-    <select name="cuenta_bancaria_id" required>
-      {% for cuenta in cuentas %}
-      <option value="{{ cuenta.id }}">{{ cuenta.alias }} ({{ cuenta.banco }})</option>
-      {% endfor %}
-    </select>
-  </label>
-  <label>Fecha del resumen
-    <input type="date" name="fecha" required>
-  </label>
-  <label>Archivo (CSV o XLSX)
-    <input type="file" name="archivo" accept=".csv,.xlsx" required>
-  </label>
-  <button type="submit">Importar y conciliar</button>
-</form>
-
-<h2>Resumenes importados</h2>
-<table>
-  <thead>
-    <tr><th>Fecha importacion</th><th>Cuenta</th><th>Fecha resumen</th><th>Archivo</th></tr>
-  </thead>
-  <tbody>
-    {% for resumen in resumenes %}
-    <tr>
-      <td>{{ resumen.fecha_importacion.strftime("%Y-%m-%d %H:%M") }}</td>
-      <td>{{ resumen.cuenta_bancaria.alias }}</td>
-      <td>{{ resumen.fecha.strftime("%Y-%m-%d") }}</td>
-      <td>{{ resumen.archivo_nombre }}</td>
-    </tr>
-    {% else %}
-    <tr><td colspan="4">Todavia no se importo ningun resumen.</td></tr>
-    {% endfor %}
-  </tbody>
-</table>
-
-<h2>Movimientos sin conciliar</h2>
-<table>
-  <thead>
-    <tr><th>Fecha transaccion</th><th>N. operacion</th><th>Monto</th><th>Vendedor</th><th>Estado</th></tr>
-  </thead>
-  <tbody>
-    {% for movimiento in movimientos_pendientes %}
-    <tr>
-      <td>{{ movimiento.fecha_transaccion.strftime("%Y-%m-%d") if movimiento.fecha_transaccion else "-" }}</td>
-      <td>{{ movimiento.numero_operacion }}</td>
-      <td>${{ movimiento.monto }}</td>
-      <td>{{ movimiento.operador.nombre }}</td>
-      <td>{{ movimiento.estado_conciliacion.value }}</td>
-    </tr>
-    {% else %}
-    <tr><td colspan="5">No hay movimientos pendientes de conciliar.</td></tr>
-    {% endfor %}
-  </tbody>
-</table>
-
-<h2>Lineas de resumen sin conciliar</h2>
-<table>
-  <thead>
-    <tr><th>Fecha</th><th>Monto</th><th>Descripcion</th><th>Referencia</th><th>Cuenta</th><th>Emparejar</th><th></th></tr>
-  </thead>
-  <tbody>
-    {% for linea in lineas_pendientes %}
-    <tr>
-      <td>{{ linea.fecha.strftime("%Y-%m-%d") }}</td>
-      <td>${{ linea.monto }}</td>
-      <td>{{ linea.descripcion or "-" }}</td>
-      <td>{{ linea.referencia or "-" }}</td>
-      <td>{{ linea.resumen.cuenta_bancaria.alias }}</td>
-      <td>
-        <form class="inline" method="post" action="/conciliaciones/lineas/{{ linea.id }}/emparejar">
-          <select name="movimiento_id" required>
-            <option value="">Elegir movimiento...</option>
-            {% for movimiento in movimientos_pendientes %}
-            <option value="{{ movimiento.id }}">
-              {{ movimiento.numero_operacion }} - ${{ movimiento.monto }} - {{ movimiento.operador.nombre }}
-            </option>
+<div class="card shadow mb-4">
+  <div class="card-header py-3">
+    <h6 class="m-0 font-weight-bold text-primary">Importar resumen bancario</h6>
+  </div>
+  <div class="card-body">
+    <form method="post" action="/conciliaciones/importar" enctype="multipart/form-data">
+      <div class="form-row align-items-end">
+        <div class="form-group col-md-4">
+          <label>Cuenta bancaria</label>
+          <select class="form-control" name="cuenta_bancaria_id" required>
+            {% for cuenta in cuentas %}
+            <option value="{{ cuenta.id }}">{{ cuenta.alias }} ({{ cuenta.banco }})</option>
             {% endfor %}
           </select>
-          <button type="submit">Emparejar</button>
-        </form>
-      </td>
-      <td>
-        <form class="inline" method="post" action="/conciliaciones/lineas/{{ linea.id }}/no-corresponde">
-          <button type="submit">No corresponde</button>
-        </form>
-      </td>
-    </tr>
-    {% else %}
-    <tr><td colspan="7">No hay lineas de resumen pendientes de conciliar.</td></tr>
-    {% endfor %}
-  </tbody>
-</table>
+        </div>
+        <div class="form-group col-md-3">
+          <label>Fecha del resumen</label>
+          <input type="date" class="form-control" name="fecha" required>
+        </div>
+        <div class="form-group col-md-3">
+          <label>Archivo (CSV o XLSX)</label>
+          <input type="file" class="form-control-file" name="archivo" accept=".csv,.xlsx" required>
+        </div>
+        <div class="form-group col-md-2">
+          <button type="submit" class="btn btn-primary btn-block">Importar</button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="card shadow mb-4">
+  <div class="card-header py-3">
+    <h6 class="m-0 font-weight-bold text-primary">Resumenes importados</h6>
+  </div>
+  <div class="card-body">
+    <div class="table-responsive">
+      <table class="table table-bordered" width="100%" cellspacing="0">
+        <thead>
+          <tr><th>Fecha importacion</th><th>Cuenta</th><th>Fecha resumen</th><th>Archivo</th></tr>
+        </thead>
+        <tbody>
+          {% for resumen in resumenes %}
+          <tr>
+            <td>{{ resumen.fecha_importacion.strftime("%Y-%m-%d %H:%M") }}</td>
+            <td>{{ resumen.cuenta_bancaria.alias }}</td>
+            <td>{{ resumen.fecha.strftime("%Y-%m-%d") }}</td>
+            <td>{{ resumen.archivo_nombre }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="4">Todavia no se importo ningun resumen.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="card shadow mb-4">
+  <div class="card-header py-3">
+    <h6 class="m-0 font-weight-bold text-primary">Movimientos sin conciliar</h6>
+  </div>
+  <div class="card-body">
+    <div class="table-responsive">
+      <table class="table table-bordered" width="100%" cellspacing="0">
+        <thead>
+          <tr><th>Fecha transaccion</th><th>N. operacion</th><th>Monto</th><th>Vendedor</th><th>Estado</th></tr>
+        </thead>
+        <tbody>
+          {% for movimiento in movimientos_pendientes %}
+          <tr>
+            <td>{{ movimiento.fecha_transaccion.strftime("%Y-%m-%d") if movimiento.fecha_transaccion else "-" }}</td>
+            <td>{{ movimiento.numero_operacion }}</td>
+            <td>${{ movimiento.monto }}</td>
+            <td>{{ movimiento.operador.nombre }}</td>
+            <td>{{ movimiento.estado_conciliacion.value }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="5">No hay movimientos pendientes de conciliar.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="card shadow mb-4">
+  <div class="card-header py-3">
+    <h6 class="m-0 font-weight-bold text-primary">Lineas de resumen sin conciliar</h6>
+  </div>
+  <div class="card-body">
+    <div class="table-responsive">
+      <table class="table table-bordered" width="100%" cellspacing="0">
+        <thead>
+          <tr><th>Fecha</th><th>Monto</th><th>Descripcion</th><th>Referencia</th><th>Cuenta</th><th>Emparejar</th><th></th></tr>
+        </thead>
+        <tbody>
+          {% for linea in lineas_pendientes %}
+          <tr>
+            <td>{{ linea.fecha.strftime("%Y-%m-%d") }}</td>
+            <td>${{ linea.monto }}</td>
+            <td>{{ linea.descripcion or "-" }}</td>
+            <td>{{ linea.referencia or "-" }}</td>
+            <td>{{ linea.resumen.cuenta_bancaria.alias }}</td>
+            <td>
+              <form class="form-inline" method="post" action="/conciliaciones/lineas/{{ linea.id }}/emparejar">
+                <select name="movimiento_id" class="form-control form-control-sm mr-2" required>
+                  <option value="">Elegir movimiento...</option>
+                  {% for movimiento in movimientos_pendientes %}
+                  <option value="{{ movimiento.id }}">
+                    {{ movimiento.numero_operacion }} - ${{ movimiento.monto }} - {{ movimiento.operador.nombre }}
+                  </option>
+                  {% endfor %}
+                </select>
+                <button type="submit" class="btn btn-sm btn-primary">Emparejar</button>
+              </form>
+            </td>
+            <td>
+              <form method="post" action="/conciliaciones/lineas/{{ linea.id }}/no-corresponde">
+                <button type="submit" class="btn btn-sm btn-outline-secondary">No corresponde</button>
+              </form>
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="7">No hay lineas de resumen pendientes de conciliar.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
 {% endblock %}

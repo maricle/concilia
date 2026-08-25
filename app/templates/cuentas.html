@@ -1,42 +1,63 @@
 {% extends "base.html" %}
 {% block title %}Cuentas bancarias - Concilia{% endblock %}
 {% block content %}
-<h1>Cuentas bancarias</h1>
+<h1 class="h3 mb-4 text-gray-800">Cuentas bancarias</h1>
 
-<table>
-  <thead>
-    <tr><th>Banco</th><th>Numero de cuenta</th><th>Alias</th><th>Moneda</th><th></th></tr>
-  </thead>
-  <tbody>
-    {% for cuenta in cuentas %}
-    <tr>
-      <td>{{ cuenta.banco }}</td>
-      <td>{{ cuenta.numero_cuenta }}</td>
-      <td>{{ cuenta.alias }}</td>
-      <td>{{ cuenta.moneda }}</td>
-      <td><a href="/config/cuentas/{{ cuenta.id }}/editar">Editar</a></td>
-    </tr>
-    {% else %}
-    <tr><td colspan="5">Todavia no hay cuentas bancarias cargadas.</td></tr>
-    {% endfor %}
-  </tbody>
-</table>
+<div class="card shadow mb-4">
+  <div class="card-header py-3">
+    <h6 class="m-0 font-weight-bold text-primary">Listado</h6>
+  </div>
+  <div class="card-body">
+    <div class="table-responsive">
+      <table class="table table-bordered" width="100%" cellspacing="0">
+        <thead>
+          <tr><th>Banco</th><th>Numero de cuenta</th><th>Alias</th><th>Moneda</th><th></th></tr>
+        </thead>
+        <tbody>
+          {% for cuenta in cuentas %}
+          <tr>
+            <td>{{ cuenta.banco }}</td>
+            <td>{{ cuenta.numero_cuenta }}</td>
+            <td>{{ cuenta.alias }}</td>
+            <td>{{ cuenta.moneda }}</td>
+            <td><a href="/config/cuentas/{{ cuenta.id }}/editar" class="btn btn-sm btn-outline-primary">Editar</a></td>
+          </tr>
+          {% else %}
+          <tr><td colspan="5">Todavia no hay cuentas bancarias cargadas.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
 
-<h2>Nueva cuenta</h2>
-<form class="card" method="post" action="/config/cuentas">
-  <label>Banco
-    <input type="text" name="banco" required>
-  </label>
-  <label>Numero de cuenta
-    <input type="text" name="numero_cuenta" required>
-  </label>
-  <label>Alias
-    <input type="text" name="alias" required>
-  </label>
-  <label>Moneda
-    <input type="text" name="moneda" value="ARS">
-  </label>
-  <button type="submit">Agregar cuenta</button>
-  {% if error %}<p class="error">{{ error }}</p>{% endif %}
-</form>
+<div class="card shadow mb-4">
+  <div class="card-header py-3">
+    <h6 class="m-0 font-weight-bold text-primary">Nueva cuenta</h6>
+  </div>
+  <div class="card-body">
+    <form method="post" action="/config/cuentas">
+      <div class="form-row">
+        <div class="form-group col-md-3">
+          <label>Banco</label>
+          <input type="text" class="form-control" name="banco" required>
+        </div>
+        <div class="form-group col-md-3">
+          <label>Numero de cuenta</label>
+          <input type="text" class="form-control" name="numero_cuenta" required>
+        </div>
+        <div class="form-group col-md-3">
+          <label>Alias</label>
+          <input type="text" class="form-control" name="alias" required>
+        </div>
+        <div class="form-group col-md-3">
+          <label>Moneda</label>
+          <input type="text" class="form-control" name="moneda" value="ARS">
+        </div>
+      </div>
+      {% if error %}<p class="text-danger small">{{ error }}</p>{% endif %}
+      <button type="submit" class="btn btn-primary">Agregar cuenta</button>
+    </form>
+  </div>
+</div>
 {% endblock %}

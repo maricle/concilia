@@ -1,24 +1,30 @@
 {% extends "base.html" %}
 {% block title %}Editar operador - Concilia{% endblock %}
 {% block content %}
-<h1>Editar operador</h1>
+<h1 class="h3 mb-4 text-gray-800">Editar operador</h1>
 
-{% if error %}<p class="error">{{ error }}</p>{% endif %}
-
-<form class="card" method="post" action="/config/operadores/{{ operador.id }}/editar">
-  <label>Nombre
-    <input type="text" name="nombre" value="{{ operador.nombre }}" required>
-  </label>
-  <label>Numero de telefono (sin codigo de pais)
-    <input type="text" name="whatsapp_numero" value="{{ operador.whatsapp_numero }}" required>
-  </label>
-  <label>Tipo
-    <select name="tipo">
-      <option value="Reparto" {{ "selected" if operador.tipo == "Reparto" }}>Reparto</option>
-      <option value="Administrativo" {{ "selected" if operador.tipo == "Administrativo" }}>Administrativo</option>
-    </select>
-  </label>
-  <p>Telegram vinculado: {{ operador.telegram_chat_id or "todavia no vinculo su Telegram" }}</p>
-  <button type="submit">Guardar cambios</button>
-</form>
+<div class="card shadow mb-4" style="max-width: 500px;">
+  <div class="card-body">
+    {% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
+    <form method="post" action="/config/operadores/{{ operador.id }}/editar">
+      <div class="form-group">
+        <label>Nombre</label>
+        <input type="text" class="form-control" name="nombre" value="{{ operador.nombre }}" required>
+      </div>
+      <div class="form-group">
+        <label>Numero de telefono (sin codigo de pais)</label>
+        <input type="text" class="form-control" name="whatsapp_numero" value="{{ operador.whatsapp_numero }}" required>
+      </div>
+      <div class="form-group">
+        <label>Tipo</label>
+        <select class="form-control" name="tipo">
+          <option value="Reparto" {{ "selected" if operador.tipo == "Reparto" }}>Reparto</option>
+          <option value="Administrativo" {{ "selected" if operador.tipo == "Administrativo" }}>Administrativo</option>
+        </select>
+      </div>
+      <p class="text-muted small">Telegram vinculado: {{ operador.telegram_chat_id or "todavia no vinculo su Telegram" }}</p>
+      <button type="submit" class="btn btn-primary">Guardar cambios</button>
+    </form>
+  </div>
+</div>
 {% endblock %}
