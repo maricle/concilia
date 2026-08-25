@@ -16,7 +16,6 @@
             <th>Fecha subida</th>
             <th>Factura o cuenta</th>
             <th>Banco emisor</th>
-            <th>Cuenta banco</th>
             <th>N. operacion</th>
             <th>Monto</th>
             <th>Vendedor</th>
@@ -31,7 +30,6 @@
             <td>{{ movimiento.fecha_subida.strftime("%Y-%m-%d %H:%M") }}</td>
             <td>{{ movimiento.factura_o_cuenta or "-" }}</td>
             <td>{{ movimiento.banco_emisor or "-" }}</td>
-            <td>{{ movimiento.cuenta_bancaria.alias if movimiento.cuenta_bancaria else "Sin banco" }}</td>
             <td>{{ movimiento.numero_operacion }}</td>
             <td>${{ movimiento.monto }}</td>
             <td>{{ movimiento.operador.nombre }}</td>
@@ -39,7 +37,7 @@
             <td><a href="/comprobantes/{{ movimiento.id }}/editar" class="btn btn-sm btn-outline-primary">Editar</a></td>
           </tr>
           {% else %}
-          <tr><td colspan="10">Todavia no hay movimientos confirmados.</td></tr>
+          <tr><td colspan="9">Todavia no hay movimientos confirmados.</td></tr>
           {% endfor %}
         </tbody>
       </table>

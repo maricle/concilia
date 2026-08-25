@@ -244,7 +244,7 @@ def list_movimientos(request: Request, db: Session = Depends(get_db), user: Pane
     movimientos = db.scalars(
         select(Movement)
         .where(Movement.estado_registro == RecordState.CONFIRMADO)
-        .options(selectinload(Movement.operador), selectinload(Movement.cuenta_bancaria))
+        .options(selectinload(Movement.operador))
         .order_by(Movement.fecha_subida.desc())
     ).all()
     return templates.TemplateResponse(request, "movimientos.html", {"user": user, "movimientos": movimientos})
