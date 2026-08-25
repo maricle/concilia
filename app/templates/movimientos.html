@@ -34,7 +34,12 @@
             <td>{{ "$" + movimiento.monto|string if movimiento.monto is not none else "-" }}</td>
             <td>{{ movimiento.operador.nombre }}</td>
             <td>{{ movimiento.estado_conciliacion.value }}</td>
-            <td><a href="/comprobantes/{{ movimiento.id }}/editar" class="btn btn-sm btn-outline-primary">Editar</a></td>
+            <td>
+              {% if movimiento.archivo_prueba_id %}
+              <a href="/comprobantes/{{ movimiento.id }}/archivo" target="_blank" class="btn btn-sm btn-outline-secondary">Ver</a>
+              {% endif %}
+              <a href="/comprobantes/{{ movimiento.id }}/editar" class="btn btn-sm btn-outline-primary">Editar</a>
+            </td>
           </tr>
           {% else %}
           <tr><td colspan="9">Todavia no hay movimientos confirmados.</td></tr>

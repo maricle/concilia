@@ -178,8 +178,9 @@ async def receive_telegram_update(
         )
         return {"status": "accepted"}
 
+    archivo_prueba_id = None
     try:
-        save_comprobante_prueba(
+        archivo_prueba_id = save_comprobante_prueba(
             nombre_archivo=file_name,
             content_type=content_type,
             contenido=contenido,
@@ -189,6 +190,6 @@ async def receive_telegram_update(
         logging.exception("No se pudo guardar el archivo de prueba en Turso; se continua sin bloquear el registro.")
 
     with SessionLocal() as session:
-        reply = ConversationService(session).start_transfer(numero, transfer)
+        reply = ConversationService(session).start_transfer(numero, transfer, archivo_prueba_id)
     await send_telegram_message(chat_id, reply)
     return {"status": "accepted"}

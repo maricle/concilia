@@ -3,7 +3,7 @@ from decimal import Decimal, InvalidOperation
 from typing import TypeVar
 
 from fastapi import APIRouter, Depends, Form, Request, UploadFile
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
 from sqlalchemy.orm import DeclarativeBase, InstrumentedAttribute, Session, selectinload
@@ -22,6 +22,7 @@ from .models import (
     StatementLineState,
 )
 from .reconciliation import StatementParseError, match_statement, parse_statement_file
+from .storage import get_comprobante_prueba
 
 router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
@@ -248,6 +249,28 @@ def list_movimientos(request: Request, db: Session = Depends(get_db), user: Pane
         .order_by(Movement.fecha_subida.desc())
     ).all()
     return templates.TemplateResponse(request, "movimientos.html", {"user": user, "movimientos": movimientos})
+
+
+@router.get("/comprobantes/{movimiento_id}/archivo")
+def ver_archivo_movimiento(
+    movimiento_id: int, request: Request, db: Session = Depends(get_db), user: PanelUser = Depends(require_user)
+):
+    movimiento = db.get(Movement, movimiento_id)
+    if movimiento is None or movimiento.archivo_prueba_id is None:
+        return RedirectResponse("/comprobantes", status_code=303)
+
+    try:
+        archivo = get_comprobante_prueba(movimiento.archivo_prueba_id)
+    except Exception:
+        return RedirectResponse("/comprobantes", status_code=303)
+    if archivo is None:
+        return RedirectResponse("/comprobantes", status_code=303)
+
+    return Response(
+        content=archivo.contenido,
+        media_type=archivo.content_type,
+        headers={"Content-Disposition": f'inline; filename="{archivo.nombre_archivo}"'},
+    )
 
 
 @router.get("/comprobantes/{movimiento_id}/editar")

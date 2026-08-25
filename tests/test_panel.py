@@ -197,6 +197,67 @@ def test_editar_movimiento_requires_login():
     assert response.headers["location"] == "/login"
 
 
+def test_ver_archivo_requires_login():
+    client, _ = _client_with_admin()
+    response = client.get("/comprobantes/1/archivo", follow_redirects=False)
+    assert response.status_code == 303
+    assert response.headers["location"] == "/login"
+
+
+def test_ver_archivo_redirects_when_movimiento_has_no_archivo():
+    client, test_session = _client_with_admin()
+    with test_session() as session:
+        session.add(Operator(nombre="Ana", whatsapp_numero="111"))
+        session.commit()
+        session.add(
+            Movement(
+                operador_id=1,
+                monto=Decimal("500"),
+                fecha_transaccion=datetime(2026, 8, 24),
+                numero_operacion="OP-1",
+                estado_registro=RecordState.CONFIRMADO,
+            )
+        )
+        session.commit()
+
+    client.post("/login", data={"email": "admin@concilia.test", "password": "secreta123"})
+    response = client.get("/comprobantes/1/archivo", follow_redirects=False)
+    assert response.status_code == 303
+    assert response.headers["location"] == "/comprobantes"
+
+
+def test_ver_archivo_returns_file_content(monkeypatch):
+    client, test_session = _client_with_admin()
+    with test_session() as session:
+        session.add(Operator(nombre="Ana", whatsapp_numero="111"))
+        session.commit()
+        session.add(
+            Movement(
+                operador_id=1,
+                monto=Decimal("500"),
+                fecha_transaccion=datetime(2026, 8, 24),
+                numero_operacion="OP-1",
+                estado_registro=RecordState.CONFIRMADO,
+                archivo_prueba_id=42,
+            )
+        )
+        session.commit()
+
+    class _FakeArchivo:
+        contenido = b"fake-image-bytes"
+        content_type = "image/jpeg"
+        nombre_archivo = "comprobante.jpg"
+
+    monkeypatch.setattr(panel, "get_comprobante_prueba", lambda archivo_id: _FakeArchivo() if archivo_id == 42 else None)
+
+    client.post("/login", data={"email": "admin@concilia.test", "password": "secreta123"})
+    response = client.get("/comprobantes/1/archivo")
+
+    assert response.status_code == 200
+    assert response.content == b"fake-image-bytes"
+    assert response.headers["content-type"] == "image/jpeg"
+
+
 def test_editar_movimiento_updates_fields():
     client, test_session = _client_with_admin()
     with test_session() as session:

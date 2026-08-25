@@ -71,6 +71,9 @@ class Movement(Base):
     factura_o_cuenta: Mapped[str | None] = mapped_column(String(150))
     cuenta_bancaria_id: Mapped[int | None] = mapped_column(ForeignKey("cuentas_bancarias.id"))
     archivo_url: Mapped[str | None] = mapped_column(Text)
+    archivo_prueba_id: Mapped[int | None] = mapped_column()
+    """Id del archivo en el storage de prueba de Turso (app/storage.py), no en el S3/R2
+    real del spec tecnico. Solo se completa para comprobantes recibidos por Telegram."""
     origen: Mapped[str] = mapped_column(String(20), default="whatsapp")
     estado_registro: Mapped[RecordState] = mapped_column(default=RecordState.PENDIENTE_CONFIRMACION)
     estado_conciliacion: Mapped[ReconciliationState] = mapped_column(default=ReconciliationState.PENDIENTE)
