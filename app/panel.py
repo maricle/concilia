@@ -323,6 +323,15 @@ def _conciliaciones_context(db: Session, user: PanelUser, error: str | None) -> 
         .options(selectinload(StatementLine.resumen).selectinload(ImportedStatement.cuenta_bancaria))
         .order_by(StatementLine.fecha)
     ).all()
+    lineas_conciliadas = db.scalars(
+        select(StatementLine)
+        .where(StatementLine.estado == StatementLineState.CONCILIADA)
+        .options(
+            selectinload(StatementLine.resumen).selectinload(ImportedStatement.cuenta_bancaria),
+            selectinload(StatementLine.movimiento).selectinload(Movement.operador),
+        )
+        .order_by(StatementLine.fecha.desc())
+    ).all()
     resumenes = db.scalars(
         select(ImportedStatement)
         .options(selectinload(ImportedStatement.cuenta_bancaria))
@@ -333,6 +342,7 @@ def _conciliaciones_context(db: Session, user: PanelUser, error: str | None) -> 
         "cuentas": cuentas,
         "movimientos_pendientes": movimientos_pendientes,
         "lineas_pendientes": lineas_pendientes,
+        "lineas_conciliadas": lineas_conciliadas,
         "resumenes": resumenes,
         "error": error,
     }

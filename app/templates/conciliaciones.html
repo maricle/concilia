@@ -93,6 +93,41 @@
 
 <div class="card shadow mb-4">
   <div class="card-header py-3">
+    <h6 class="m-0 font-weight-bold text-primary">Lineas conciliadas</h6>
+  </div>
+  <div class="card-body">
+    <div class="table-responsive">
+      <table class="table table-bordered" width="100%" cellspacing="0">
+        <thead>
+          <tr><th>Fecha</th><th>Monto</th><th>Referencia</th><th>Movimiento vinculado</th><th>Vendedor</th><th>Estado</th></tr>
+        </thead>
+        <tbody>
+          {% for linea in lineas_conciliadas %}
+          <tr>
+            <td>{{ linea.fecha.strftime("%Y-%m-%d") }}</td>
+            <td>${{ linea.monto }}</td>
+            <td>{{ linea.referencia or "-" }}</td>
+            <td>{{ linea.movimiento.numero_operacion if linea.movimiento else "-" }}</td>
+            <td>{{ linea.movimiento.operador.nombre if linea.movimiento else "-" }}</td>
+            <td>
+              {% if linea.movimiento and linea.movimiento.estado_conciliacion.value == "con_diferencia" %}
+              <span class="badge-con-diferencia">Con diferencia</span>
+              {% else %}
+              <span class="badge-activo">Conciliado</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="6">Todavia no se concilio ninguna linea.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="card shadow mb-4">
+  <div class="card-header py-3">
     <h6 class="m-0 font-weight-bold text-primary">Lineas de resumen sin conciliar</h6>
   </div>
   <div class="card-body">

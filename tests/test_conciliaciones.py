@@ -73,6 +73,10 @@ def test_importar_resumen_reconciles_matching_movement():
     )
     assert response.status_code == 303
 
+    pagina = client.get("/conciliaciones")
+    assert "OP-1" in pagina.text
+    assert "Conciliado" in pagina.text
+
     with test_session() as session:
         movimiento = session.query(Movement).filter_by(numero_operacion="OP-1").one()
         assert movimiento.estado_conciliacion == ReconciliationState.CONCILIADO
