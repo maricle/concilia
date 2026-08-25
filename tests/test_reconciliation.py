@@ -34,6 +34,24 @@ def test_parse_csv_missing_required_columns_raises():
         parse_csv(contenido)
 
 
+def test_parse_csv_mercado_pago_format():
+    contenido = (
+        "ID DE OPERACIÓN EN MERCADO PAGO,VALOR DE LA COMPRA,FECHA DE ORIGEN,NOMBRE DE LOCAL,"
+        "NÚMERO DE IDENTIFICACIÓN DEL PAGADOR,PAGADOR\n"
+        "174085816489,127782.00,2026-08-21T18:16:29.000-04:00,Casa Central,20149811118,"
+        "DON JUAN Pesca Camping\n"
+    ).encode("utf-8")
+
+    filas = parse_csv(contenido)
+
+    assert len(filas) == 1
+    fila = filas[0]
+    assert fila.referencia == "174085816489"
+    assert fila.monto == Decimal("127782.00")
+    assert fila.fecha == datetime(2026, 8, 21)
+    assert fila.descripcion == "DON JUAN Pesca Camping"
+
+
 def test_parse_xlsx_reads_header_and_rows():
     workbook = Workbook()
     sheet = workbook.active

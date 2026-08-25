@@ -13,10 +13,18 @@ from .models import ImportedStatement, Movement, RecordState, ReconciliationStat
 
 DEFAULT_TOLERANCE_DIAS = 1
 
-_FECHA_ALIASES = {"fecha", "date", "fecha operacion", "fecha de la operacion"}
-_MONTO_ALIASES = {"monto", "importe", "amount", "credito", "haber", "importe credito"}
-_DESCRIPCION_ALIASES = {"descripcion", "concepto", "detalle", "description"}
-_REFERENCIA_ALIASES = {"referencia", "numero_operacion", "nro_operacion", "nro operacion", "comprobante", "numero de operacion"}
+_FECHA_ALIASES = {"fecha", "date", "fecha operacion", "fecha de la operacion", "fecha de origen"}
+_MONTO_ALIASES = {"monto", "importe", "amount", "credito", "haber", "importe credito", "valor de la compra"}
+_DESCRIPCION_ALIASES = {"descripcion", "concepto", "detalle", "description", "pagador"}
+_REFERENCIA_ALIASES = {
+    "referencia",
+    "numero_operacion",
+    "nro_operacion",
+    "nro operacion",
+    "comprobante",
+    "numero de operacion",
+    "id de operacion en mercado pago",
+}
 
 _DATE_FORMATS = ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y", "%d/%m/%y")
 
@@ -47,6 +55,14 @@ def _match_column(headers: list[str], aliases: set[str]) -> int | None:
 
 def _parse_fecha(raw: str) -> datetime:
     raw = raw.strip()
+    try:
+        # Cubre timestamps ISO 8601 completos, con hora y zona horaria (ej. Mercado
+        # Pago: "2026-08-21T18:16:29.000-04:00"); la tolerancia de matching es por
+        # dia, asi que solo interesa la fecha, no la hora ni la zona horaria.
+        parsed = datetime.fromisoformat(raw)
+        return datetime(parsed.year, parsed.month, parsed.day)
+    except ValueError:
+        pass
     for fmt in _DATE_FORMATS:
         try:
             return datetime.strptime(raw, fmt)
