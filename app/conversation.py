@@ -84,7 +84,7 @@ class ConversationService:
             movement.factura_o_cuenta = text.strip()
             conversation.estado = ConversationState.ESPERANDO_CONFIRMACION_FINAL
             self.session.commit()
-            return self._summary(movement)
+            return self._summary(movement) + " Confirma la operacion respondiendo OK para que se registre el movimiento, o NO para descartarlo."
 
         if conversation.estado == ConversationState.ESPERANDO_CONFIRMACION_FINAL:
             if normalized in {"si", "sí", "ok", "confirmo", "registrar"}:
@@ -105,6 +105,33 @@ class ConversationService:
             return "Responde OK para registrar el comprobante o NO para descartarlo."
 
         return "Envia una imagen o PDF del comprobante de transferencia."
+
+    def pending_prompt(self, number: str) -> str | None:
+        """Si el operador ya tiene un comprobante sin cerrar, devuelve el mensaje que
+        corresponde re-mostrarle en vez de arrancar uno nuevo (para no dejar el
+        anterior huerfano). None si no hay nada pendiente y puede recibir un
+        comprobante nuevo."""
+        conversation = self.session.get(WhatsAppConversation, number)
+        if conversation is None or conversation.estado == ConversationState.ESPERANDO_COMPROBANTE:
+            return None
+
+        if conversation.estado == ConversationState.ESPERANDO_CUENTA_FACTURA:
+            return "Todavia estoy esperando que indiques el numero de cuenta o factura del comprobante anterior."
+
+        movement = conversation.movimiento_borrador
+        if movement is None:
+            conversation.estado = ConversationState.ESPERANDO_COMPROBANTE
+            self.session.commit()
+            return None
+
+        if conversation.estado == ConversationState.ESPERANDO_CONFIRMACION_DATOS:
+            return self._summary(movement) + " Responde SI para confirmar o NO para descartar."
+        if conversation.estado == ConversationState.ESPERANDO_CONFIRMACION_FINAL:
+            return (
+                self._summary(movement)
+                + " Confirma la operacion respondiendo OK para que se registre el movimiento, o NO para descartarlo."
+            )
+        return None
 
     def start_transfer(self, number: str, transfer: ExtractedTransfer, archivo_prueba_id: int | None = None) -> str:
         operator = self.session.scalar(select(Operator).where(Operator.whatsapp_numero == number, Operator.activo.is_(True)))

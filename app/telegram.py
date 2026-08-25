@@ -152,6 +152,12 @@ async def receive_telegram_update(
         await send_telegram_message(chat_id, reply)
         return {"status": "accepted"}
 
+    with SessionLocal() as session:
+        pendiente = ConversationService(session).pending_prompt(numero)
+    if pendiente is not None:
+        await send_telegram_message(chat_id, pendiente)
+        return {"status": "ignored"}
+
     file_id = None
     file_name = "comprobante"
     content_type = "application/octet-stream"

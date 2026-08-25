@@ -30,7 +30,9 @@ def test_registered_operator_can_confirm_and_register_transfer():
     response = service.start_transfer("5491112345678", transfer)
     assert "Responde SI" in response
     assert "Indica el numero" in service.handle_text("5491112345678", "SI")
-    assert "factura/cuenta: FAC-9" in service.handle_text("5491112345678", "FAC-9")
+    final = service.handle_text("5491112345678", "FAC-9")
+    assert "factura/cuenta: FAC-9" in final
+    assert "Confirma la operacion" in final
     assert service.handle_text("5491112345678", "OK") == "Comprobante registrado correctamente."
 
     movement = db.query(Movement).one()
@@ -124,3 +126,57 @@ def test_transfer_matches_cuenta_receptora_by_numero_cuenta_digits():
 def test_postgres_urls_use_psycopg_driver():
     assert _engine_url("postgres://user:pass@localhost/db") == "postgresql+psycopg://user:pass@localhost/db"
     assert _engine_url("postgresql://user:pass@localhost/db") == "postgresql+psycopg://user:pass@localhost/db"
+
+
+def test_pending_prompt_is_none_when_no_draft_in_progress():
+    db = session()
+    db.add(Operator(nombre="Ana", whatsapp_numero="5491112345678"))
+    db.commit()
+    assert ConversationService(db).pending_prompt("5491112345678") is None
+
+
+def test_pending_prompt_reshows_confirmacion_datos():
+    db = session()
+    db.add(Operator(nombre="Ana", whatsapp_numero="5491112345678"))
+    _con_cuenta_registrada(db)
+    service = ConversationService(db)
+    transfer = ExtractedTransfer(Decimal("500"), datetime(2026, 8, 21), "OP-1", cuenta_receptora="empresa.mp")
+    service.start_transfer("5491112345678", transfer)
+
+    prompt = service.pending_prompt("5491112345678")
+
+    assert prompt is not None
+    assert "Responde SI" in prompt
+    assert db.query(Movement).count() == 1
+
+
+def test_pending_prompt_reshows_cuenta_factura_step():
+    db = session()
+    db.add(Operator(nombre="Ana", whatsapp_numero="5491112345678"))
+    _con_cuenta_registrada(db)
+    service = ConversationService(db)
+    transfer = ExtractedTransfer(Decimal("500"), datetime(2026, 8, 21), "OP-1", cuenta_receptora="empresa.mp")
+    service.start_transfer("5491112345678", transfer)
+    service.handle_text("5491112345678", "SI")
+
+    prompt = service.pending_prompt("5491112345678")
+
+    assert prompt is not None
+    assert "numero de cuenta o factura" in prompt
+
+
+def test_pending_prompt_reshows_confirmacion_final():
+    db = session()
+    db.add(Operator(nombre="Ana", whatsapp_numero="5491112345678"))
+    _con_cuenta_registrada(db)
+    service = ConversationService(db)
+    transfer = ExtractedTransfer(Decimal("500"), datetime(2026, 8, 21), "OP-1", cuenta_receptora="empresa.mp")
+    service.start_transfer("5491112345678", transfer)
+    service.handle_text("5491112345678", "SI")
+    service.handle_text("5491112345678", "FAC-9")
+
+    prompt = service.pending_prompt("5491112345678")
+
+    assert prompt is not None
+    assert "Confirma la operacion" in prompt
+    assert db.query(Movement).count() == 1

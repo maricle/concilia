@@ -115,6 +115,51 @@ def test_photo_message_is_extracted_and_saved_to_test_store(monkeypatch):
     assert sent == [("222", "Monto: $100.00; fecha: 2026-08-24; banco emisor: no detectado; operacion: OP-999; factura/cuenta: pendiente. Responde SI para confirmar o NO para descartar.")]
 
 
+def test_second_photo_while_a_draft_is_pending_does_not_orphan_the_first(monkeypatch):
+    _register_operator("888")
+    _clean_movement("OP-PRIMERO")
+    _clean_movement("OP-SEGUNDO")
+    with SessionLocal() as session:
+        if session.scalar(select(BankAccount).where(BankAccount.alias == "empresa.mp")) is None:
+            session.add(BankAccount(banco="Mercado Pago", numero_cuenta="1", alias="empresa.mp"))
+            session.commit()
+
+    sent: list[tuple[str, str]] = []
+
+    async def fake_send(chat_id: str, text: str, reply_markup: dict | None = None) -> None:
+        sent.append((chat_id, text))
+
+    async def fake_download(file_id: str) -> tuple[bytes, str]:
+        return b"fake-photo-bytes", "photos/file.jpg"
+
+    extract_calls = []
+
+    def fake_extract(content_type: str, data: bytes) -> ExtractedTransfer:
+        extract_calls.append(1)
+        return ExtractedTransfer(Decimal("100.00"), datetime(2026, 8, 24), "OP-PRIMERO", cuenta_receptora="empresa.mp")
+
+    monkeypatch.setattr(telegram, "send_telegram_message", fake_send)
+    monkeypatch.setattr(telegram, "_download_telegram_file", fake_download)
+    monkeypatch.setattr(telegram, "extract_transfer", fake_extract)
+    monkeypatch.setattr(telegram, "save_comprobante_prueba", lambda **kwargs: 1)
+
+    photo_message = {"message": {"chat": {"id": 888}, "photo": [{"file_id": "abc", "file_size": 100}]}}
+    client.post("/telegram/webhook", json=photo_message)  # primer comprobante: crea el borrador
+    response = client.post("/telegram/webhook", json=photo_message)  # segundo, sin cerrar el primero
+
+    assert response.status_code == 200
+    assert len(extract_calls) == 1  # el segundo mensaje no debe llegar a extraer nada
+    assert sent[-1] == (
+        "888",
+        "Monto: $100.00; fecha: 2026-08-24; banco emisor: no detectado; operacion: OP-PRIMERO; "
+        "factura/cuenta: pendiente. Responde SI para confirmar o NO para descartar.",
+    )
+
+    with SessionLocal() as session:
+        movimientos = session.scalars(select(Movement).where(Movement.numero_operacion == "OP-PRIMERO")).all()
+        assert len(movimientos) == 1
+
+
 def test_photo_message_with_unreadable_receipt_asks_to_resend(monkeypatch):
     _register_operator("333")
 
