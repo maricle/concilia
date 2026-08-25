@@ -91,7 +91,7 @@
           {% for movimiento in movimientos_pendientes %}
           <tr>
             <td>{{ movimiento.fecha_transaccion.strftime("%Y-%m-%d") if movimiento.fecha_transaccion else "-" }}</td>
-            <td>{{ movimiento.numero_operacion }}</td>
+            <td>{{ movimiento.numero_operacion or "-" }}</td>
             <td>{{ "$" + movimiento.monto|string if movimiento.monto is not none else "-" }}</td>
             <td>{{ movimiento.operador.nombre }}</td>
             <td>{{ movimiento.estado_conciliacion.value }}</td>
@@ -121,7 +121,7 @@
             <td>{{ linea.fecha.strftime("%Y-%m-%d") }}</td>
             <td>${{ linea.monto }}</td>
             <td>{{ linea.referencia or "-" }}</td>
-            <td>{{ linea.movimiento.numero_operacion if linea.movimiento else "-" }}</td>
+            <td>{{ (linea.movimiento.numero_operacion or "-") if linea.movimiento else "-" }}</td>
             <td>{{ linea.movimiento.operador.nombre if linea.movimiento else "-" }}</td>
             <td>
               {% if linea.movimiento and linea.movimiento.estado_conciliacion.value == "con_diferencia" %}
@@ -164,7 +164,7 @@
                   <option value="">Elegir movimiento...</option>
                   {% for movimiento in movimientos_pendientes %}
                   <option value="{{ movimiento.id }}">
-                    {{ movimiento.numero_operacion }} - {{ "$" + movimiento.monto|string if movimiento.monto is not none else "monto no detectado" }} - {{ movimiento.operador.nombre }}
+                    {{ movimiento.numero_operacion or "sin nro. de operacion" }} - {{ "$" + movimiento.monto|string if movimiento.monto is not none else "monto no detectado" }} - {{ movimiento.operador.nombre }}
                   </option>
                   {% endfor %}
                 </select>

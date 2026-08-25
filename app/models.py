@@ -66,7 +66,7 @@ class Movement(Base):
     monto: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
     banco_emisor: Mapped[str | None] = mapped_column(String(120))
     cuenta_receptora_extraida: Mapped[str | None] = mapped_column(String(150))
-    numero_operacion: Mapped[str] = mapped_column(String(120), index=True)
+    numero_operacion: Mapped[str | None] = mapped_column(String(120), index=True)
     titular: Mapped[str | None] = mapped_column(String(150))
     factura_o_cuenta: Mapped[str | None] = mapped_column(String(150))
     cuenta_bancaria_id: Mapped[int | None] = mapped_column(ForeignKey("cuentas_bancarias.id"))

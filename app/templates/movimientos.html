@@ -30,7 +30,7 @@
             <td>{{ movimiento.fecha_subida.strftime("%Y-%m-%d %H:%M") }}</td>
             <td>{{ movimiento.factura_o_cuenta or "-" }}</td>
             <td>{{ movimiento.banco_emisor or "-" }}</td>
-            <td>{{ movimiento.numero_operacion }}</td>
+            <td>{{ movimiento.numero_operacion or "-" }}</td>
             <td>{{ "$" + movimiento.monto|string if movimiento.monto is not none else "-" }}</td>
             <td>{{ movimiento.operador.nombre }}</td>
             <td>{{ movimiento.estado_conciliacion.value }}</td>

@@ -10,7 +10,7 @@ from app.config import Settings
 from app.conversation import ExtractedTransfer
 from app.db import Base, SessionLocal, engine
 from app.main import app
-from app.models import Movement, Operator
+from app.models import BankAccount, Movement, Operator
 
 client = TestClient(app)
 
@@ -78,6 +78,10 @@ def test_webhook_secret_mismatch_is_rejected(monkeypatch):
 def test_photo_message_is_extracted_and_saved_to_test_store(monkeypatch):
     _register_operator("222")
     _clean_movement("OP-999")
+    with SessionLocal() as session:
+        if session.scalar(select(BankAccount).where(BankAccount.alias == "empresa.mp")) is None:
+            session.add(BankAccount(banco="Mercado Pago", numero_cuenta="1", alias="empresa.mp"))
+            session.commit()
 
     sent: list[tuple[str, str]] = []
 
@@ -88,7 +92,7 @@ def test_photo_message_is_extracted_and_saved_to_test_store(monkeypatch):
         return b"fake-photo-bytes", "photos/file.jpg"
 
     def fake_extract(content_type: str, data: bytes) -> ExtractedTransfer:
-        return ExtractedTransfer(Decimal("100.00"), datetime(2026, 8, 24), "OP-999")
+        return ExtractedTransfer(Decimal("100.00"), datetime(2026, 8, 24), "OP-999", cuenta_receptora="empresa.mp")
 
     saved: list[bytes] = []
 

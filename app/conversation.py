@@ -1,3 +1,4 @@
+import re
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
@@ -5,17 +6,39 @@ from decimal import Decimal
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from .models import ConversationState, Movement, Operator, RecordState, WhatsAppConversation
+from .models import BankAccount, ConversationState, Movement, Operator, RecordState, WhatsAppConversation
+
+NO_CUENTA_RECEPTORA_TEXTO = (
+    "No pudimos identificar a que cuenta bancaria de la empresa corresponde este pago. "
+    "Reenvia el comprobante, o si el problema persiste contacta al administrador para cargarlo manualmente."
+)
 
 
 @dataclass
 class ExtractedTransfer:
     monto: Decimal | None
     fecha_transaccion: datetime
-    numero_operacion: str
+    numero_operacion: str | None
     banco_emisor: str | None = None
     cuenta_receptora: str | None = None
     titular: str | None = None
+
+
+def _find_cuenta_bancaria(session: Session, cuenta_receptora: str | None) -> BankAccount | None:
+    """Matchea el CBU/CVU/alias leido del comprobante contra las cuentas bancarias
+    registradas en /config/cuentas. Compara el alias tal cual (sin distinguir
+    mayusculas) y el numero de cuenta solo por sus digitos, para tolerar espacios,
+    guiones u otro formato."""
+    if not cuenta_receptora:
+        return None
+    normalizado = cuenta_receptora.strip().lower()
+    digitos = re.sub(r"\D", "", cuenta_receptora)
+    for cuenta in session.scalars(select(BankAccount)).all():
+        if cuenta.alias.strip().lower() == normalizado:
+            return cuenta
+        if digitos and digitos == re.sub(r"\D", "", cuenta.numero_cuenta):
+            return cuenta
+    return None
 
 
 class ConversationService:
@@ -80,9 +103,15 @@ class ConversationService:
         operator = self.session.scalar(select(Operator).where(Operator.whatsapp_numero == number, Operator.activo.is_(True)))
         if operator is None:
             return "Este numero no esta habilitado para registrar comprobantes."
-        duplicate = self.session.scalar(select(Movement).where(Movement.numero_operacion == transfer.numero_operacion))
-        if duplicate is not None:
-            return "Ya existe un comprobante con ese numero de operacion."
+        if transfer.numero_operacion:
+            duplicate = self.session.scalar(
+                select(Movement).where(Movement.numero_operacion == transfer.numero_operacion)
+            )
+            if duplicate is not None:
+                return "Ya existe un comprobante con ese numero de operacion."
+        cuenta_bancaria = _find_cuenta_bancaria(self.session, transfer.cuenta_receptora)
+        if cuenta_bancaria is None:
+            return NO_CUENTA_RECEPTORA_TEXTO
         conversation = self.session.get(WhatsAppConversation, number) or WhatsAppConversation(numero=number)
         movement = Movement(
             operador_id=operator.id,
@@ -93,6 +122,7 @@ class ConversationService:
             cuenta_receptora_extraida=transfer.cuenta_receptora,
             titular=transfer.titular,
             archivo_prueba_id=archivo_prueba_id,
+            cuenta_bancaria_id=cuenta_bancaria.id,
         )
         self.session.add(movement)
         self.session.flush()
@@ -113,6 +143,7 @@ class ConversationService:
         monto = f"${movement.monto}" if movement.monto is not None else "no detectado"
         return (
             f"Monto: {monto}; fecha: {movement.fecha_transaccion:%Y-%m-%d}; "
-            f"banco emisor: {movement.banco_emisor or 'no detectado'}; operacion: {movement.numero_operacion}; "
+            f"banco emisor: {movement.banco_emisor or 'no detectado'}; "
+            f"operacion: {movement.numero_operacion or 'no detectado'}; "
             f"factura/cuenta: {movement.factura_o_cuenta or 'pendiente'}."
         )

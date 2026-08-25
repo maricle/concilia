@@ -289,7 +289,7 @@ def editar_movimiento_submit(
     request: Request,
     fecha_transaccion: str = Form(...),
     monto: str = Form(""),
-    numero_operacion: str = Form(...),
+    numero_operacion: str = Form(""),
     banco_emisor: str = Form(""),
     cuenta_receptora_extraida: str = Form(""),
     titular: str = Form(""),
@@ -310,7 +310,8 @@ def editar_movimiento_submit(
             status_code=400,
         )
 
-    if _duplicate_exists(db, Movement.numero_operacion, numero_operacion, exclude_id=movimiento.id):
+    numero_operacion = numero_operacion.strip() or None
+    if numero_operacion and _duplicate_exists(db, Movement.numero_operacion, numero_operacion, exclude_id=movimiento.id):
         return templates.TemplateResponse(
             request,
             "editar_movimiento.html",

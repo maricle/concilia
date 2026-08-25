@@ -35,9 +35,10 @@ _TOOL = {
 
 SYSTEM_PROMPT = (
     "Sos un asistente que lee comprobantes de transferencias bancarias en espanol y extrae sus datos "
-    "estructurados usando la herramienta provista. Si no podes leer con confianza el monto, la fecha o "
-    "el numero de operacion, dejá ese campo directamente en null: nunca inventes un valor ni uses un "
-    "texto de relleno como 'desconocido', 'N/A' o '<UNKNOWN>'."
+    "estructurados usando la herramienta provista. El monto es el dato mas importante: si no lo podes "
+    "leer con confianza, dejalo en null en vez de inventar un valor. Para el resto de los campos, si no "
+    "estas seguro tambien dejalos en null en vez de usar un texto de relleno como 'desconocido', 'N/A' "
+    "o '<UNKNOWN>'."
 )
 
 _VALORES_PLACEHOLDER = {"unknown", "n/a", "na", "desconocido", "no disponible", "none", "null", "-", "s/d"}
@@ -80,15 +81,6 @@ def _call_model(client: Anthropic, model: str, content_type: str, data: bytes) -
     return None
 
 
-def _has_minimum_fields(result: dict | None) -> bool:
-    """Fecha y numero de operacion son indispensables para identificar el movimiento
-    y evitar duplicados; el monto es deseable pero si no se puede leer con confianza
-    se registra igual (el administrador puede completarlo despues desde el panel)."""
-    if result is None:
-        return False
-    return _es_valor_valido(result.get("fecha_transaccion")) and _es_valor_valido(result.get("numero_operacion"))
-
-
 def _parse_monto(valor: object) -> Decimal | None:
     if valor is None:
         return None
@@ -98,8 +90,27 @@ def _parse_monto(valor: object) -> Decimal | None:
         return None
 
 
+def _has_minimum_fields(result: dict | None) -> bool:
+    """El monto es el unico dato indispensable para registrar el comprobante: sin el
+    no hay nada que conciliar despues. La fecha, si no se puede leer, se completa con
+    la fecha de hoy; el numero de operacion puede quedar vacio."""
+    if result is None:
+        return False
+    return _parse_monto(result.get("monto")) is not None
+
+
+def _parse_fecha_o_actual(valor: object) -> datetime:
+    if _es_valor_valido(valor):
+        try:
+            return datetime.strptime(valor, "%Y-%m-%d")
+        except ValueError:
+            pass
+    return datetime.utcnow()
+
+
 def extract_transfer(content_type: str, data: bytes) -> ExtractedTransfer | None:
-    """Interpreta un comprobante con Claude. Devuelve None si no se pudo leer con confianza."""
+    """Interpreta un comprobante con Claude. Devuelve None si no se pudo leer el monto
+    con confianza (el unico dato que bloquea el registro)."""
     client = Anthropic(api_key=get_settings().anthropic_api_key)
 
     result = _call_model(client, HAIKU_MODEL, content_type, data)
@@ -108,15 +119,12 @@ def extract_transfer(content_type: str, data: bytes) -> ExtractedTransfer | None
     if not _has_minimum_fields(result):
         return None
 
-    try:
-        fecha_transaccion = datetime.strptime(result["fecha_transaccion"], "%Y-%m-%d")
-    except (ValueError, KeyError):
-        return None
+    numero_operacion = result.get("numero_operacion")
 
     return ExtractedTransfer(
         monto=_parse_monto(result.get("monto")),
-        fecha_transaccion=fecha_transaccion,
-        numero_operacion=str(result["numero_operacion"]),
+        fecha_transaccion=_parse_fecha_o_actual(result.get("fecha_transaccion")),
+        numero_operacion=numero_operacion if _es_valor_valido(numero_operacion) else None,
         banco_emisor=result.get("banco_emisor"),
         cuenta_receptora=result.get("cuenta_receptora"),
         titular=result.get("titular"),
