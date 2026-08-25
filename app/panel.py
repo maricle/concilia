@@ -306,6 +306,27 @@ def editar_movimiento_submit(
     return RedirectResponse("/comprobantes", status_code=303)
 
 
+def _conteos_por_resumen(db: Session) -> dict[int, dict[str, int]]:
+    """Cantidad de lineas por estado de conciliacion, agrupadas por resumen importado."""
+    filas = db.execute(
+        select(StatementLine.resumen_id, StatementLine.estado, Movement.estado_conciliacion).outerjoin(
+            Movement, StatementLine.movimiento_id == Movement.id
+        )
+    ).all()
+    conteos: dict[int, dict[str, int]] = {}
+    for resumen_id, estado_linea, estado_conciliacion in filas:
+        bucket = conteos.setdefault(resumen_id, {"conciliados": 0, "a_revisar": 0, "pendientes": 0, "no_corresponde": 0})
+        if estado_linea == StatementLineState.PENDIENTE:
+            bucket["pendientes"] += 1
+        elif estado_linea == StatementLineState.NO_CORRESPONDE:
+            bucket["no_corresponde"] += 1
+        elif estado_conciliacion == ReconciliationState.CON_DIFERENCIA:
+            bucket["a_revisar"] += 1
+        else:
+            bucket["conciliados"] += 1
+    return conteos
+
+
 def _conciliaciones_context(db: Session, user: PanelUser, error: str | None) -> dict:
     cuentas = db.scalars(select(BankAccount).order_by(BankAccount.id)).all()
     movimientos_pendientes = db.scalars(
@@ -344,6 +365,7 @@ def _conciliaciones_context(db: Session, user: PanelUser, error: str | None) -> 
         "lineas_pendientes": lineas_pendientes,
         "lineas_conciliadas": lineas_conciliadas,
         "resumenes": resumenes,
+        "conteos_por_resumen": _conteos_por_resumen(db),
         "error": error,
     }
 

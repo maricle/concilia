@@ -160,3 +160,53 @@ def test_marcar_linea_no_corresponde():
     with test_session() as session:
         linea = session.get(StatementLine, linea_id)
         assert linea.estado.value == "no_corresponde"
+
+
+def test_resumenes_table_shows_breakdown_by_line_state():
+    client, test_session = _client_with_admin()
+    _login(client)
+
+    with test_session() as session:
+        session.add_all(
+            [
+                Movement(
+                    operador_id=1,
+                    monto=Decimal("500.00"),
+                    fecha_transaccion=datetime(2026, 8, 24),
+                    numero_operacion="OP-CONCILIA",
+                    estado_registro=RecordState.CONFIRMADO,
+                ),
+                Movement(
+                    operador_id=1,
+                    monto=Decimal("480.00"),
+                    fecha_transaccion=datetime(2026, 8, 24),
+                    numero_operacion="OP-DIFERENCIA",
+                    estado_registro=RecordState.CONFIRMADO,
+                ),
+            ]
+        )
+        session.commit()
+
+    csv_contenido = (
+        "Fecha,Importe,Descripcion,Referencia\n"
+        "24/08/2026,500.00,Transferencia,OP-CONCILIA\n"
+        "24/08/2026,500.00,Transferencia,OP-DIFERENCIA\n"
+        "24/08/2026,999.00,Sin match,OP-SIN-MATCH\n"
+    )
+    client.post(
+        "/conciliaciones/importar",
+        data={"cuenta_bancaria_id": "1", "fecha": "2026-08-24"},
+        files={"archivo": ("resumen.csv", csv_contenido, "text/csv")},
+    )
+
+    pagina = client.get("/conciliaciones")
+
+    assert pagina.status_code == 200
+    assert "Pendiente" in pagina.text  # badge de estado del resumen, porque quedo 1 linea sin conciliar
+
+    with test_session() as session:
+        lineas = session.query(StatementLine).all()
+        con_diferencia = session.query(Movement).filter_by(numero_operacion="OP-DIFERENCIA").one()
+        assert con_diferencia.estado_conciliacion == ReconciliationState.CON_DIFERENCIA
+        estados = sorted(l.estado.value for l in lineas)
+        assert estados == ["conciliada", "conciliada", "pendiente"]

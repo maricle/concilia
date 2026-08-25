@@ -44,18 +44,32 @@
     <div class="table-responsive">
       <table class="table table-bordered" width="100%" cellspacing="0">
         <thead>
-          <tr><th>Fecha importacion</th><th>Cuenta</th><th>Fecha resumen</th><th>Archivo</th></tr>
+          <tr>
+            <th>Fecha importacion</th><th>Cuenta</th><th>Fecha resumen</th><th>Archivo</th>
+            <th>Conciliados</th><th>A revisar</th><th>Sin conciliar</th><th>Estado</th>
+          </tr>
         </thead>
         <tbody>
           {% for resumen in resumenes %}
+          {% set conteo = conteos_por_resumen.get(resumen.id, {"conciliados": 0, "a_revisar": 0, "pendientes": 0, "no_corresponde": 0}) %}
           <tr>
             <td>{{ resumen.fecha_importacion.strftime("%Y-%m-%d %H:%M") }}</td>
             <td>{{ resumen.cuenta_bancaria.alias }}</td>
             <td>{{ resumen.fecha.strftime("%Y-%m-%d") }}</td>
             <td>{{ resumen.archivo_nombre }}</td>
+            <td>{{ conteo.conciliados }}</td>
+            <td>{{ conteo.a_revisar }}</td>
+            <td>{{ conteo.pendientes }}</td>
+            <td>
+              {% if conteo.pendientes == 0 and conteo.a_revisar == 0 %}
+              <span class="badge-activo">Completo</span>
+              {% else %}
+              <span class="badge-con-diferencia">Pendiente</span>
+              {% endif %}
+            </td>
           </tr>
           {% else %}
-          <tr><td colspan="4">Todavia no se importo ningun resumen.</td></tr>
+          <tr><td colspan="8">Todavia no se importo ningun resumen.</td></tr>
           {% endfor %}
         </tbody>
       </table>
