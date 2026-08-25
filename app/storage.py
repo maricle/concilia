@@ -46,8 +46,13 @@ def get_test_store_engine() -> Engine:
     return create_engine(_turso_engine_url(settings.turso_database_url), connect_args=connect_args)
 
 
+@lru_cache
+def _ensure_test_store_tables(engine: Engine) -> None:
+    TestStoreBase.metadata.create_all(engine)
+
+
 def create_test_store_tables() -> None:
-    TestStoreBase.metadata.create_all(get_test_store_engine())
+    _ensure_test_store_tables(get_test_store_engine())
 
 
 def _test_store_session() -> Session:

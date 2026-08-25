@@ -133,9 +133,9 @@ def parse_statement_file(nombre_archivo: str, contenido: bytes) -> tuple[list[St
     raise StatementParseError("Formato no soportado todavia: usa CSV o XLSX.")
 
 
-def _candidatos(
-    session: Session, cuenta_bancaria_id: int, usados: set[int]
-) -> list[Movement]:
+def _candidatos_iniciales(session: Session, cuenta_bancaria_id: int) -> list[Movement]:
+    """Movimientos que podrian matchear contra algun resumen de esta cuenta, consultados
+    una unica vez: por linea solo se filtra en memoria (ver match_statement)."""
     movimientos = session.scalars(
         select(Movement).where(
             Movement.estado_registro == RecordState.CONFIRMADO,
@@ -143,10 +143,14 @@ def _candidatos(
         )
     ).all()
     return [
-        m
-        for m in movimientos
-        if m.id not in usados and (m.cuenta_bancaria_id is None or m.cuenta_bancaria_id == cuenta_bancaria_id)
+        m for m in movimientos if m.cuenta_bancaria_id is None or m.cuenta_bancaria_id == cuenta_bancaria_id
     ]
+
+
+def _dentro_de_fecha(movimiento: Movement, linea: StatementLine, tolerancia_dias: int) -> bool:
+    if movimiento.fecha_transaccion is None:
+        return False
+    return abs((movimiento.fecha_transaccion - linea.fecha).days) <= tolerancia_dias
 
 
 def match_statement(
@@ -156,16 +160,11 @@ def match_statement(
     tolerancia_dias: int = DEFAULT_TOLERANCE_DIAS,
 ) -> None:
     usados: set[int] = set()
+    pool = _candidatos_iniciales(session, resumen.cuenta_bancaria_id)
 
     for linea in lineas:
-        candidatos = _candidatos(session, resumen.cuenta_bancaria_id, usados)
-
-        def dentro_de_fecha(m: Movement) -> bool:
-            if m.fecha_transaccion is None:
-                return False
-            return abs((m.fecha_transaccion - linea.fecha).days) <= tolerancia_dias
-
-        por_fecha = [m for m in candidatos if dentro_de_fecha(m)]
+        candidatos = [m for m in pool if m.id not in usados]
+        por_fecha = [m for m in candidatos if _dentro_de_fecha(m, linea, tolerancia_dias)]
         exactos = [m for m in por_fecha if m.monto == linea.monto]
 
         if linea.referencia:

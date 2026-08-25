@@ -1,10 +1,12 @@
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import RedirectResponse
 from starlette.middleware.sessions import SessionMiddleware
 
 from .config import get_settings
 from .db import create_tables
+from .panel import NotAuthenticated, RedirectOnMissing
 from .panel import router as panel_router
 from .telegram import router as telegram_router
 from .webhook import router as webhook_router
@@ -21,6 +23,16 @@ app.add_middleware(SessionMiddleware, secret_key=get_settings().session_secret)
 app.include_router(webhook_router)
 app.include_router(telegram_router)
 app.include_router(panel_router)
+
+
+@app.exception_handler(NotAuthenticated)
+def _redirect_to_login(request: Request, exc: NotAuthenticated) -> RedirectResponse:
+    return RedirectResponse("/login", status_code=303)
+
+
+@app.exception_handler(RedirectOnMissing)
+def _redirect_on_missing(request: Request, exc: RedirectOnMissing) -> RedirectResponse:
+    return RedirectResponse(exc.redirect_to, status_code=303)
 
 
 @app.get("/health")

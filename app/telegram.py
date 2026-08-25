@@ -33,25 +33,36 @@ def _api_url(method: str) -> str:
     return f"{TELEGRAM_API_BASE.format(token=get_settings().telegram_bot_token)}/{method}"
 
 
+_http_client: httpx.AsyncClient | None = None
+
+
+def _get_http_client() -> httpx.AsyncClient:
+    """Cliente httpx compartido entre requests: evita pagar handshake TCP/TLS nuevo
+    en cada llamada a la API de Telegram (una misma actualizacion suele hacer 2-3)."""
+    global _http_client
+    if _http_client is None:
+        _http_client = httpx.AsyncClient()
+    return _http_client
+
+
 async def send_telegram_message(chat_id: str, text: str, reply_markup: dict | None = None) -> None:
     payload: dict[str, Any] = {"chat_id": chat_id, "text": text}
     if reply_markup is not None:
         payload["reply_markup"] = reply_markup
-    async with httpx.AsyncClient() as client:
-        response = await client.post(_api_url("sendMessage"), json=payload)
-        response.raise_for_status()
+    response = await _get_http_client().post(_api_url("sendMessage"), json=payload)
+    response.raise_for_status()
 
 
 async def _download_telegram_file(file_id: str) -> tuple[bytes, str]:
-    async with httpx.AsyncClient() as client:
-        info = await client.get(_api_url("getFile"), params={"file_id": file_id})
-        info.raise_for_status()
-        file_path = info.json()["result"]["file_path"]
-        token = get_settings().telegram_bot_token
-        download_url = f"https://api.telegram.org/file/bot{token}/{file_path}"
-        file_response = await client.get(download_url)
-        file_response.raise_for_status()
-        return file_response.content, file_path
+    client = _get_http_client()
+    info = await client.get(_api_url("getFile"), params={"file_id": file_id})
+    info.raise_for_status()
+    file_path = info.json()["result"]["file_path"]
+    token = get_settings().telegram_bot_token
+    download_url = f"https://api.telegram.org/file/bot{token}/{file_path}"
+    file_response = await client.get(download_url)
+    file_response.raise_for_status()
+    return file_response.content, file_path
 
 
 def _find_operator_by_chat_id(session: Session, chat_id: str) -> Operator | None:

@@ -1,11 +1,12 @@
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
+from typing import TypeVar
 
 from fastapi import APIRouter, Depends, Form, Request, UploadFile
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import DeclarativeBase, InstrumentedAttribute, Session, selectinload
 
 from .auth import verify_password
 from .db import SessionLocal
@@ -25,6 +26,19 @@ from .reconciliation import StatementParseError, match_statement, parse_statemen
 router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
 
+_Model = TypeVar("_Model", bound=DeclarativeBase)
+
+
+class NotAuthenticated(Exception):
+    """Se levanta cuando una ruta protegida no tiene sesion de panel activa."""
+
+
+class RedirectOnMissing(Exception):
+    """Se levanta cuando un registro buscado por id no existe."""
+
+    def __init__(self, redirect_to: str):
+        self.redirect_to = redirect_to
+
 
 def get_db():
     with SessionLocal() as session:
@@ -37,6 +51,27 @@ def get_logged_in_user(request: Request, db: Session) -> PanelUser | None:
         return None
     user = db.get(PanelUser, user_id)
     return user if user is not None and user.activo else None
+
+
+def require_user(request: Request, db: Session = Depends(get_db)) -> PanelUser:
+    user = get_logged_in_user(request, db)
+    if user is None:
+        raise NotAuthenticated()
+    return user
+
+
+def _get_or_redirect(db: Session, model: type[_Model], id_: int, redirect_to: str) -> _Model:
+    obj = db.get(model, id_)
+    if obj is None:
+        raise RedirectOnMissing(redirect_to)
+    return obj
+
+
+def _duplicate_exists(db: Session, field: InstrumentedAttribute, value: str, *, exclude_id: int | None = None) -> bool:
+    query = select(field.class_).where(field == value)
+    if exclude_id is not None:
+        query = query.where(field.class_.id != exclude_id)
+    return db.scalar(query) is not None
 
 
 @router.get("/login")
@@ -72,10 +107,7 @@ def logout(request: Request):
 
 
 @router.get("/config/operadores")
-def list_operadores(request: Request, db: Session = Depends(get_db)):
-    user = get_logged_in_user(request, db)
-    if user is None:
-        return RedirectResponse("/login", status_code=303)
+def list_operadores(request: Request, db: Session = Depends(get_db), user: PanelUser = Depends(require_user)):
     operadores = db.scalars(select(Operator).order_by(Operator.id)).all()
     return templates.TemplateResponse(
         request, "operadores.html", {"user": user, "operadores": operadores, "error": None}
@@ -89,13 +121,9 @@ def create_operador(
     whatsapp_numero: str = Form(...),
     tipo: str = Form("Reparto"),
     db: Session = Depends(get_db),
+    user: PanelUser = Depends(require_user),
 ):
-    user = get_logged_in_user(request, db)
-    if user is None:
-        return RedirectResponse("/login", status_code=303)
-
-    existing = db.scalar(select(Operator).where(Operator.whatsapp_numero == whatsapp_numero))
-    if existing is not None:
+    if _duplicate_exists(db, Operator.whatsapp_numero, whatsapp_numero):
         operadores = db.scalars(select(Operator).order_by(Operator.id)).all()
         return templates.TemplateResponse(
             request,
@@ -114,11 +142,9 @@ def create_operador(
 
 
 @router.post("/config/operadores/{operador_id}/toggle")
-def toggle_operador(operador_id: int, request: Request, db: Session = Depends(get_db)):
-    user = get_logged_in_user(request, db)
-    if user is None:
-        return RedirectResponse("/login", status_code=303)
-
+def toggle_operador(
+    operador_id: int, request: Request, db: Session = Depends(get_db), user: PanelUser = Depends(require_user)
+):
     operador = db.get(Operator, operador_id)
     if operador is not None:
         operador.activo = not operador.activo
@@ -127,14 +153,10 @@ def toggle_operador(operador_id: int, request: Request, db: Session = Depends(ge
 
 
 @router.get("/config/operadores/{operador_id}/editar")
-def editar_operador_form(operador_id: int, request: Request, db: Session = Depends(get_db)):
-    user = get_logged_in_user(request, db)
-    if user is None:
-        return RedirectResponse("/login", status_code=303)
-
-    operador = db.get(Operator, operador_id)
-    if operador is None:
-        return RedirectResponse("/config/operadores", status_code=303)
+def editar_operador_form(
+    operador_id: int, request: Request, db: Session = Depends(get_db), user: PanelUser = Depends(require_user)
+):
+    operador = _get_or_redirect(db, Operator, operador_id, "/config/operadores")
     return templates.TemplateResponse(
         request, "editar_operador.html", {"user": user, "operador": operador, "error": None}
     )
@@ -148,19 +170,11 @@ def editar_operador_submit(
     whatsapp_numero: str = Form(...),
     tipo: str = Form("Reparto"),
     db: Session = Depends(get_db),
+    user: PanelUser = Depends(require_user),
 ):
-    user = get_logged_in_user(request, db)
-    if user is None:
-        return RedirectResponse("/login", status_code=303)
+    operador = _get_or_redirect(db, Operator, operador_id, "/config/operadores")
 
-    operador = db.get(Operator, operador_id)
-    if operador is None:
-        return RedirectResponse("/config/operadores", status_code=303)
-
-    duplicado = db.scalar(
-        select(Operator).where(Operator.whatsapp_numero == whatsapp_numero, Operator.id != operador.id)
-    )
-    if duplicado is not None:
+    if _duplicate_exists(db, Operator.whatsapp_numero, whatsapp_numero, exclude_id=operador.id):
         return templates.TemplateResponse(
             request,
             "editar_operador.html",
@@ -176,10 +190,7 @@ def editar_operador_submit(
 
 
 @router.get("/config/cuentas")
-def list_cuentas(request: Request, db: Session = Depends(get_db)):
-    user = get_logged_in_user(request, db)
-    if user is None:
-        return RedirectResponse("/login", status_code=303)
+def list_cuentas(request: Request, db: Session = Depends(get_db), user: PanelUser = Depends(require_user)):
     cuentas = db.scalars(select(BankAccount).order_by(BankAccount.id)).all()
     return templates.TemplateResponse(request, "cuentas.html", {"user": user, "cuentas": cuentas, "error": None})
 
@@ -192,25 +203,18 @@ def create_cuenta(
     alias: str = Form(...),
     moneda: str = Form("ARS"),
     db: Session = Depends(get_db),
+    user: PanelUser = Depends(require_user),
 ):
-    user = get_logged_in_user(request, db)
-    if user is None:
-        return RedirectResponse("/login", status_code=303)
-
     db.add(BankAccount(banco=banco, numero_cuenta=numero_cuenta, alias=alias, moneda=moneda))
     db.commit()
     return RedirectResponse("/config/cuentas", status_code=303)
 
 
 @router.get("/config/cuentas/{cuenta_id}/editar")
-def editar_cuenta_form(cuenta_id: int, request: Request, db: Session = Depends(get_db)):
-    user = get_logged_in_user(request, db)
-    if user is None:
-        return RedirectResponse("/login", status_code=303)
-
-    cuenta = db.get(BankAccount, cuenta_id)
-    if cuenta is None:
-        return RedirectResponse("/config/cuentas", status_code=303)
+def editar_cuenta_form(
+    cuenta_id: int, request: Request, db: Session = Depends(get_db), user: PanelUser = Depends(require_user)
+):
+    cuenta = _get_or_redirect(db, BankAccount, cuenta_id, "/config/cuentas")
     return templates.TemplateResponse(request, "editar_cuenta.html", {"user": user, "cuenta": cuenta, "error": None})
 
 
@@ -223,14 +227,9 @@ def editar_cuenta_submit(
     alias: str = Form(...),
     moneda: str = Form("ARS"),
     db: Session = Depends(get_db),
+    user: PanelUser = Depends(require_user),
 ):
-    user = get_logged_in_user(request, db)
-    if user is None:
-        return RedirectResponse("/login", status_code=303)
-
-    cuenta = db.get(BankAccount, cuenta_id)
-    if cuenta is None:
-        return RedirectResponse("/config/cuentas", status_code=303)
+    cuenta = _get_or_redirect(db, BankAccount, cuenta_id, "/config/cuentas")
 
     cuenta.banco = banco
     cuenta.numero_cuenta = numero_cuenta
@@ -241,27 +240,21 @@ def editar_cuenta_submit(
 
 
 @router.get("/comprobantes")
-def list_movimientos(request: Request, db: Session = Depends(get_db)):
-    user = get_logged_in_user(request, db)
-    if user is None:
-        return RedirectResponse("/login", status_code=303)
+def list_movimientos(request: Request, db: Session = Depends(get_db), user: PanelUser = Depends(require_user)):
     movimientos = db.scalars(
         select(Movement)
         .where(Movement.estado_registro == RecordState.CONFIRMADO)
+        .options(selectinload(Movement.operador), selectinload(Movement.cuenta_bancaria))
         .order_by(Movement.fecha_subida.desc())
     ).all()
     return templates.TemplateResponse(request, "movimientos.html", {"user": user, "movimientos": movimientos})
 
 
 @router.get("/comprobantes/{movimiento_id}/editar")
-def editar_movimiento_form(movimiento_id: int, request: Request, db: Session = Depends(get_db)):
-    user = get_logged_in_user(request, db)
-    if user is None:
-        return RedirectResponse("/login", status_code=303)
-
-    movimiento = db.get(Movement, movimiento_id)
-    if movimiento is None:
-        return RedirectResponse("/comprobantes", status_code=303)
+def editar_movimiento_form(
+    movimiento_id: int, request: Request, db: Session = Depends(get_db), user: PanelUser = Depends(require_user)
+):
+    movimiento = _get_or_redirect(db, Movement, movimiento_id, "/comprobantes")
     return templates.TemplateResponse(
         request, "editar_movimiento.html", {"user": user, "movimiento": movimiento, "error": None}
     )
@@ -279,14 +272,9 @@ def editar_movimiento_submit(
     titular: str = Form(""),
     factura_o_cuenta: str = Form(""),
     db: Session = Depends(get_db),
+    user: PanelUser = Depends(require_user),
 ):
-    user = get_logged_in_user(request, db)
-    if user is None:
-        return RedirectResponse("/login", status_code=303)
-
-    movimiento = db.get(Movement, movimiento_id)
-    if movimiento is None:
-        return RedirectResponse("/comprobantes", status_code=303)
+    movimiento = _get_or_redirect(db, Movement, movimiento_id, "/comprobantes")
 
     try:
         nueva_fecha = datetime.strptime(fecha_transaccion, "%Y-%m-%d")
@@ -299,10 +287,7 @@ def editar_movimiento_submit(
             status_code=400,
         )
 
-    duplicado = db.scalar(
-        select(Movement).where(Movement.numero_operacion == numero_operacion, Movement.id != movimiento.id)
-    )
-    if duplicado is not None:
+    if _duplicate_exists(db, Movement.numero_operacion, numero_operacion, exclude_id=movimiento.id):
         return templates.TemplateResponse(
             request,
             "editar_movimiento.html",
@@ -329,14 +314,20 @@ def _conciliaciones_context(db: Session, user: PanelUser, error: str | None) -> 
             Movement.estado_registro == RecordState.CONFIRMADO,
             Movement.estado_conciliacion.in_([ReconciliationState.PENDIENTE, ReconciliationState.CON_DIFERENCIA]),
         )
+        .options(selectinload(Movement.operador))
         .order_by(Movement.fecha_transaccion)
     ).all()
     lineas_pendientes = db.scalars(
         select(StatementLine)
         .where(StatementLine.estado == StatementLineState.PENDIENTE)
+        .options(selectinload(StatementLine.resumen).selectinload(ImportedStatement.cuenta_bancaria))
         .order_by(StatementLine.fecha)
     ).all()
-    resumenes = db.scalars(select(ImportedStatement).order_by(ImportedStatement.fecha_importacion.desc())).all()
+    resumenes = db.scalars(
+        select(ImportedStatement)
+        .options(selectinload(ImportedStatement.cuenta_bancaria))
+        .order_by(ImportedStatement.fecha_importacion.desc())
+    ).all()
     return {
         "user": user,
         "cuentas": cuentas,
@@ -348,11 +339,7 @@ def _conciliaciones_context(db: Session, user: PanelUser, error: str | None) -> 
 
 
 @router.get("/conciliaciones")
-def conciliaciones(request: Request, db: Session = Depends(get_db)):
-    user = get_logged_in_user(request, db)
-    if user is None:
-        return RedirectResponse("/login", status_code=303)
-
+def conciliaciones(request: Request, db: Session = Depends(get_db), user: PanelUser = Depends(require_user)):
     return templates.TemplateResponse(
         request, "conciliaciones.html", _conciliaciones_context(db, user, None)
     )
@@ -365,11 +352,8 @@ async def importar_resumen(
     cuenta_bancaria_id: int = Form(...),
     fecha: str = Form(...),
     db: Session = Depends(get_db),
+    user: PanelUser = Depends(require_user),
 ):
-    user = get_logged_in_user(request, db)
-    if user is None:
-        return RedirectResponse("/login", status_code=303)
-
     contenido = await archivo.read()
     try:
         filas, formato = parse_statement_file(archivo.filename or "", contenido)
@@ -411,11 +395,8 @@ def emparejar_linea(
     request: Request,
     movimiento_id: int = Form(...),
     db: Session = Depends(get_db),
+    user: PanelUser = Depends(require_user),
 ):
-    user = get_logged_in_user(request, db)
-    if user is None:
-        return RedirectResponse("/login", status_code=303)
-
     linea = db.get(StatementLine, linea_id)
     movimiento = db.get(Movement, movimiento_id)
     if linea is not None and movimiento is not None:
@@ -429,11 +410,9 @@ def emparejar_linea(
 
 
 @router.post("/conciliaciones/lineas/{linea_id}/no-corresponde")
-def marcar_linea_no_corresponde(linea_id: int, request: Request, db: Session = Depends(get_db)):
-    user = get_logged_in_user(request, db)
-    if user is None:
-        return RedirectResponse("/login", status_code=303)
-
+def marcar_linea_no_corresponde(
+    linea_id: int, request: Request, db: Session = Depends(get_db), user: PanelUser = Depends(require_user)
+):
     linea = db.get(StatementLine, linea_id)
     if linea is not None:
         linea.estado = StatementLineState.NO_CORRESPONDE
