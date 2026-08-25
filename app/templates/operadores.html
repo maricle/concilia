@@ -5,17 +5,19 @@
 
 <table>
   <thead>
-    <tr><th>Nombre</th><th>Numero</th><th>Tipo</th><th>Estado</th><th></th></tr>
+    <tr><th>Nombre</th><th>Numero</th><th>Telegram vinculado</th><th>Tipo</th><th>Estado</th><th></th><th></th></tr>
   </thead>
   <tbody>
     {% for operador in operadores %}
     <tr>
       <td>{{ operador.nombre }}</td>
       <td>{{ operador.whatsapp_numero }}</td>
+      <td>{{ operador.telegram_chat_id or "-" }}</td>
       <td>{{ operador.tipo }}</td>
       <td>
         {% if operador.activo %}<span class="badge-activo">Activo</span>{% else %}<span class="badge-inactivo">Inactivo</span>{% endif %}
       </td>
+      <td><a href="/config/operadores/{{ operador.id }}/editar">Editar</a></td>
       <td>
         <form class="inline" method="post" action="/config/operadores/{{ operador.id }}/toggle">
           <button type="submit">{{ "Desactivar" if operador.activo else "Activar" }}</button>
@@ -23,7 +25,7 @@
       </td>
     </tr>
     {% else %}
-    <tr><td colspan="5">Todavia no hay operadores dados de alta.</td></tr>
+    <tr><td colspan="7">Todavia no hay operadores dados de alta.</td></tr>
     {% endfor %}
   </tbody>
 </table>
@@ -33,7 +35,7 @@
   <label>Nombre
     <input type="text" name="nombre" required>
   </label>
-  <label>Numero de WhatsApp / chat_id de Telegram
+  <label>Numero de telefono (sin codigo de pais, ej. 3794579133)
     <input type="text" name="whatsapp_numero" required>
   </label>
   <label>Tipo

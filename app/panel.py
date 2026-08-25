@@ -126,6 +126,55 @@ def toggle_operador(operador_id: int, request: Request, db: Session = Depends(ge
     return RedirectResponse("/config/operadores", status_code=303)
 
 
+@router.get("/config/operadores/{operador_id}/editar")
+def editar_operador_form(operador_id: int, request: Request, db: Session = Depends(get_db)):
+    user = get_logged_in_user(request, db)
+    if user is None:
+        return RedirectResponse("/login", status_code=303)
+
+    operador = db.get(Operator, operador_id)
+    if operador is None:
+        return RedirectResponse("/config/operadores", status_code=303)
+    return templates.TemplateResponse(
+        request, "editar_operador.html", {"user": user, "operador": operador, "error": None}
+    )
+
+
+@router.post("/config/operadores/{operador_id}/editar")
+def editar_operador_submit(
+    operador_id: int,
+    request: Request,
+    nombre: str = Form(...),
+    whatsapp_numero: str = Form(...),
+    tipo: str = Form("Reparto"),
+    db: Session = Depends(get_db),
+):
+    user = get_logged_in_user(request, db)
+    if user is None:
+        return RedirectResponse("/login", status_code=303)
+
+    operador = db.get(Operator, operador_id)
+    if operador is None:
+        return RedirectResponse("/config/operadores", status_code=303)
+
+    duplicado = db.scalar(
+        select(Operator).where(Operator.whatsapp_numero == whatsapp_numero, Operator.id != operador.id)
+    )
+    if duplicado is not None:
+        return templates.TemplateResponse(
+            request,
+            "editar_operador.html",
+            {"user": user, "operador": operador, "error": f"Ya existe otro operador con el numero {whatsapp_numero}."},
+            status_code=400,
+        )
+
+    operador.nombre = nombre
+    operador.whatsapp_numero = whatsapp_numero
+    operador.tipo = tipo
+    db.commit()
+    return RedirectResponse("/config/operadores", status_code=303)
+
+
 @router.get("/config/cuentas")
 def list_cuentas(request: Request, db: Session = Depends(get_db)):
     user = get_logged_in_user(request, db)
@@ -149,6 +198,44 @@ def create_cuenta(
         return RedirectResponse("/login", status_code=303)
 
     db.add(BankAccount(banco=banco, numero_cuenta=numero_cuenta, alias=alias, moneda=moneda))
+    db.commit()
+    return RedirectResponse("/config/cuentas", status_code=303)
+
+
+@router.get("/config/cuentas/{cuenta_id}/editar")
+def editar_cuenta_form(cuenta_id: int, request: Request, db: Session = Depends(get_db)):
+    user = get_logged_in_user(request, db)
+    if user is None:
+        return RedirectResponse("/login", status_code=303)
+
+    cuenta = db.get(BankAccount, cuenta_id)
+    if cuenta is None:
+        return RedirectResponse("/config/cuentas", status_code=303)
+    return templates.TemplateResponse(request, "editar_cuenta.html", {"user": user, "cuenta": cuenta, "error": None})
+
+
+@router.post("/config/cuentas/{cuenta_id}/editar")
+def editar_cuenta_submit(
+    cuenta_id: int,
+    request: Request,
+    banco: str = Form(...),
+    numero_cuenta: str = Form(...),
+    alias: str = Form(...),
+    moneda: str = Form("ARS"),
+    db: Session = Depends(get_db),
+):
+    user = get_logged_in_user(request, db)
+    if user is None:
+        return RedirectResponse("/login", status_code=303)
+
+    cuenta = db.get(BankAccount, cuenta_id)
+    if cuenta is None:
+        return RedirectResponse("/config/cuentas", status_code=303)
+
+    cuenta.banco = banco
+    cuenta.numero_cuenta = numero_cuenta
+    cuenta.alias = alias
+    cuenta.moneda = moneda
     db.commit()
     return RedirectResponse("/config/cuentas", status_code=303)
 

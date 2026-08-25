@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Editar cuenta bancaria - Concilia{% endblock %}
+{% block content %}
+<h1>Editar cuenta bancaria</h1>
+
+{% if error %}<p class="error">{{ error }}</p>{% endif %}
+
+<form class="card" method="post" action="/config/cuentas/{{ cuenta.id }}/editar">
+  <label>Banco
+    <input type="text" name="banco" value="{{ cuenta.banco }}" required>
+  </label>
+  <label>Numero de cuenta
+    <input type="text" name="numero_cuenta" value="{{ cuenta.numero_cuenta }}" required>
+  </label>
+  <label>Alias
+    <input type="text" name="alias" value="{{ cuenta.alias }}" required>
+  </label>
+  <label>Moneda
+    <input type="text" name="moneda" value="{{ cuenta.moneda }}">
+  </label>
+  <button type="submit">Guardar cambios</button>
+</form>
+{% endblock %}

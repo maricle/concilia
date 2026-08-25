@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Editar operador - Concilia{% endblock %}
+{% block content %}
+<h1>Editar operador</h1>
+
+{% if error %}<p class="error">{{ error }}</p>{% endif %}
+
+<form class="card" method="post" action="/config/operadores/{{ operador.id }}/editar">
+  <label>Nombre
+    <input type="text" name="nombre" value="{{ operador.nombre }}" required>
+  </label>
+  <label>Numero de telefono (sin codigo de pais)
+    <input type="text" name="whatsapp_numero" value="{{ operador.whatsapp_numero }}" required>
+  </label>
+  <label>Tipo
+    <select name="tipo">
+      <option value="Reparto" {{ "selected" if operador.tipo == "Reparto" }}>Reparto</option>
+      <option value="Administrativo" {{ "selected" if operador.tipo == "Administrativo" }}>Administrativo</option>
+    </select>
+  </label>
+  <p>Telegram vinculado: {{ operador.telegram_chat_id or "todavia no vinculo su Telegram" }}</p>
+  <button type="submit">Guardar cambios</button>
+</form>
+{% endblock %}

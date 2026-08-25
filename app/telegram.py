@@ -1,27 +1,44 @@
 import logging
+import re
 from typing import Any
 
 import httpx
 from fastapi import APIRouter, Header, HTTPException, Request
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from .config import get_settings
 from .conversation import ConversationService
 from .db import SessionLocal
 from .extraction import extract_transfer
+from .models import Operator
 from .storage import save_comprobante_prueba
 
 router = APIRouter()
 
 TELEGRAM_API_BASE = "https://api.telegram.org/bot{token}"
 
+CONTACT_REQUEST_MARKUP = {
+    "keyboard": [[{"text": "Compartir mi numero", "request_contact": True}]],
+    "resize_keyboard": True,
+    "one_time_keyboard": True,
+}
+
+PEDIR_TELEFONO_TEXTO = "Para registrar comprobantes primero compartinos tu numero de telefono con el boton de abajo."
+NUMERO_NO_HABILITADO_TEXTO = "Tu numero no esta habilitado. Contacta al administrador para que te registre."
+NUMERO_VINCULADO_TEXTO = "Numero vinculado correctamente. Ya podes enviar tus comprobantes."
+
 
 def _api_url(method: str) -> str:
     return f"{TELEGRAM_API_BASE.format(token=get_settings().telegram_bot_token)}/{method}"
 
 
-async def send_telegram_message(chat_id: str, text: str) -> None:
+async def send_telegram_message(chat_id: str, text: str, reply_markup: dict | None = None) -> None:
+    payload: dict[str, Any] = {"chat_id": chat_id, "text": text}
+    if reply_markup is not None:
+        payload["reply_markup"] = reply_markup
     async with httpx.AsyncClient() as client:
-        response = await client.post(_api_url("sendMessage"), json={"chat_id": chat_id, "text": text})
+        response = await client.post(_api_url("sendMessage"), json=payload)
         response.raise_for_status()
 
 
@@ -35,6 +52,52 @@ async def _download_telegram_file(file_id: str) -> tuple[bytes, str]:
         file_response = await client.get(download_url)
         file_response.raise_for_status()
         return file_response.content, file_path
+
+
+def _find_operator_by_chat_id(session: Session, chat_id: str) -> Operator | None:
+    return session.scalar(
+        select(Operator).where(
+            Operator.activo.is_(True),
+            (Operator.telegram_chat_id == chat_id) | (Operator.whatsapp_numero == chat_id),
+        )
+    )
+
+
+def _find_operator_by_phone(session: Session, phone_number: str) -> Operator | None:
+    digitos = re.sub(r"\D", "", phone_number)
+    if not digitos:
+        return None
+    candidatos = session.scalars(
+        select(Operator).where(Operator.activo.is_(True), Operator.telegram_chat_id.is_(None))
+    ).all()
+    for operador in candidatos:
+        numero_digitos = re.sub(r"\D", "", operador.whatsapp_numero)
+        if numero_digitos and digitos.endswith(numero_digitos):
+            return operador
+    return None
+
+
+async def _resolve_operator_numero(chat_id: str, message: dict[str, Any]) -> str | None:
+    """Devuelve el whatsapp_numero del operador vinculado a este chat, o None si hay que
+    pedirle/validarle el telefono (y ya se le respondio en ese caso)."""
+    with SessionLocal() as session:
+        operador = _find_operator_by_chat_id(session, chat_id)
+        if operador is not None:
+            return operador.whatsapp_numero
+
+        contact = message.get("contact")
+        if contact is not None and str(contact.get("user_id", "")) == chat_id:
+            operador = _find_operator_by_phone(session, contact["phone_number"])
+            if operador is None:
+                await send_telegram_message(chat_id, NUMERO_NO_HABILITADO_TEXTO)
+                return None
+            operador.telegram_chat_id = chat_id
+            session.commit()
+            await send_telegram_message(chat_id, NUMERO_VINCULADO_TEXTO)
+            return None
+
+    await send_telegram_message(chat_id, PEDIR_TELEFONO_TEXTO, reply_markup=CONTACT_REQUEST_MARKUP)
+    return None
 
 
 @router.post("/telegram/webhook")
@@ -53,9 +116,13 @@ async def receive_telegram_update(
 
     chat_id = str(message["chat"]["id"])
 
+    numero = await _resolve_operator_numero(chat_id, message)
+    if numero is None:
+        return {"status": "ignored"}
+
     if "text" in message:
         with SessionLocal() as session:
-            reply = ConversationService(session).handle_text(chat_id, message["text"])
+            reply = ConversationService(session).handle_text(numero, message["text"])
         await send_telegram_message(chat_id, reply)
         return {"status": "accepted"}
 
@@ -96,6 +163,6 @@ async def receive_telegram_update(
         logging.exception("No se pudo guardar el archivo de prueba en Turso; se continua sin bloquear el registro.")
 
     with SessionLocal() as session:
-        reply = ConversationService(session).start_transfer(chat_id, transfer)
+        reply = ConversationService(session).start_transfer(numero, transfer)
     await send_telegram_message(chat_id, reply)
     return {"status": "accepted"}

@@ -94,6 +94,69 @@ def test_create_cuenta_bancaria():
         assert cuenta.alias == "Cuenta principal"
 
 
+def test_editar_operador_updates_fields():
+    client, test_session = _client_with_admin()
+    with test_session() as session:
+        session.add(Operator(nombre="Ana", whatsapp_numero="111", tipo="Reparto"))
+        session.commit()
+
+    client.post("/login", data={"email": "admin@concilia.test", "password": "secreta123"})
+    response = client.post(
+        "/config/operadores/1/editar",
+        data={"nombre": "Ana Corregida", "whatsapp_numero": "222", "tipo": "Administrativo"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+
+    with test_session() as session:
+        operador = session.get(Operator, 1)
+        assert operador.nombre == "Ana Corregida"
+        assert operador.whatsapp_numero == "222"
+        assert operador.tipo == "Administrativo"
+
+
+def test_editar_operador_rejects_duplicate_numero():
+    client, test_session = _client_with_admin()
+    with test_session() as session:
+        session.add_all(
+            [
+                Operator(nombre="Ana", whatsapp_numero="111"),
+                Operator(nombre="Beto", whatsapp_numero="222"),
+            ]
+        )
+        session.commit()
+
+    client.post("/login", data={"email": "admin@concilia.test", "password": "secreta123"})
+    response = client.post(
+        "/config/operadores/2/editar",
+        data={"nombre": "Beto", "whatsapp_numero": "111", "tipo": "Reparto"},
+    )
+    assert response.status_code == 400
+    assert "Ya existe otro operador" in response.text
+
+
+def test_editar_cuenta_bancaria_updates_fields():
+    client, test_session = _client_with_admin()
+    with test_session() as session:
+        session.add(BankAccount(banco="Banco Nacion", numero_cuenta="123", alias="Vieja", moneda="ARS"))
+        session.commit()
+
+    client.post("/login", data={"email": "admin@concilia.test", "password": "secreta123"})
+    response = client.post(
+        "/config/cuentas/1/editar",
+        data={"banco": "Banco Galicia", "numero_cuenta": "999", "alias": "Nueva", "moneda": "USD"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+
+    with test_session() as session:
+        cuenta = session.get(BankAccount, 1)
+        assert cuenta.banco == "Banco Galicia"
+        assert cuenta.numero_cuenta == "999"
+        assert cuenta.alias == "Nueva"
+        assert cuenta.moneda == "USD"
+
+
 def test_movimientos_list_shows_only_confirmed():
     client, test_session = _client_with_admin()
     with test_session() as session:

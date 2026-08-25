@@ -5,7 +5,7 @@
 
 <table>
   <thead>
-    <tr><th>Banco</th><th>Numero de cuenta</th><th>Alias</th><th>Moneda</th></tr>
+    <tr><th>Banco</th><th>Numero de cuenta</th><th>Alias</th><th>Moneda</th><th></th></tr>
   </thead>
   <tbody>
     {% for cuenta in cuentas %}
@@ -14,9 +14,10 @@
       <td>{{ cuenta.numero_cuenta }}</td>
       <td>{{ cuenta.alias }}</td>
       <td>{{ cuenta.moneda }}</td>
+      <td><a href="/config/cuentas/{{ cuenta.id }}/editar">Editar</a></td>
     </tr>
     {% else %}
-    <tr><td colspan="4">Todavia no hay cuentas bancarias cargadas.</td></tr>
+    <tr><td colspan="5">Todavia no hay cuentas bancarias cargadas.</td></tr>
     {% endfor %}
   </tbody>
 </table>
