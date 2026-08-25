@@ -16,9 +16,12 @@ _TOOL = {
     "input_schema": {
         "type": "object",
         "properties": {
-            "monto": {"type": "number", "description": "Monto de la transferencia"},
-            "fecha_transaccion": {"type": "string", "description": "Fecha de la operacion, formato YYYY-MM-DD"},
-            "numero_operacion": {"type": "string", "description": "Numero de operacion o referencia"},
+            "monto": {"type": ["number", "null"], "description": "Monto de la transferencia"},
+            "fecha_transaccion": {
+                "type": ["string", "null"],
+                "description": "Fecha de la operacion, formato YYYY-MM-DD",
+            },
+            "numero_operacion": {"type": ["string", "null"], "description": "Numero de operacion o referencia"},
             "banco_emisor": {"type": ["string", "null"], "description": "Banco desde el que se hizo la transferencia"},
             "cuenta_receptora": {
                 "type": ["string", "null"],
@@ -26,15 +29,25 @@ _TOOL = {
             },
             "titular": {"type": ["string", "null"], "description": "Titular de la cuenta si figura"},
         },
-        "required": ["monto", "fecha_transaccion", "numero_operacion"],
+        "required": [],
     },
 }
 
 SYSTEM_PROMPT = (
     "Sos un asistente que lee comprobantes de transferencias bancarias en espanol y extrae sus datos "
     "estructurados usando la herramienta provista. Si no podes leer con confianza el monto, la fecha o "
-    "el numero de operacion, dejá ese campo vacio en vez de inventar un valor."
+    "el numero de operacion, dejá ese campo directamente en null: nunca inventes un valor ni uses un "
+    "texto de relleno como 'desconocido', 'N/A' o '<UNKNOWN>'."
 )
+
+_VALORES_PLACEHOLDER = {"unknown", "n/a", "na", "desconocido", "no disponible", "none", "null", "-", "s/d"}
+
+
+def _es_valor_valido(valor: object) -> bool:
+    if not isinstance(valor, str):
+        return False
+    normalizado = valor.strip().strip("<>").strip().lower()
+    return bool(normalizado) and normalizado not in _VALORES_PLACEHOLDER
 
 
 def _content_block(content_type: str, data: bytes) -> dict:
@@ -70,7 +83,11 @@ def _call_model(client: Anthropic, model: str, content_type: str, data: bytes) -
 def _has_minimum_fields(result: dict | None) -> bool:
     if result is None:
         return False
-    return bool(result.get("monto") and result.get("fecha_transaccion") and result.get("numero_operacion"))
+    return bool(
+        result.get("monto")
+        and _es_valor_valido(result.get("fecha_transaccion"))
+        and _es_valor_valido(result.get("numero_operacion"))
+    )
 
 
 def extract_transfer(content_type: str, data: bytes) -> ExtractedTransfer | None:
