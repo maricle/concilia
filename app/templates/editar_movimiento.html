@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Editar comprobante - Concilia{% endblock %}
+{% block content %}
+<h1>Editar comprobante</h1>
+
+{% if error %}<p class="error">{{ error }}</p>{% endif %}
+
+<form class="card" method="post" action="/comprobantes/{{ movimiento.id }}/editar">
+  <label>Fecha de transaccion
+    <input type="date" name="fecha_transaccion" value="{{ movimiento.fecha_transaccion.strftime('%Y-%m-%d') if movimiento.fecha_transaccion else '' }}" required>
+  </label>
+  <label>Monto
+    <input type="text" name="monto" value="{{ movimiento.monto }}" required>
+  </label>
+  <label>Numero de operacion
+    <input type="text" name="numero_operacion" value="{{ movimiento.numero_operacion }}" required>
+  </label>
+  <label>Banco emisor
+    <input type="text" name="banco_emisor" value="{{ movimiento.banco_emisor or '' }}">
+  </label>
+  <label>CBU / CVU / alias receptor
+    <input type="text" name="cuenta_receptora_extraida" value="{{ movimiento.cuenta_receptora_extraida or '' }}">
+  </label>
+  <label>Titular
+    <input type="text" name="titular" value="{{ movimiento.titular or '' }}">
+  </label>
+  <label>Factura o cuenta
+    <input type="text" name="factura_o_cuenta" value="{{ movimiento.factura_o_cuenta or '' }}">
+  </label>
+  <button type="submit">Guardar cambios</button>
+</form>
+{% endblock %}

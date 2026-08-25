@@ -1,4 +1,5 @@
 from datetime import datetime
+from decimal import Decimal, InvalidOperation
 
 from fastapi import APIRouter, Depends, Form, Request, UploadFile
 from fastapi.responses import RedirectResponse
@@ -163,6 +164,74 @@ def list_movimientos(request: Request, db: Session = Depends(get_db)):
         .order_by(Movement.fecha_subida.desc())
     ).all()
     return templates.TemplateResponse(request, "movimientos.html", {"user": user, "movimientos": movimientos})
+
+
+@router.get("/comprobantes/{movimiento_id}/editar")
+def editar_movimiento_form(movimiento_id: int, request: Request, db: Session = Depends(get_db)):
+    user = get_logged_in_user(request, db)
+    if user is None:
+        return RedirectResponse("/login", status_code=303)
+
+    movimiento = db.get(Movement, movimiento_id)
+    if movimiento is None:
+        return RedirectResponse("/comprobantes", status_code=303)
+    return templates.TemplateResponse(
+        request, "editar_movimiento.html", {"user": user, "movimiento": movimiento, "error": None}
+    )
+
+
+@router.post("/comprobantes/{movimiento_id}/editar")
+def editar_movimiento_submit(
+    movimiento_id: int,
+    request: Request,
+    fecha_transaccion: str = Form(...),
+    monto: str = Form(...),
+    numero_operacion: str = Form(...),
+    banco_emisor: str = Form(""),
+    cuenta_receptora_extraida: str = Form(""),
+    titular: str = Form(""),
+    factura_o_cuenta: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    user = get_logged_in_user(request, db)
+    if user is None:
+        return RedirectResponse("/login", status_code=303)
+
+    movimiento = db.get(Movement, movimiento_id)
+    if movimiento is None:
+        return RedirectResponse("/comprobantes", status_code=303)
+
+    try:
+        nueva_fecha = datetime.strptime(fecha_transaccion, "%Y-%m-%d")
+        nuevo_monto = Decimal(monto)
+    except (ValueError, InvalidOperation):
+        return templates.TemplateResponse(
+            request,
+            "editar_movimiento.html",
+            {"user": user, "movimiento": movimiento, "error": "Fecha o monto invalido."},
+            status_code=400,
+        )
+
+    duplicado = db.scalar(
+        select(Movement).where(Movement.numero_operacion == numero_operacion, Movement.id != movimiento.id)
+    )
+    if duplicado is not None:
+        return templates.TemplateResponse(
+            request,
+            "editar_movimiento.html",
+            {"user": user, "movimiento": movimiento, "error": f"Ya existe otro comprobante con el numero {numero_operacion}."},
+            status_code=400,
+        )
+
+    movimiento.fecha_transaccion = nueva_fecha
+    movimiento.monto = nuevo_monto
+    movimiento.numero_operacion = numero_operacion
+    movimiento.banco_emisor = banco_emisor or None
+    movimiento.cuenta_receptora_extraida = cuenta_receptora_extraida or None
+    movimiento.titular = titular or None
+    movimiento.factura_o_cuenta = factura_o_cuenta or None
+    db.commit()
+    return RedirectResponse("/comprobantes", status_code=303)
 
 
 def _conciliaciones_context(db: Session, user: PanelUser, error: str | None) -> dict:
