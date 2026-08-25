@@ -4,7 +4,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    database_url: str = "sqlite:///./concilia.db"
+    database_url: str
     meta_verify_token: str = "change-me"
     meta_app_secret: str = ""
     wa_access_token: str = ""
