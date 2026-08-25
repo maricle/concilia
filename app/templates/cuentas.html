@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Cuentas bancarias - Concilia{% endblock %}
+{% block content %}
+<h1>Cuentas bancarias</h1>
+
+<table>
+  <thead>
+    <tr><th>Banco</th><th>Numero de cuenta</th><th>Alias</th><th>Moneda</th></tr>
+  </thead>
+  <tbody>
+    {% for cuenta in cuentas %}
+    <tr>
+      <td>{{ cuenta.banco }}</td>
+      <td>{{ cuenta.numero_cuenta }}</td>
+      <td>{{ cuenta.alias }}</td>
+      <td>{{ cuenta.moneda }}</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="4">Todavia no hay cuentas bancarias cargadas.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<h2>Nueva cuenta</h2>
+<form class="card" method="post" action="/config/cuentas">
+  <label>Banco
+    <input type="text" name="banco" required>
+  </label>
+  <label>Numero de cuenta
+    <input type="text" name="numero_cuenta" required>
+  </label>
+  <label>Alias
+    <input type="text" name="alias" required>
+  </label>
+  <label>Moneda
+    <input type="text" name="moneda" value="ARS">
+  </label>
+  <button type="submit">Agregar cuenta</button>
+  {% if error %}<p class="error">{{ error }}</p>{% endif %}
+</form>
+{% endblock %}

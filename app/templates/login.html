@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}Ingresar - Concilia{% endblock %}
+{% block content %}
+<h1>Concilia</h1>
+<form class="card" method="post" action="/login">
+  <label>Email
+    <input type="email" name="email" required autofocus>
+  </label>
+  <label>Contrasena
+    <input type="password" name="password" required>
+  </label>
+  <button type="submit">Ingresar</button>
+  {% if error %}<p class="error">{{ error }}</p>{% endif %}
+</form>
+{% endblock %}

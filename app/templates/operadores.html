@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}Operadores - Concilia{% endblock %}
+{% block content %}
+<h1>Operadores / Vendedores</h1>
+
+<table>
+  <thead>
+    <tr><th>Nombre</th><th>Numero</th><th>Tipo</th><th>Estado</th><th></th></tr>
+  </thead>
+  <tbody>
+    {% for operador in operadores %}
+    <tr>
+      <td>{{ operador.nombre }}</td>
+      <td>{{ operador.whatsapp_numero }}</td>
+      <td>{{ operador.tipo }}</td>
+      <td>
+        {% if operador.activo %}<span class="badge-activo">Activo</span>{% else %}<span class="badge-inactivo">Inactivo</span>{% endif %}
+      </td>
+      <td>
+        <form class="inline" method="post" action="/config/operadores/{{ operador.id }}/toggle">
+          <button type="submit">{{ "Desactivar" if operador.activo else "Activar" }}</button>
+        </form>
+      </td>
+    </tr>
+    {% else %}
+    <tr><td colspan="5">Todavia no hay operadores dados de alta.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<h2>Nuevo operador</h2>
+<form class="card" method="post" action="/config/operadores">
+  <label>Nombre
+    <input type="text" name="nombre" required>
+  </label>
+  <label>Numero de WhatsApp / chat_id de Telegram
+    <input type="text" name="whatsapp_numero" required>
+  </label>
+  <label>Tipo
+    <select name="tipo">
+      <option value="Reparto">Reparto</option>
+      <option value="Administrativo">Administrativo</option>
+    </select>
+  </label>
+  <button type="submit">Dar de alta</button>
+  {% if error %}<p class="error">{{ error }}</p>{% endif %}
+</form>
+{% endblock %}

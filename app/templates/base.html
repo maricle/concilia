@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}Concilia{% endblock %}</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1rem; color: #1a1a1a; }
+  nav { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; border-bottom: 1px solid #ddd; padding-bottom: 1rem; }
+  nav a { margin-right: 1rem; color: #1a1a1a; text-decoration: none; font-weight: 600; }
+  table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
+  th, td { text-align: left; padding: 0.5rem; border-bottom: 1px solid #eee; }
+  form.inline { display: inline; }
+  .card { background: #f7f7f8; border: 1px solid #e2e2e2; border-radius: 8px; padding: 1.5rem; max-width: 420px; }
+  label { display: block; margin-top: 0.75rem; font-size: 0.9rem; }
+  input, select { width: 100%; padding: 0.4rem; margin-top: 0.25rem; box-sizing: border-box; }
+  button { margin-top: 1rem; padding: 0.5rem 1rem; cursor: pointer; }
+  .badge-activo { color: #0a7d2e; font-weight: 600; }
+  .badge-inactivo { color: #b3261e; font-weight: 600; }
+  .error { color: #b3261e; margin-top: 0.75rem; }
+</style>
+</head>
+<body>
+{% if user %}
+<nav>
+  <div>
+    <a href="/comprobantes">Movimientos</a>
+    <a href="/conciliaciones">Conciliaciones</a>
+    <a href="/config/operadores">Operadores</a>
+    <a href="/config/cuentas">Cuentas bancarias</a>
+  </div>
+  <div>{{ user.nombre }} &middot; <form class="inline" method="post" action="/logout"><button type="submit">Salir</button></form></div>
+</nav>
+{% endif %}
+{% block content %}{% endblock %}
+</body>
+</html>

@@ -27,6 +27,12 @@ class ReconciliationState(StrEnum):
     CON_DIFERENCIA = "con_diferencia"
 
 
+class StatementLineState(StrEnum):
+    PENDIENTE = "pendiente"
+    CONCILIADA = "conciliada"
+    NO_CORRESPONDE = "no_corresponde"
+
+
 class Operator(Base):
     __tablename__ = "operadores"
 
@@ -36,6 +42,16 @@ class Operator(Base):
     tipo: Mapped[str] = mapped_column(String(50), default="Reparto")
     activo: Mapped[bool] = mapped_column(default=True)
     fecha_alta: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class BankAccount(Base):
+    __tablename__ = "cuentas_bancarias"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    banco: Mapped[str] = mapped_column(String(120))
+    numero_cuenta: Mapped[str] = mapped_column(String(60))
+    moneda: Mapped[str] = mapped_column(String(10), default="ARS")
+    alias: Mapped[str] = mapped_column(String(120))
 
 
 class Movement(Base):
@@ -52,10 +68,55 @@ class Movement(Base):
     numero_operacion: Mapped[str] = mapped_column(String(120), index=True)
     titular: Mapped[str | None] = mapped_column(String(150))
     factura_o_cuenta: Mapped[str | None] = mapped_column(String(150))
+    cuenta_bancaria_id: Mapped[int | None] = mapped_column(ForeignKey("cuentas_bancarias.id"))
     archivo_url: Mapped[str | None] = mapped_column(Text)
     origen: Mapped[str] = mapped_column(String(20), default="whatsapp")
     estado_registro: Mapped[RecordState] = mapped_column(default=RecordState.PENDIENTE_CONFIRMACION)
     estado_conciliacion: Mapped[ReconciliationState] = mapped_column(default=ReconciliationState.PENDIENTE)
+
+    operador: Mapped[Operator] = relationship()
+    cuenta_bancaria: Mapped[BankAccount | None] = relationship()
+
+
+class ImportedStatement(Base):
+    __tablename__ = "resumenes_importados"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    cuenta_bancaria_id: Mapped[int] = mapped_column(ForeignKey("cuentas_bancarias.id"))
+    fecha: Mapped[datetime] = mapped_column(DateTime)
+    archivo_nombre: Mapped[str] = mapped_column(String(255))
+    formato: Mapped[str] = mapped_column(String(10))
+    usuario_id: Mapped[int] = mapped_column(ForeignKey("usuarios_panel.id"))
+    fecha_importacion: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    cuenta_bancaria: Mapped[BankAccount] = relationship()
+
+
+class StatementLine(Base):
+    __tablename__ = "lineas_resumen"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    resumen_id: Mapped[int] = mapped_column(ForeignKey("resumenes_importados.id"))
+    fecha: Mapped[datetime] = mapped_column(DateTime)
+    monto: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    descripcion: Mapped[str | None] = mapped_column(String(255))
+    referencia: Mapped[str | None] = mapped_column(String(120))
+    movimiento_id: Mapped[int | None] = mapped_column(ForeignKey("movimientos.id"))
+    estado: Mapped[StatementLineState] = mapped_column(default=StatementLineState.PENDIENTE)
+
+    resumen: Mapped[ImportedStatement] = relationship()
+    movimiento: Mapped[Movement | None] = relationship()
+
+
+class PanelUser(Base):
+    __tablename__ = "usuarios_panel"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    nombre: Mapped[str] = mapped_column(String(150))
+    email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    password_hash: Mapped[str] = mapped_column(String(255))
+    rol: Mapped[str] = mapped_column(String(50), default="Administrador")
+    activo: Mapped[bool] = mapped_column(default=True)
 
 
 class WhatsAppConversation(Base):
