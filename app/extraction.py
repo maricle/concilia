@@ -20,7 +20,10 @@ _TOOL = {
             "fecha_transaccion": {"type": "string", "description": "Fecha de la operacion, formato YYYY-MM-DD"},
             "numero_operacion": {"type": "string", "description": "Numero de operacion o referencia"},
             "banco_emisor": {"type": ["string", "null"], "description": "Banco desde el que se hizo la transferencia"},
-            "cuenta_receptora": {"type": ["string", "null"], "description": "CVU/alias/cuenta receptora si figura"},
+            "cuenta_receptora": {
+                "type": ["string", "null"],
+                "description": "Identificador de la cuenta receptora si figura: CBU, CVU o alias (cualquiera de los tres que aparezca en el comprobante)",
+            },
             "titular": {"type": ["string", "null"], "description": "Titular de la cuenta si figura"},
         },
         "required": ["monto", "fecha_transaccion", "numero_operacion"],

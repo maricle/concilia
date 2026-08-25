@@ -109,4 +109,8 @@ class ConversationService:
 
     @staticmethod
     def _summary(movement: Movement) -> str:
-        return f"Monto: ${movement.monto}; fecha: {movement.fecha_transaccion:%Y-%m-%d}; operacion: {movement.numero_operacion}; factura/cuenta: {movement.factura_o_cuenta or 'pendiente'}."
+        return (
+            f"Monto: ${movement.monto}; fecha: {movement.fecha_transaccion:%Y-%m-%d}; "
+            f"banco emisor: {movement.banco_emisor or 'no detectado'}; operacion: {movement.numero_operacion}; "
+            f"factura/cuenta: {movement.factura_o_cuenta or 'pendiente'}."
+        )
