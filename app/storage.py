@@ -42,7 +42,7 @@ def get_test_store_engine() -> Engine:
             "TURSO_DATABASE_URL no esta configurado. "
             "Copia la URL con `turso db show <db>` y el token con `turso db tokens create <db>` a tu .env."
         )
-    connect_args = {"auth_token": settings.turso_auth_token, "secure": True} if settings.turso_auth_token else {}
+    connect_args = {"auth_token": settings.turso_auth_token} if settings.turso_auth_token else {}
     return create_engine(_turso_engine_url(settings.turso_database_url), connect_args=connect_args)
 
 

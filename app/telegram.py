@@ -1,3 +1,4 @@
+import logging
 from typing import Any
 
 import httpx
@@ -84,12 +85,16 @@ async def receive_telegram_update(
         )
         return {"status": "accepted"}
 
-    save_comprobante_prueba(
-        nombre_archivo=file_name,
-        content_type=content_type,
-        contenido=contenido,
-        numero_operacion=transfer.numero_operacion,
-    )
+    try:
+        save_comprobante_prueba(
+            nombre_archivo=file_name,
+            content_type=content_type,
+            contenido=contenido,
+            numero_operacion=transfer.numero_operacion,
+        )
+    except Exception:
+        logging.exception("No se pudo guardar el archivo de prueba en Turso; se continua sin bloquear el registro.")
+
     with SessionLocal() as session:
         reply = ConversationService(session).start_transfer(chat_id, transfer)
     await send_telegram_message(chat_id, reply)
