@@ -39,6 +39,11 @@ def test_has_minimum_fields_accepts_real_values():
     assert _has_minimum_fields(resultado) is True
 
 
+def test_has_minimum_fields_accepts_missing_monto():
+    resultado = {"monto": None, "fecha_transaccion": "2026-08-24", "numero_operacion": "OP-123"}
+    assert _has_minimum_fields(resultado) is True
+
+
 @dataclass
 class _FakeBlock:
     type: str
@@ -86,3 +91,16 @@ def test_extract_transfer_gives_up_when_both_models_use_placeholder(monkeypatch)
     monkeypatch.setattr(extraction, "Anthropic", lambda api_key: fake_client)
 
     assert extract_transfer("image/jpeg", b"fake-bytes") is None
+
+
+def test_extract_transfer_registers_with_missing_monto_without_retrying(monkeypatch):
+    sin_monto = {"monto": None, "fecha_transaccion": "2026-08-24", "numero_operacion": "OP-1"}
+    fake_client = _FakeAnthropic([sin_monto])  # una sola respuesta disponible: no debe reintentar con Sonnet
+    monkeypatch.setattr(extraction, "Anthropic", lambda api_key: fake_client)
+
+    transfer = extract_transfer("image/jpeg", b"fake-bytes")
+
+    assert transfer is not None
+    assert transfer.monto is None
+    assert transfer.numero_operacion == "OP-1"
+    assert transfer.fecha_transaccion == datetime(2026, 8, 24)

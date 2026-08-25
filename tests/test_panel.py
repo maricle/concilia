@@ -241,6 +241,35 @@ def test_editar_movimiento_updates_fields():
         assert movimiento.fecha_transaccion == datetime(2026, 8, 20)
 
 
+def test_editar_movimiento_allows_blank_monto():
+    client, test_session = _client_with_admin()
+    with test_session() as session:
+        session.add(Operator(nombre="Ana", whatsapp_numero="111"))
+        session.commit()
+        session.add(
+            Movement(
+                operador_id=1,
+                monto=Decimal("500"),
+                fecha_transaccion=datetime(2026, 8, 24),
+                numero_operacion="OP-1",
+                estado_registro=RecordState.CONFIRMADO,
+            )
+        )
+        session.commit()
+
+    client.post("/login", data={"email": "admin@concilia.test", "password": "secreta123"})
+    response = client.post(
+        "/comprobantes/1/editar",
+        data={"fecha_transaccion": "2026-08-24", "monto": "", "numero_operacion": "OP-1"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+
+    with test_session() as session:
+        movimiento = session.get(Movement, 1)
+        assert movimiento.monto is None
+
+
 def test_editar_movimiento_rejects_duplicate_numero_operacion():
     client, test_session = _client_with_admin()
     with test_session() as session:

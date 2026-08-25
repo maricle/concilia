@@ -265,7 +265,7 @@ def editar_movimiento_submit(
     movimiento_id: int,
     request: Request,
     fecha_transaccion: str = Form(...),
-    monto: str = Form(...),
+    monto: str = Form(""),
     numero_operacion: str = Form(...),
     banco_emisor: str = Form(""),
     cuenta_receptora_extraida: str = Form(""),
@@ -278,7 +278,7 @@ def editar_movimiento_submit(
 
     try:
         nueva_fecha = datetime.strptime(fecha_transaccion, "%Y-%m-%d")
-        nuevo_monto = Decimal(monto)
+        nuevo_monto = Decimal(monto) if monto.strip() else None
     except (ValueError, InvalidOperation):
         return templates.TemplateResponse(
             request,

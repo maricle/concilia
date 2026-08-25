@@ -46,6 +46,23 @@ def test_duplicate_operation_is_rejected():
     assert "Ya existe" in response
 
 
+def test_transfer_with_unreadable_monto_is_registered_anyway():
+    db = session()
+    db.add(Operator(nombre="Ana", whatsapp_numero="5491112345678"))
+    db.commit()
+    service = ConversationService(db)
+
+    response = service.start_transfer("5491112345678", ExtractedTransfer(None, datetime(2026, 8, 21), "OP-1"))
+    assert "Monto: no detectado" in response
+    assert service.handle_text("5491112345678", "SI")
+    service.handle_text("5491112345678", "FAC-9")
+    assert service.handle_text("5491112345678", "OK") == "Comprobante registrado correctamente."
+
+    movement = db.query(Movement).one()
+    assert movement.estado_registro == RecordState.CONFIRMADO
+    assert movement.monto is None
+
+
 def test_postgres_urls_use_psycopg_driver():
     assert _engine_url("postgres://user:pass@localhost/db") == "postgresql+psycopg://user:pass@localhost/db"
     assert _engine_url("postgresql://user:pass@localhost/db") == "postgresql+psycopg://user:pass@localhost/db"

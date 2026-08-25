@@ -14,7 +14,7 @@
         </div>
         <div class="form-group col-md-6">
           <label>Monto</label>
-          <input type="text" class="form-control" name="monto" value="{{ movimiento.monto }}" required>
+          <input type="text" class="form-control" name="monto" value="{{ movimiento.monto if movimiento.monto is not none else '' }}">
         </div>
       </div>
       <div class="form-group">

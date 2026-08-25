@@ -31,7 +31,7 @@
             <td>{{ movimiento.factura_o_cuenta or "-" }}</td>
             <td>{{ movimiento.banco_emisor or "-" }}</td>
             <td>{{ movimiento.numero_operacion }}</td>
-            <td>${{ movimiento.monto }}</td>
+            <td>{{ "$" + movimiento.monto|string if movimiento.monto is not none else "-" }}</td>
             <td>{{ movimiento.operador.nombre }}</td>
             <td>{{ movimiento.estado_conciliacion.value }}</td>
             <td><a href="/comprobantes/{{ movimiento.id }}/editar" class="btn btn-sm btn-outline-primary">Editar</a></td>

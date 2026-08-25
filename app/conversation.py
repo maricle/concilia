@@ -10,7 +10,7 @@ from .models import ConversationState, Movement, Operator, RecordState, WhatsApp
 
 @dataclass
 class ExtractedTransfer:
-    monto: Decimal
+    monto: Decimal | None
     fecha_transaccion: datetime
     numero_operacion: str
     banco_emisor: str | None = None
@@ -109,8 +109,9 @@ class ConversationService:
 
     @staticmethod
     def _summary(movement: Movement) -> str:
+        monto = f"${movement.monto}" if movement.monto is not None else "no detectado"
         return (
-            f"Monto: ${movement.monto}; fecha: {movement.fecha_transaccion:%Y-%m-%d}; "
+            f"Monto: {monto}; fecha: {movement.fecha_transaccion:%Y-%m-%d}; "
             f"banco emisor: {movement.banco_emisor or 'no detectado'}; operacion: {movement.numero_operacion}; "
             f"factura/cuenta: {movement.factura_o_cuenta or 'pendiente'}."
         )

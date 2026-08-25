@@ -81,13 +81,21 @@ def _call_model(client: Anthropic, model: str, content_type: str, data: bytes) -
 
 
 def _has_minimum_fields(result: dict | None) -> bool:
+    """Fecha y numero de operacion son indispensables para identificar el movimiento
+    y evitar duplicados; el monto es deseable pero si no se puede leer con confianza
+    se registra igual (el administrador puede completarlo despues desde el panel)."""
     if result is None:
         return False
-    return bool(
-        result.get("monto")
-        and _es_valor_valido(result.get("fecha_transaccion"))
-        and _es_valor_valido(result.get("numero_operacion"))
-    )
+    return _es_valor_valido(result.get("fecha_transaccion")) and _es_valor_valido(result.get("numero_operacion"))
+
+
+def _parse_monto(valor: object) -> Decimal | None:
+    if valor is None:
+        return None
+    try:
+        return Decimal(str(valor))
+    except InvalidOperation:
+        return None
 
 
 def extract_transfer(content_type: str, data: bytes) -> ExtractedTransfer | None:
@@ -101,13 +109,12 @@ def extract_transfer(content_type: str, data: bytes) -> ExtractedTransfer | None
         return None
 
     try:
-        monto = Decimal(str(result["monto"]))
         fecha_transaccion = datetime.strptime(result["fecha_transaccion"], "%Y-%m-%d")
-    except (InvalidOperation, ValueError, KeyError):
+    except (ValueError, KeyError):
         return None
 
     return ExtractedTransfer(
-        monto=monto,
+        monto=_parse_monto(result.get("monto")),
         fecha_transaccion=fecha_transaccion,
         numero_operacion=str(result["numero_operacion"]),
         banco_emisor=result.get("banco_emisor"),
