@@ -3,13 +3,14 @@ import io
 import unicodedata
 from dataclasses import dataclass
 from datetime import datetime
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 
 from openpyxl import load_workbook
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .models import ImportedStatement, Movement, RecordState, ReconciliationState, StatementLine, StatementLineState
+from .numeros import parse_monto_ar
 
 DEFAULT_TOLERANCE_DIAS = 1
 
@@ -72,18 +73,10 @@ def _parse_fecha(raw: str) -> datetime:
 
 
 def _parse_monto(raw: str) -> Decimal:
-    text = str(raw).strip().replace("$", "").replace(" ", "")
-    if "," in text and "." in text:
-        if text.rindex(",") > text.rindex("."):
-            text = text.replace(".", "").replace(",", ".")
-        else:
-            text = text.replace(",", "")
-    elif "," in text:
-        text = text.replace(",", ".")
     try:
-        return Decimal(text)
-    except InvalidOperation as exc:
-        raise StatementParseError(f"No se pudo interpretar el monto '{raw}'.") from exc
+        return parse_monto_ar(raw)
+    except ValueError as exc:
+        raise StatementParseError(str(exc)) from exc
 
 
 def _cell_or_none(row: list, index: int | None) -> str | None:

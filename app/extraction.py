@@ -1,6 +1,6 @@
 import base64
 from datetime import datetime
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 from functools import lru_cache
 from pathlib import Path
 
@@ -8,6 +8,7 @@ from anthropic import Anthropic
 
 from .config import get_settings
 from .conversation import ExtractedTransfer
+from .numeros import parse_monto_ar
 
 HAIKU_MODEL = "claude-haiku-4-5-20251001"
 SONNET_MODEL = "claude-sonnet-5"
@@ -23,7 +24,7 @@ _FEW_SHOT_EXAMPLES = [
         "archivo": "mercadopago_sin_numero_operacion.jpg",
         "media_type": "image/jpeg",
         "salida_esperada": {
-            "monto": 8750,
+            "monto": "8750",
             "fecha_transaccion": "2026-03-12",
             "numero_operacion": None,
             "banco_emisor": "Mercado Pago",
@@ -68,7 +69,16 @@ def _build_tool(cuentas_validas: list[tuple[str, str]]) -> dict:
         "input_schema": {
             "type": "object",
             "properties": {
-                "monto": {"type": ["number", "null"], "description": "Monto de la transferencia"},
+                "monto": {
+                    "type": ["string", "null"],
+                    "description": (
+                        "Monto de la transferencia, transcribido EXACTAMENTE como figura en el comprobante, con "
+                        "los mismos separadores de miles/decimales que muestra la imagen -- no lo conviertas a "
+                        "otro formato ni hagas la cuenta vos. Ejemplos: si el comprobante muestra '58.316,00' "
+                        "devolve '58.316,00'; si muestra '58.316' (sin coma) devolve '58.316' tal cual, no lo "
+                        "escribas como 58316 ni asumas que son decimales."
+                    ),
+                },
                 "fecha_transaccion": {
                     "type": ["string", "null"],
                     "description": (
@@ -212,8 +222,8 @@ def _parse_monto(valor: object) -> Decimal | None:
     if valor is None:
         return None
     try:
-        return Decimal(str(valor))
-    except InvalidOperation:
+        return parse_monto_ar(valor)
+    except ValueError:
         return None
 
 
