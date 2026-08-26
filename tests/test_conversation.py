@@ -128,6 +128,29 @@ def test_postgres_urls_use_psycopg_driver():
     assert _engine_url("postgresql://user:pass@localhost/db") == "postgresql+psycopg://user:pass@localhost/db"
 
 
+def test_needs_confirmation_keyboard_tracks_si_no_steps():
+    db = session()
+    db.add(Operator(nombre="Ana", whatsapp_numero="5491112345678"))
+    _con_cuenta_registrada(db)
+    service = ConversationService(db)
+    numero = "5491112345678"
+
+    assert service.needs_confirmation_keyboard(numero) is False
+
+    transfer = ExtractedTransfer(Decimal("500"), datetime(2026, 8, 21), "OP-1", cuenta_receptora="empresa.mp")
+    service.start_transfer(numero, transfer)
+    assert service.needs_confirmation_keyboard(numero) is True
+
+    service.handle_text(numero, "SI")
+    assert service.needs_confirmation_keyboard(numero) is False  # esperando texto de cuenta/factura
+
+    service.handle_text(numero, "FAC-9")
+    assert service.needs_confirmation_keyboard(numero) is True
+
+    service.handle_text(numero, "OK")
+    assert service.needs_confirmation_keyboard(numero) is False
+
+
 def test_pending_prompt_is_none_when_no_draft_in_progress():
     db = session()
     db.add(Operator(nombre="Ana", whatsapp_numero="5491112345678"))

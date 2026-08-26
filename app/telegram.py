@@ -24,6 +24,10 @@ CONTACT_REQUEST_MARKUP = {
     "one_time_keyboard": True,
 }
 
+SI_NO_MARKUP = {
+    "inline_keyboard": [[{"text": "Si", "callback_data": "si"}, {"text": "No", "callback_data": "no"}]]
+}
+
 PEDIR_TELEFONO_TEXTO = "Para registrar comprobantes primero compartinos tu numero de telefono con el boton de abajo."
 NUMERO_NO_HABILITADO_TEXTO = "Tu numero no esta habilitado. Contacta al administrador para que te registre."
 NUMERO_VINCULADO_TEXTO = "Numero vinculado correctamente. Ya podes enviar tus comprobantes."
@@ -50,6 +54,13 @@ async def send_telegram_message(chat_id: str, text: str, reply_markup: dict | No
     if reply_markup is not None:
         payload["reply_markup"] = reply_markup
     response = await _get_http_client().post(_api_url("sendMessage"), json=payload)
+    response.raise_for_status()
+
+
+async def _answer_callback_query(callback_query_id: str) -> None:
+    response = await _get_http_client().post(
+        _api_url("answerCallbackQuery"), json={"callback_query_id": callback_query_id}
+    )
     response.raise_for_status()
 
 
@@ -136,6 +147,21 @@ async def receive_telegram_update(
         raise HTTPException(status_code=403, detail="Token de webhook invalido")
 
     update: dict[str, Any] = await request.json()
+
+    callback_query = update.get("callback_query")
+    if callback_query is not None:
+        chat_id = str(callback_query["message"]["chat"]["id"])
+        await _answer_callback_query(callback_query["id"])
+        numero = await _resolve_operator_numero(chat_id, callback_query)
+        if numero is None:
+            return {"status": "ignored"}
+        with SessionLocal() as session:
+            service = ConversationService(session)
+            reply = service.handle_text(numero, callback_query.get("data", ""))
+            markup = SI_NO_MARKUP if service.needs_confirmation_keyboard(numero) else None
+        await send_telegram_message(chat_id, reply, reply_markup=markup)
+        return {"status": "accepted"}
+
     message = update.get("message")
     if message is None:
         return {"status": "ignored"}
@@ -148,14 +174,18 @@ async def receive_telegram_update(
 
     if "text" in message:
         with SessionLocal() as session:
-            reply = ConversationService(session).handle_text(numero, message["text"])
-        await send_telegram_message(chat_id, reply)
+            service = ConversationService(session)
+            reply = service.handle_text(numero, message["text"])
+            markup = SI_NO_MARKUP if service.needs_confirmation_keyboard(numero) else None
+        await send_telegram_message(chat_id, reply, reply_markup=markup)
         return {"status": "accepted"}
 
     with SessionLocal() as session:
-        pendiente = ConversationService(session).pending_prompt(numero)
+        service = ConversationService(session)
+        pendiente = service.pending_prompt(numero)
+        markup = SI_NO_MARKUP if service.needs_confirmation_keyboard(numero) else None
     if pendiente is not None:
-        await send_telegram_message(chat_id, pendiente)
+        await send_telegram_message(chat_id, pendiente, reply_markup=markup)
         return {"status": "ignored"}
 
     file_id = None
@@ -197,6 +227,8 @@ async def receive_telegram_update(
         logging.exception("No se pudo guardar el archivo del comprobante; se continua sin bloquear el registro.")
 
     with SessionLocal() as session:
-        reply = ConversationService(session).start_transfer(numero, transfer, archivo_id)
-    await send_telegram_message(chat_id, reply)
+        service = ConversationService(session)
+        reply = service.start_transfer(numero, transfer, archivo_id)
+        markup = SI_NO_MARKUP if service.needs_confirmation_keyboard(numero) else None
+    await send_telegram_message(chat_id, reply, reply_markup=markup)
     return {"status": "accepted"}

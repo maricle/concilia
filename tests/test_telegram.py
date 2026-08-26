@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from app import telegram
 from app.config import Settings
-from app.conversation import ExtractedTransfer
+from app.conversation import ConversationService, ExtractedTransfer
 from app.db import Base, SessionLocal, engine
 from app.main import app
 from app.models import BankAccount, Movement, Operator
@@ -262,6 +262,48 @@ def test_sharing_contact_with_unmatched_phone_is_rejected(monkeypatch):
 
     assert response.status_code == 200
     assert sent == [("555", telegram.NUMERO_NO_HABILITADO_TEXTO, telegram.CONTACT_REQUEST_MARKUP)]
+
+
+def test_callback_query_confirms_pending_draft_like_typing_si(monkeypatch):
+    _register_operator("999", telegram_chat_id="999")
+    _clean_movement("OP-BOTON")
+    with SessionLocal() as session:
+        if session.scalar(select(BankAccount).where(BankAccount.alias == "empresa.mp")) is None:
+            session.add(BankAccount(banco="Mercado Pago", numero_cuenta="1", alias="empresa.mp"))
+            session.commit()
+
+    sent: list[tuple[str, str, dict | None]] = []
+    answered: list[str] = []
+
+    async def fake_send(chat_id: str, text: str, reply_markup: dict | None = None) -> None:
+        sent.append((chat_id, text, reply_markup))
+
+    async def fake_answer(callback_query_id: str) -> None:
+        answered.append(callback_query_id)
+
+    monkeypatch.setattr(telegram, "send_telegram_message", fake_send)
+    monkeypatch.setattr(telegram, "_answer_callback_query", fake_answer)
+
+    with SessionLocal() as session:
+        ConversationService(session).start_transfer(
+            "999",
+            ExtractedTransfer(Decimal("100.00"), datetime(2026, 8, 24), "OP-BOTON", cuenta_receptora="empresa.mp"),
+        )
+
+    response = client.post(
+        "/telegram/webhook",
+        json={
+            "callback_query": {
+                "id": "cbq1",
+                "data": "si",
+                "message": {"chat": {"id": 999}},
+            }
+        },
+    )
+
+    assert response.status_code == 200
+    assert answered == ["cbq1"]
+    assert sent == [("999", "Indica el numero de cuenta o factura del cliente asociado a este pago.", None)]
 
 
 def test_already_linked_chat_skips_phone_request(monkeypatch):

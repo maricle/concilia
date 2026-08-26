@@ -106,6 +106,16 @@ class ConversationService:
 
         return "Envia una imagen o PDF del comprobante de transferencia."
 
+    def needs_confirmation_keyboard(self, number: str) -> bool:
+        """True si el operador esta en un paso de SI/NO (confirmar datos o registrar
+        definitivamente), para que el canal le muestre botones en vez de pedirle que
+        escriba la respuesta."""
+        conversation = self.session.get(WhatsAppConversation, number)
+        return conversation is not None and conversation.estado in {
+            ConversationState.ESPERANDO_CONFIRMACION_DATOS,
+            ConversationState.ESPERANDO_CONFIRMACION_FINAL,
+        }
+
     def pending_prompt(self, number: str) -> str | None:
         """Si el operador ya tiene un comprobante sin cerrar, devuelve el mensaje que
         corresponde re-mostrarle en vez de arrancar uno nuevo (para no dejar el
