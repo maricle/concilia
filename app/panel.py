@@ -7,7 +7,7 @@ from typing import TypeVar
 from fastapi import APIRouter, Depends, Form, Request, UploadFile
 from fastapi.responses import RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import DeclarativeBase, InstrumentedAttribute, Session, selectinload
 
 from .auth import verify_password
@@ -362,14 +362,72 @@ def resumen_exportar(
 
 
 @router.get("/comprobantes")
-def list_movimientos(request: Request, db: Session = Depends(get_db), user: PanelUser = Depends(require_user)):
-    movimientos = db.scalars(
+def list_movimientos(
+    request: Request,
+    banco: str = "",
+    estado_conciliacion: str = "",
+    operador_id: str = "",
+    fecha_transaccion_desde: str = "",
+    fecha_transaccion_hasta: str = "",
+    fecha_subida_desde: str = "",
+    fecha_subida_hasta: str = "",
+    q: str = "",
+    db: Session = Depends(get_db),
+    user: PanelUser = Depends(require_user),
+):
+    query = (
         select(Movement)
         .where(Movement.estado_registro == RecordState.CONFIRMADO)
         .options(selectinload(Movement.operador), selectinload(Movement.cuenta_bancaria))
-        .order_by(Movement.fecha_subida.desc())
-    ).all()
-    return templates.TemplateResponse(request, "movimientos.html", {"user": user, "movimientos": movimientos})
+    )
+    if banco:
+        query = query.where(Movement.cuenta_bancaria_id == int(banco))
+    if estado_conciliacion:
+        query = query.where(Movement.estado_conciliacion == ReconciliationState(estado_conciliacion))
+    if operador_id:
+        query = query.where(Movement.operador_id == int(operador_id))
+    if fecha_transaccion_desde:
+        query = query.where(Movement.fecha_transaccion >= datetime.strptime(fecha_transaccion_desde, "%Y-%m-%d"))
+    if fecha_transaccion_hasta:
+        query = query.where(
+            Movement.fecha_transaccion < datetime.strptime(fecha_transaccion_hasta, "%Y-%m-%d") + timedelta(days=1)
+        )
+    if fecha_subida_desde:
+        query = query.where(Movement.fecha_subida >= datetime.strptime(fecha_subida_desde, "%Y-%m-%d"))
+    if fecha_subida_hasta:
+        query = query.where(Movement.fecha_subida < datetime.strptime(fecha_subida_hasta, "%Y-%m-%d") + timedelta(days=1))
+    if q.strip():
+        needle = f"%{q.strip()}%"
+        query = query.where(
+            or_(
+                Movement.numero_operacion.ilike(needle),
+                Movement.factura_o_cuenta_numero.ilike(needle),
+                Movement.titular.ilike(needle),
+                Movement.banco_emisor.ilike(needle),
+            )
+        )
+    movimientos = db.scalars(query.order_by(Movement.fecha_subida.desc())).all()
+    cuentas = db.scalars(select(BankAccount).order_by(BankAccount.id)).all()
+    operadores = db.scalars(select(Operator).order_by(Operator.nombre)).all()
+
+    return templates.TemplateResponse(
+        request,
+        "movimientos.html",
+        {
+            "user": user,
+            "movimientos": movimientos,
+            "cuentas": cuentas,
+            "operadores": operadores,
+            "banco": banco,
+            "estado_conciliacion": estado_conciliacion,
+            "operador_id": operador_id,
+            "fecha_transaccion_desde": fecha_transaccion_desde,
+            "fecha_transaccion_hasta": fecha_transaccion_hasta,
+            "fecha_subida_desde": fecha_subida_desde,
+            "fecha_subida_hasta": fecha_subida_hasta,
+            "q": q,
+        },
+    )
 
 
 @router.get("/comprobantes/{movimiento_id}/archivo")
@@ -474,36 +532,50 @@ def _conteos_por_resumen(db: Session) -> dict[int, dict[str, int]]:
     return conteos
 
 
-def _conciliaciones_context(db: Session, user: PanelUser, error: str | None) -> dict:
+def _conciliaciones_context(db: Session, user: PanelUser, error: str | None, resumen_id: str = "") -> dict:
     cuentas = db.scalars(select(BankAccount).order_by(BankAccount.id)).all()
-    movimientos_pendientes = db.scalars(
-        select(Movement)
-        .where(
-            Movement.estado_registro == RecordState.CONFIRMADO,
-            Movement.estado_conciliacion.in_([ReconciliationState.PENDIENTE, ReconciliationState.CON_DIFERENCIA]),
-        )
-        .options(selectinload(Movement.operador))
-        .order_by(Movement.fecha_transaccion)
-    ).all()
-    lineas_pendientes = db.scalars(
-        select(StatementLine)
-        .where(StatementLine.estado == StatementLineState.PENDIENTE)
-        .options(selectinload(StatementLine.resumen).selectinload(ImportedStatement.cuenta_bancaria))
-        .order_by(StatementLine.fecha)
-    ).all()
-    lineas_conciliadas = db.scalars(
-        select(StatementLine)
-        .where(StatementLine.estado == StatementLineState.CONCILIADA)
-        .options(
-            selectinload(StatementLine.resumen).selectinload(ImportedStatement.cuenta_bancaria),
-            selectinload(StatementLine.movimiento).selectinload(Movement.operador),
-        )
-        .order_by(StatementLine.fecha.desc())
-    ).all()
     resumenes = db.scalars(
         select(ImportedStatement)
         .options(selectinload(ImportedStatement.cuenta_bancaria))
         .order_by(ImportedStatement.fecha_importacion.desc())
+    ).all()
+
+    resumen_seleccionado = None
+    if resumen_id:
+        resumen_seleccionado = next((r for r in resumenes if r.id == int(resumen_id)), None)
+
+    movimientos_query = select(Movement).where(
+        Movement.estado_registro == RecordState.CONFIRMADO,
+        Movement.estado_conciliacion.in_([ReconciliationState.PENDIENTE, ReconciliationState.CON_DIFERENCIA]),
+    )
+    lineas_pendientes_query = select(StatementLine).where(StatementLine.estado == StatementLineState.PENDIENTE)
+    lineas_conciliadas_query = select(StatementLine).where(StatementLine.estado == StatementLineState.CONCILIADA)
+
+    if resumen_seleccionado is not None:
+        # Un Movement no se asocia a una cuenta hasta que se concilia (ver
+        # reconciliation.py), asi que "movimientos que podrian pertenecer a este
+        # resumen" son los que ya quedaron pegados a su cuenta o todavia no tienen
+        # ninguna -- mismo criterio que usa el motor de matching automatico.
+        movimientos_query = movimientos_query.where(
+            (Movement.cuenta_bancaria_id.is_(None))
+            | (Movement.cuenta_bancaria_id == resumen_seleccionado.cuenta_bancaria_id)
+        )
+        lineas_pendientes_query = lineas_pendientes_query.where(StatementLine.resumen_id == resumen_seleccionado.id)
+        lineas_conciliadas_query = lineas_conciliadas_query.where(StatementLine.resumen_id == resumen_seleccionado.id)
+
+    movimientos_pendientes = db.scalars(
+        movimientos_query.options(selectinload(Movement.operador)).order_by(Movement.fecha_transaccion)
+    ).all()
+    lineas_pendientes = db.scalars(
+        lineas_pendientes_query.options(
+            selectinload(StatementLine.resumen).selectinload(ImportedStatement.cuenta_bancaria)
+        ).order_by(StatementLine.fecha)
+    ).all()
+    lineas_conciliadas = db.scalars(
+        lineas_conciliadas_query.options(
+            selectinload(StatementLine.resumen).selectinload(ImportedStatement.cuenta_bancaria),
+            selectinload(StatementLine.movimiento).selectinload(Movement.operador),
+        ).order_by(StatementLine.fecha.desc())
     ).all()
     return {
         "user": user,
@@ -513,14 +585,18 @@ def _conciliaciones_context(db: Session, user: PanelUser, error: str | None) -> 
         "lineas_conciliadas": lineas_conciliadas,
         "resumenes": resumenes,
         "conteos_por_resumen": _conteos_por_resumen(db),
+        "resumen_id": resumen_id,
+        "resumen_seleccionado": resumen_seleccionado,
         "error": error,
     }
 
 
 @router.get("/conciliaciones")
-def conciliaciones(request: Request, db: Session = Depends(get_db), user: PanelUser = Depends(require_user)):
+def conciliaciones(
+    request: Request, resumen_id: str = "", db: Session = Depends(get_db), user: PanelUser = Depends(require_user)
+):
     return templates.TemplateResponse(
-        request, "conciliaciones.html", _conciliaciones_context(db, user, None)
+        request, "conciliaciones.html", _conciliaciones_context(db, user, None, resumen_id)
     )
 
 
@@ -573,6 +649,7 @@ def emparejar_linea(
     linea_id: int,
     request: Request,
     movimiento_id: int = Form(...),
+    resumen_id: str = Form(""),
     db: Session = Depends(get_db),
     user: PanelUser = Depends(require_user),
 ):
@@ -585,15 +662,21 @@ def emparejar_linea(
         if movimiento.cuenta_bancaria_id is None:
             movimiento.cuenta_bancaria_id = linea.resumen.cuenta_bancaria_id
         db.commit()
-    return RedirectResponse("/conciliaciones", status_code=303)
+    destino = f"/conciliaciones?resumen_id={resumen_id}" if resumen_id else "/conciliaciones"
+    return RedirectResponse(destino, status_code=303)
 
 
 @router.post("/conciliaciones/lineas/{linea_id}/no-corresponde")
 def marcar_linea_no_corresponde(
-    linea_id: int, request: Request, db: Session = Depends(get_db), user: PanelUser = Depends(require_user)
+    linea_id: int,
+    request: Request,
+    resumen_id: str = Form(""),
+    db: Session = Depends(get_db),
+    user: PanelUser = Depends(require_user),
 ):
     linea = db.get(StatementLine, linea_id)
     if linea is not None:
         linea.estado = StatementLineState.NO_CORRESPONDE
         db.commit()
-    return RedirectResponse("/conciliaciones", status_code=303)
+    destino = f"/conciliaciones?resumen_id={resumen_id}" if resumen_id else "/conciliaciones"
+    return RedirectResponse(destino, status_code=303)

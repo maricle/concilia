@@ -5,6 +5,70 @@
 
 <div class="card shadow mb-4">
   <div class="card-header py-3">
+    <h6 class="m-0 font-weight-bold text-primary">Filtros</h6>
+  </div>
+  <div class="card-body">
+    <form method="get" action="/comprobantes">
+      <div class="form-row align-items-end">
+        <div class="form-group col-md-3">
+          <label>Banco</label>
+          <select class="form-control" name="banco">
+            <option value="">Todos</option>
+            {% for cuenta in cuentas %}
+            <option value="{{ cuenta.id }}" {{ "selected" if banco == cuenta.id|string }}>{{ cuenta.alias }} ({{ cuenta.banco }})</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-group col-md-3">
+          <label>Estado de conciliacion</label>
+          <select class="form-control" name="estado_conciliacion">
+            <option value="">Todos</option>
+            <option value="pendiente" {{ "selected" if estado_conciliacion == "pendiente" }}>Pendiente</option>
+            <option value="conciliado" {{ "selected" if estado_conciliacion == "conciliado" }}>Conciliado</option>
+            <option value="conciliado_manualmente" {{ "selected" if estado_conciliacion == "conciliado_manualmente" }}>Conciliado manualmente</option>
+            <option value="con_diferencia" {{ "selected" if estado_conciliacion == "con_diferencia" }}>Con diferencia</option>
+          </select>
+        </div>
+        <div class="form-group col-md-3">
+          <label>Vendedor</label>
+          <select class="form-control" name="operador_id">
+            <option value="">Todos</option>
+            {% for operador in operadores %}
+            <option value="{{ operador.id }}" {{ "selected" if operador_id == operador.id|string }}>{{ operador.nombre }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-group col-md-3">
+          <label>Busqueda libre</label>
+          <input type="text" class="form-control" name="q" value="{{ q }}" placeholder="N. operacion, factura/cuenta, titular, banco...">
+        </div>
+      </div>
+      <div class="form-row align-items-end">
+        <div class="form-group col-md-3">
+          <label>Fecha transaccion desde</label>
+          <input type="date" class="form-control" name="fecha_transaccion_desde" value="{{ fecha_transaccion_desde }}">
+        </div>
+        <div class="form-group col-md-3">
+          <label>Fecha transaccion hasta</label>
+          <input type="date" class="form-control" name="fecha_transaccion_hasta" value="{{ fecha_transaccion_hasta }}">
+        </div>
+        <div class="form-group col-md-3">
+          <label>Fecha subida desde</label>
+          <input type="date" class="form-control" name="fecha_subida_desde" value="{{ fecha_subida_desde }}">
+        </div>
+        <div class="form-group col-md-3">
+          <label>Fecha subida hasta</label>
+          <input type="date" class="form-control" name="fecha_subida_hasta" value="{{ fecha_subida_hasta }}">
+        </div>
+      </div>
+      <button type="submit" class="btn btn-primary">Filtrar</button>
+      <a href="/comprobantes" class="btn btn-outline-secondary">Limpiar</a>
+    </form>
+  </div>
+</div>
+
+<div class="card shadow mb-4">
+  <div class="card-header py-3">
     <h6 class="m-0 font-weight-bold text-primary">Movimientos confirmados</h6>
   </div>
   <div class="card-body">
