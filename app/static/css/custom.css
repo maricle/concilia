@@ -57,10 +57,13 @@ a { color: var(--accent-strong); }
 .text-primary { color: var(--accent-strong) !important; }
 
 /* ---------- SIDEBAR ---------- */
+/* El ancho NO se fuerza con !important a proposito: sb-admin-2 ya trae el
+   toggle para plegar el sidebar (boton #sidebarToggle / #sidebarToggleTop,
+   clase .sidebar.toggled) y necesita poder angostarlo el mismo. */
 .sidebar {
   background: var(--sidebar-bg) !important;
-  width: 232px !important;
 }
+.sidebar.toggled .sidebar-footer { display: none; }
 .sidebar .sidebar-brand { color: #fff; font-family: "Inter Tight", "Inter", sans-serif; font-weight: 800; }
 .sidebar .nav-item .nav-link { color: var(--sidebar-text); font-size: 13.5px; font-weight: 500; }
 .sidebar .nav-item .nav-link:hover { color: #d7d8e6; }

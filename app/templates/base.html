@@ -41,6 +41,9 @@
       <a class="nav-link" href="/config/cuentas"><i class="fas fa-fw fa-piggy-bank"></i><span>Cuentas bancarias</span></a>
     </li>
     <hr class="sidebar-divider d-none d-md-block">
+    <div class="text-center d-none d-md-inline">
+      <button class="rounded-circle border-0" id="sidebarToggle" title="Plegar/expandir menu"></button>
+    </div>
     <li class="sidebar-footer">
       <div class="txt">Desarrollado por</div>
       <div class="logo-chip"><img src="/static/img/kleba-logo.png" alt="Kleba Dev"></div>
@@ -49,6 +52,9 @@
   <div id="content-wrapper" class="d-flex flex-column">
     <div id="content">
       <nav class="navbar navbar-expand navbar-light bg-white topbar mb-4 static-top shadow">
+        <button id="sidebarToggleTop" class="btn btn-link d-md-none rounded-circle mr-3">
+          <i class="fa fa-bars"></i>
+        </button>
         <ul class="navbar-nav ml-auto align-items-center">
           <li class="nav-item mr-3 text-gray-600 small">{{ user.nombre }}</li>
           <li class="nav-item">
