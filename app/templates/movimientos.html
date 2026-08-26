@@ -84,7 +84,7 @@
             <th>Banco emisor</th>
             <th>Titular / Emisor</th>
             <th>N. operacion</th>
-            <th>Monto</th>
+            <th class="num">Monto</th>
             <th>Vendedor</th>
             <th>Conciliacion</th>
             <th></th>
@@ -101,7 +101,7 @@
             <td>{{ movimiento.banco_emisor or "-" }}</td>
             <td>{{ movimiento.titular or "-" }}</td>
             <td>{{ movimiento.numero_operacion or "-" }}</td>
-            <td>{{ "$" + movimiento.monto|string if movimiento.monto is not none else "-" }}</td>
+            <td class="num">{{ "$" + movimiento.monto|string if movimiento.monto is not none else "-" }}</td>
             <td>{{ movimiento.operador.nombre }}</td>
             <td>
               {% if movimiento.estado_conciliacion.value == "pendiente" %}

@@ -31,44 +31,55 @@
   </div>
 </form>
 
-<div class="row">
-  <div class="col-xl-4 col-md-6 mb-4">
-    <div class="card border-left-primary shadow h-100 py-2">
-      <div class="card-body">
-        <div class="row no-gutters align-items-center">
-          <div class="col mr-2">
-            <div class="text-xs font-weight-bold text-primary text-uppercase mb-1">Vendedores</div>
-            <div class="h5 mb-0 font-weight-bold text-gray-800">{{ cantidad_vendedores }}</div>
-          </div>
-          <div class="col-auto"><i class="fas fa-users fa-2x text-gray-300"></i></div>
-        </div>
+<div class="row kpi-row">
+  <div class="col-xl col-md-4 col-6 mb-4">
+    <div class="kpi-card">
+      <div class="kpi-top">
+        <span class="kpi-label">Comprobantes</span>
+        <span class="kpi-icon acc"><i class="fas fa-file-invoice-dollar"></i></span>
       </div>
+      <div class="kpi-value">{{ cantidad_comprobantes }}</div>
+      <div class="kpi-foot">en el periodo filtrado</div>
     </div>
   </div>
-  <div class="col-xl-4 col-md-6 mb-4">
-    <div class="card border-left-success shadow h-100 py-2">
-      <div class="card-body">
-        <div class="row no-gutters align-items-center">
-          <div class="col mr-2">
-            <div class="text-xs font-weight-bold text-success text-uppercase mb-1">Monto total</div>
-            <div class="h5 mb-0 font-weight-bold text-gray-800">${{ "%.2f"|format(monto_total) }}</div>
-          </div>
-          <div class="col-auto"><i class="fas fa-dollar-sign fa-2x text-gray-300"></i></div>
-        </div>
+  <div class="col-xl col-md-4 col-6 mb-4">
+    <div class="kpi-card">
+      <div class="kpi-top">
+        <span class="kpi-label">Monto total</span>
+        <span class="kpi-icon acc"><i class="fas fa-dollar-sign"></i></span>
       </div>
+      <div class="kpi-value">${{ "%.2f"|format(monto_total) }}</div>
+      <div class="kpi-foot">{{ cantidad_vendedores }} vendedor{{ "es" if cantidad_vendedores != 1 }}</div>
     </div>
   </div>
-  <div class="col-xl-4 col-md-6 mb-4">
-    <div class="card border-left-info shadow h-100 py-2">
-      <div class="card-body">
-        <div class="row no-gutters align-items-center">
-          <div class="col mr-2">
-            <div class="text-xs font-weight-bold text-info text-uppercase mb-1">Comprobantes</div>
-            <div class="h5 mb-0 font-weight-bold text-gray-800">{{ cantidad_comprobantes }}</div>
-          </div>
-          <div class="col-auto"><i class="fas fa-file-invoice-dollar fa-2x text-gray-300"></i></div>
-        </div>
+  <div class="col-xl col-md-4 col-6 mb-4">
+    <div class="kpi-card">
+      <div class="kpi-top">
+        <span class="kpi-label">Conciliados</span>
+        <span class="kpi-icon good"><i class="fas fa-check"></i></span>
       </div>
+      <div class="kpi-value">{{ conciliados }}</div>
+      <div class="kpi-foot">{{ "%.1f"|format(conciliados / cantidad_comprobantes * 100) if cantidad_comprobantes else "0,0" }}% del total</div>
+    </div>
+  </div>
+  <div class="col-xl col-md-4 col-6 mb-4">
+    <div class="kpi-card">
+      <div class="kpi-top">
+        <span class="kpi-label">Pendientes</span>
+        <span class="kpi-icon warn"><i class="fas fa-hourglass-half"></i></span>
+      </div>
+      <div class="kpi-value">{{ pendientes }}</div>
+      <div class="kpi-foot">{{ "%.1f"|format(pendientes / cantidad_comprobantes * 100) if cantidad_comprobantes else "0,0" }}% del total — a revisar</div>
+    </div>
+  </div>
+  <div class="col-xl col-md-4 col-6 mb-4">
+    <div class="kpi-card">
+      <div class="kpi-top">
+        <span class="kpi-label">Con diferencia</span>
+        <span class="kpi-icon bad"><i class="fas fa-exclamation"></i></span>
+      </div>
+      <div class="kpi-value">{{ diferencia }}</div>
+      <div class="kpi-foot">{{ "%.1f"|format(diferencia / cantidad_comprobantes * 100) if cantidad_comprobantes else "0,0" }}% del total — prioridad alta</div>
     </div>
   </div>
 </div>
@@ -82,8 +93,8 @@
       <table class="table table-bordered table-sm small mb-0" width="100%" cellspacing="0">
         <thead>
           <tr>
-            <th>Vendedor</th><th>Telefono</th><th>Tipo</th><th>Total</th>
-            <th>Comprobantes</th><th>Conciliados con el banco</th><th>Pendientes de conciliar</th>
+            <th>Vendedor</th><th>Telefono</th><th>Tipo</th><th class="num">Total</th>
+            <th class="num">Comprobantes</th><th class="num">Pendientes</th><th class="num">Diferencia</th><th>% Conciliado</th>
           </tr>
         </thead>
         <tbody>
@@ -92,13 +103,19 @@
             <td>{{ fila.operador.nombre }}</td>
             <td>{{ fila.operador.whatsapp_numero }}</td>
             <td>{{ fila.operador.tipo }}</td>
-            <td>${{ "%.2f"|format(fila.total) }}</td>
-            <td>{{ fila.cantidad }}</td>
-            <td>{{ fila.conciliados }}</td>
-            <td>{{ fila.pendientes }}</td>
+            <td class="num">${{ "%.2f"|format(fila.total) }}</td>
+            <td class="num">{{ fila.cantidad }}</td>
+            <td class="num">{{ fila.pendientes }}</td>
+            <td class="num">{{ fila.diferencia }}</td>
+            <td>
+              <div class="conc-cell">
+                <div class="bar-track"><div class="bar-fill {{ "good" if fila.pct_conciliado >= 90 else "warn" if fila.pct_conciliado >= 75 else "bad" }}" style="width: {{ fila.pct_conciliado }}%;"></div></div>
+                <span class="conc-pct">{{ fila.pct_conciliado }}%</span>
+              </div>
+            </td>
           </tr>
           {% else %}
-          <tr><td colspan="7">No hay comprobantes que coincidan con los filtros.</td></tr>
+          <tr><td colspan="8">No hay comprobantes que coincidan con los filtros.</td></tr>
           {% endfor %}
         </tbody>
       </table>

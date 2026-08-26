@@ -113,14 +113,14 @@
     <div class="table-responsive">
       <table class="table table-bordered table-sm small mb-0" width="100%" cellspacing="0">
         <thead>
-          <tr><th>Fecha transaccion</th><th>N. operacion</th><th>Monto</th><th>Vendedor</th><th>Estado</th></tr>
+          <tr><th>Fecha transaccion</th><th>N. operacion</th><th class="num">Monto</th><th>Vendedor</th><th>Estado</th></tr>
         </thead>
         <tbody>
           {% for movimiento in movimientos_pendientes %}
           <tr>
             <td>{{ movimiento.fecha_transaccion.strftime("%Y-%m-%d") if movimiento.fecha_transaccion else "-" }}</td>
             <td>{{ movimiento.numero_operacion or "-" }}</td>
-            <td>{{ "$" + movimiento.monto|string if movimiento.monto is not none else "-" }}</td>
+            <td class="num">{{ "$" + movimiento.monto|string if movimiento.monto is not none else "-" }}</td>
             <td>{{ movimiento.operador.nombre }}</td>
             <td>
               {% if movimiento.estado_conciliacion.value == "pendiente" %}
@@ -149,13 +149,13 @@
     <div class="table-responsive">
       <table class="table table-bordered table-sm small mb-0" width="100%" cellspacing="0">
         <thead>
-          <tr><th>Fecha</th><th>Monto</th><th>Referencia</th><th>Movimiento vinculado</th><th>Vendedor</th><th>Estado</th></tr>
+          <tr><th>Fecha</th><th class="num">Monto</th><th>Referencia</th><th>Movimiento vinculado</th><th>Vendedor</th><th>Estado</th></tr>
         </thead>
         <tbody>
           {% for linea in lineas_conciliadas %}
           <tr>
             <td>{{ linea.fecha.strftime("%Y-%m-%d") }}</td>
-            <td>${{ linea.monto }}</td>
+            <td class="num">${{ linea.monto }}</td>
             <td>{{ linea.referencia or "-" }}</td>
             <td>{{ (linea.movimiento.numero_operacion or "-") if linea.movimiento else "-" }}</td>
             <td>{{ linea.movimiento.operador.nombre if linea.movimiento else "-" }}</td>
@@ -184,13 +184,13 @@
     <div class="table-responsive">
       <table class="table table-bordered table-sm small mb-0" width="100%" cellspacing="0">
         <thead>
-          <tr><th>Fecha</th><th>Monto</th><th>Descripcion</th><th>Referencia</th><th>Cuenta</th><th>Emparejar</th><th></th></tr>
+          <tr><th>Fecha</th><th class="num">Monto</th><th>Descripcion</th><th>Referencia</th><th>Cuenta</th><th>Emparejar</th><th></th></tr>
         </thead>
         <tbody>
           {% for linea in lineas_pendientes %}
           <tr>
             <td>{{ linea.fecha.strftime("%Y-%m-%d") }}</td>
-            <td>${{ linea.monto }}</td>
+            <td class="num">${{ linea.monto }}</td>
             <td>{{ linea.descripcion or "-" }}</td>
             <td>{{ linea.referencia or "-" }}</td>
             <td>{{ linea.resumen.cuenta_bancaria.alias }}</td>

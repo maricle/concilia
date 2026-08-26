@@ -6,25 +6,12 @@
 <title>{% block title %}Concilia{% endblock %}</title>
 <link href="https://cdn.jsdelivr.net/gh/StartBootstrap/startbootstrap-sb-admin-2@4.1.4/vendor/fontawesome-free/css/all.min.css" rel="stylesheet">
 <link href="https://cdn.jsdelivr.net/gh/StartBootstrap/startbootstrap-sb-admin-2@4.1.4/css/sb-admin-2.min.css" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Inter+Tight:wght@600;700;800&display=swap" rel="stylesheet">
+<link href="/static/css/custom.css" rel="stylesheet">
 <style>
-  :root { --accent: #4f46e5; }
-  .btn-primary { background-color: var(--accent); border-color: var(--accent); }
-  .btn-primary:hover, .btn-primary:focus, .btn-primary:active { background-color: #4338ca !important; border-color: #4338ca !important; }
-  .text-primary { color: var(--accent) !important; }
-  a { color: var(--accent); }
-  .sidebar { background: linear-gradient(180deg, #1a1d29 10%, #12141d 100%) !important; }
-  .sidebar .nav-item .nav-link { color: rgba(255, 255, 255, .8); }
-  .sidebar .nav-item .nav-link:hover, .sidebar .nav-item.active .nav-link { color: #fff; }
-  .sidebar .sidebar-brand { color: #fff; }
-  .sidebar-divider { border-top: 1px solid rgba(255, 255, 255, .15); }
-  .sidebar-heading { color: rgba(255, 255, 255, .4); }
-  .badge-pill-estado { display: inline-block; padding: .3em .75em; border-radius: 50rem; font-weight: 600; font-size: .75rem; }
-  .badge-pill-pendiente { background-color: #fef9c3; color: #854d0e; }
-  .badge-pill-conciliado { background-color: #dcfce7; color: #15803d; }
-  .badge-pill-diferencia { background-color: #ffedd5; color: #9a3412; }
-  .badge-pill-activo { background-color: #dcfce7; color: #15803d; }
-  .badge-pill-inactivo { background-color: #fee2e2; color: #b91c1c; }
-  .login-wrapper { min-height: 100vh; display: flex; align-items: center; justify-content: center; background: #f8f9fc; }
+  .login-wrapper { min-height: 100vh; display: flex; align-items: center; justify-content: center; background: var(--bg); }
 </style>
 </head>
 <body id="page-top">
@@ -54,6 +41,10 @@
       <a class="nav-link" href="/config/cuentas"><i class="fas fa-fw fa-piggy-bank"></i><span>Cuentas bancarias</span></a>
     </li>
     <hr class="sidebar-divider d-none d-md-block">
+    <li class="sidebar-footer">
+      <div class="txt">Desarrollado por</div>
+      <div class="logo-chip"><img src="/static/img/kleba-logo.png" alt="Kleba Dev"></div>
+    </li>
   </ul>
   <div id="content-wrapper" class="d-flex flex-column">
     <div id="content">

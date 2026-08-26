@@ -280,16 +280,40 @@ def _resumen_por_operador(movimientos: list[Movement]) -> list[dict]:
     for movimiento in movimientos:
         fila = por_operador.setdefault(
             movimiento.operador_id,
-            {"operador": movimiento.operador, "total": Decimal("0"), "cantidad": 0, "conciliados": 0, "pendientes": 0},
+            {
+                "operador": movimiento.operador,
+                "total": Decimal("0"),
+                "cantidad": 0,
+                "conciliados": 0,
+                "pendientes": 0,
+                "diferencia": 0,
+            },
         )
         fila["cantidad"] += 1
         if movimiento.monto is not None:
             fila["total"] += movimiento.monto
         if movimiento.estado_conciliacion in (ReconciliationState.CONCILIADO, ReconciliationState.CONCILIADO_MANUALMENTE):
             fila["conciliados"] += 1
+        elif movimiento.estado_conciliacion == ReconciliationState.CON_DIFERENCIA:
+            fila["diferencia"] += 1
         else:
             fila["pendientes"] += 1
-    return sorted(por_operador.values(), key=lambda f: f["operador"].nombre)
+    filas = sorted(por_operador.values(), key=lambda f: f["operador"].nombre)
+    for fila in filas:
+        fila["pct_conciliado"] = round(fila["conciliados"] / fila["cantidad"] * 100) if fila["cantidad"] else 0
+    return filas
+
+
+def _conteo_conciliacion(movimientos: list[Movement]) -> dict[str, int]:
+    conteo = {"conciliados": 0, "pendientes": 0, "diferencia": 0}
+    for movimiento in movimientos:
+        if movimiento.estado_conciliacion in (ReconciliationState.CONCILIADO, ReconciliationState.CONCILIADO_MANUALMENTE):
+            conteo["conciliados"] += 1
+        elif movimiento.estado_conciliacion == ReconciliationState.CON_DIFERENCIA:
+            conteo["diferencia"] += 1
+        else:
+            conteo["pendientes"] += 1
+    return conteo
 
 
 @router.get("/resumen")
@@ -306,6 +330,7 @@ def resumen(
     movimientos = db.scalars(_resumen_query(vendedor, fecha_desde, fecha_hasta, cuenta_id)).all()
     filas = _resumen_por_operador(movimientos)
     cuentas = db.scalars(select(BankAccount).order_by(BankAccount.id)).all()
+    conteo = _conteo_conciliacion(movimientos)
 
     return templates.TemplateResponse(
         request,
@@ -316,6 +341,9 @@ def resumen(
             "cantidad_vendedores": len(filas),
             "monto_total": sum((f["total"] for f in filas), Decimal("0")),
             "cantidad_comprobantes": len(movimientos),
+            "conciliados": conteo["conciliados"],
+            "pendientes": conteo["pendientes"],
+            "diferencia": conteo["diferencia"],
             "vendedor": vendedor,
             "fecha_desde": fecha_desde,
             "fecha_hasta": fecha_hasta,
@@ -340,7 +368,9 @@ def resumen_exportar(
 
     buffer = io.StringIO()
     writer = csv.writer(buffer)
-    writer.writerow(["Vendedor", "Telefono", "Tipo", "Total", "Comprobantes", "Conciliados con el banco", "Pendientes de conciliar"])
+    writer.writerow(
+        ["Vendedor", "Telefono", "Tipo", "Total", "Comprobantes", "Conciliados con el banco", "Pendientes de conciliar", "Con diferencia"]
+    )
     for fila in filas:
         writer.writerow(
             [
@@ -351,6 +381,7 @@ def resumen_exportar(
                 fila["cantidad"],
                 fila["conciliados"],
                 fila["pendientes"],
+                fila["diferencia"],
             ]
         )
 
