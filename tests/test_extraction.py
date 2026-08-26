@@ -5,7 +5,26 @@ from decimal import Decimal
 import pytest
 
 from app import extraction
-from app.extraction import _build_tool, _es_valor_valido, _has_minimum_fields, extract_transfer
+from app.extraction import _build_tool, _es_numero_operacion_valido, _es_valor_valido, _has_minimum_fields, extract_transfer
+
+
+@pytest.mark.parametrize(
+    "valor,esperado",
+    [
+        ("3D5W612EW7W7V01W2GXYVR", True),
+        ("174085816489", True),
+        ("OP-123", True),
+        (None, False),
+        ("<UNKNOWN>", False),
+        ("Número de operación no visible en el comprobante", False),
+        ("No figura en el comprobante", False),
+        ("0000003100045397444527", False),  # 22 digitos: pinta a CBU/CVU, no a numero de operacion
+        ("12345678901234567890", False),  # 20 digitos, mismo caso limite
+        ("1234567890123456789", True),  # 19 digitos: por debajo del umbral, se acepta
+    ],
+)
+def test_es_numero_operacion_valido(valor, esperado):
+    assert _es_numero_operacion_valido(valor) is esperado
 
 
 def test_build_tool_without_cuentas_leaves_cuenta_receptora_freeform():
@@ -139,6 +158,32 @@ def test_extract_transfer_passes_cuentas_validas_as_enum_to_the_model(monkeypatc
 
 def test_extract_transfer_treats_placeholder_numero_operacion_as_missing(monkeypatch):
     resultado = {"monto": 500, "fecha_transaccion": "2026-08-24", "numero_operacion": "<UNKNOWN>"}
+    fake_client = _FakeAnthropic([resultado])
+    monkeypatch.setattr(extraction, "Anthropic", lambda api_key: fake_client)
+
+    transfer = extract_transfer("image/jpeg", b"fake-bytes")
+
+    assert transfer is not None
+    assert transfer.numero_operacion is None
+
+
+def test_extract_transfer_treats_explanatory_sentence_as_missing_numero_operacion(monkeypatch):
+    resultado = {
+        "monto": 500,
+        "fecha_transaccion": "2026-08-24",
+        "numero_operacion": "Número de operación no visible en el comprobante",
+    }
+    fake_client = _FakeAnthropic([resultado])
+    monkeypatch.setattr(extraction, "Anthropic", lambda api_key: fake_client)
+
+    transfer = extract_transfer("image/jpeg", b"fake-bytes")
+
+    assert transfer is not None
+    assert transfer.numero_operacion is None
+
+
+def test_extract_transfer_treats_cvu_shaped_value_as_missing_numero_operacion(monkeypatch):
+    resultado = {"monto": 500, "fecha_transaccion": "2026-08-24", "numero_operacion": "0000003100045397444527"}
     fake_client = _FakeAnthropic([resultado])
     monkeypatch.setattr(extraction, "Anthropic", lambda api_key: fake_client)
 

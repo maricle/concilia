@@ -50,7 +50,16 @@ def _build_tool(cuentas_validas: list[tuple[str, str]]) -> dict:
                     "type": ["string", "null"],
                     "description": "Fecha de la operacion, formato YYYY-MM-DD",
                 },
-                "numero_operacion": {"type": ["string", "null"], "description": "Numero de operacion o referencia"},
+                "numero_operacion": {
+                    "type": ["string", "null"],
+                    "description": (
+                        "Numero de operacion, transaccion o comprobante (el identificador de ESTA transferencia "
+                        "puntual, tipicamente etiquetado 'Numero de operacion', 'ID de transaccion' o similar). "
+                        "Nunca un CBU, CVU, alias o numero de cuenta -- esos van en cuenta_receptora, no aca. Si "
+                        "no ves un numero de operacion claramente identificado como tal, dejalo en null: no "
+                        "expliques por que falta, no describas el comprobante, simplemente null."
+                    ),
+                },
                 "banco_emisor": {
                     "type": ["string", "null"],
                     "description": "Banco desde el que se hizo la transferencia",
@@ -78,6 +87,21 @@ def _es_valor_valido(valor: object) -> bool:
         return False
     normalizado = valor.strip().strip("<>").strip().lower()
     return bool(normalizado) and normalizado not in _VALORES_PLACEHOLDER
+
+
+def _es_numero_operacion_valido(valor: object) -> bool:
+    """Ademas del chequeo de placeholders general, un numero de operacion real nunca
+    es una oracion (Claude a veces explica en texto por que no lo encuentra en vez de
+    devolver null) ni una cadena de puros digitos tan larga como un CBU/CVU (Claude a
+    veces confunde la cuenta con el numero de operacion)."""
+    if not _es_valor_valido(valor):
+        return False
+    normalizado = valor.strip()
+    if len(normalizado.split()) >= 3:
+        return False
+    if normalizado.isdigit() and len(normalizado) >= 20:
+        return False
+    return True
 
 
 def _content_block(content_type: str, data: bytes) -> dict:
@@ -158,7 +182,7 @@ def extract_transfer(
     return ExtractedTransfer(
         monto=_parse_monto(result.get("monto")),
         fecha_transaccion=_parse_fecha_o_actual(result.get("fecha_transaccion")),
-        numero_operacion=numero_operacion if _es_valor_valido(numero_operacion) else None,
+        numero_operacion=numero_operacion if _es_numero_operacion_valido(numero_operacion) else None,
         banco_emisor=result.get("banco_emisor"),
         cuenta_receptora=result.get("cuenta_receptora"),
         titular=result.get("titular"),
