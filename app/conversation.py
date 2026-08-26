@@ -84,7 +84,7 @@ class ConversationService:
             movement.factura_o_cuenta = text.strip()
             conversation.estado = ConversationState.ESPERANDO_CONFIRMACION_FINAL
             self.session.commit()
-            return self._summary(movement) + " Confirma la operacion respondiendo OK para que se registre el movimiento, o NO para descartarlo."
+            return self._summary(movement) + "\n\nConfirma la operacion respondiendo OK para que se registre el movimiento, o NO para descartarlo."
 
         if conversation.estado == ConversationState.ESPERANDO_CONFIRMACION_FINAL:
             if normalized in {"si", "sí", "ok", "confirmo", "registrar"}:
@@ -125,11 +125,11 @@ class ConversationService:
             return None
 
         if conversation.estado == ConversationState.ESPERANDO_CONFIRMACION_DATOS:
-            return self._summary(movement) + " Responde SI para confirmar o NO para descartar."
+            return self._summary(movement) + "\n\nResponde SI para confirmar o NO para descartar."
         if conversation.estado == ConversationState.ESPERANDO_CONFIRMACION_FINAL:
             return (
                 self._summary(movement)
-                + " Confirma la operacion respondiendo OK para que se registre el movimiento, o NO para descartarlo."
+                + "\n\nConfirma la operacion respondiendo OK para que se registre el movimiento, o NO para descartarlo."
             )
         return None
 
@@ -164,7 +164,7 @@ class ConversationService:
         conversation.estado = ConversationState.ESPERANDO_CONFIRMACION_DATOS
         self.session.add(conversation)
         self.session.commit()
-        return self._summary(movement) + " Responde SI para confirmar o NO para descartar."
+        return self._summary(movement) + "\n\nResponde SI para confirmar o NO para descartar."
 
     def _discard(self, conversation: WhatsAppConversation) -> None:
         if conversation.movimiento_borrador is not None:
@@ -176,8 +176,9 @@ class ConversationService:
     def _summary(movement: Movement) -> str:
         monto = f"${movement.monto}" if movement.monto is not None else "no detectado"
         return (
-            f"Monto: {monto}; fecha: {movement.fecha_transaccion:%Y-%m-%d}; "
-            f"banco emisor: {movement.banco_emisor or 'no detectado'}; "
-            f"operacion: {movement.numero_operacion or 'no detectado'}; "
-            f"factura/cuenta: {movement.factura_o_cuenta or 'pendiente'}."
+            f"Monto: {monto}\n"
+            f"Fecha: {movement.fecha_transaccion:%Y-%m-%d}\n"
+            f"Banco emisor: {movement.banco_emisor or 'no detectado'}\n"
+            f"Operacion: {movement.numero_operacion or 'no detectado'}\n"
+            f"Factura/cuenta: {movement.factura_o_cuenta or 'pendiente'}"
         )

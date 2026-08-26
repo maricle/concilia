@@ -31,7 +31,7 @@ def test_registered_operator_can_confirm_and_register_transfer():
     assert "Responde SI" in response
     assert "Indica el numero" in service.handle_text("5491112345678", "SI")
     final = service.handle_text("5491112345678", "FAC-9")
-    assert "factura/cuenta: FAC-9" in final
+    assert "Factura/cuenta: FAC-9" in final
     assert "Confirma la operacion" in final
     assert service.handle_text("5491112345678", "OK") == "Comprobante registrado correctamente."
 
