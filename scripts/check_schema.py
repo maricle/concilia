@@ -16,15 +16,25 @@ Sale con status 1 si encuentra drift, 0 si el esquema esta al dia.
 
 import sys
 
-from sqlalchemy import inspect
+from sqlalchemy import Enum, inspect
 
 from app.db import Base, engine
 from app import models  # noqa: F401  (importa todos los modelos para poblar Base.metadata)
 
 
+def _enums_reales(inspector) -> dict[str, set[str]]:
+    """Valores de cada tipo ENUM nativo que existen hoy en la base. Solo aplica a
+    Postgres -- en SQLite los enums de los modelos se guardan como VARCHAR simple,
+    sin un tipo separado que pueda quedar desincronizado."""
+    if engine.dialect.name != "postgresql":
+        return {}
+    return {e["name"]: set(e["labels"]) for e in inspector.get_enums()}
+
+
 def check_schema() -> bool:
     inspector = inspect(engine)
     tablas_existentes = set(inspector.get_table_names())
+    enums_reales = _enums_reales(inspector)
 
     ok = True
     for nombre_tabla, tabla in Base.metadata.tables.items():
@@ -46,11 +56,32 @@ def check_schema() -> bool:
             print(f"[INFO] Tabla '{nombre_tabla}': columnas en la base que ya no usa el modelo "
                   f"{sorted(sobrantes)} (no bloquea el deploy, dato historico probablemente).")
 
+        for columna in tabla.columns:
+            if engine.dialect.name != "postgresql":
+                break  # el chequeo de valores de enum solo aplica a tipos ENUM nativos de Postgres
+            if columna.name not in columnas_esperadas - faltantes:
+                continue  # ya reportada como columna faltante, no hace falta chequear su enum
+            if not isinstance(columna.type, Enum) or not columna.type.native_enum:
+                continue
+            tipo_nombre = columna.type.name
+            valores_esperados = set(columna.type.enums)
+            valores_reales = enums_reales.get(tipo_nombre)
+            if valores_reales is None:
+                ok = False
+                print(f"[DRIFT] Tipo enum '{tipo_nombre}' (columna {nombre_tabla}.{columna.name}) "
+                      f"no existe en la base.")
+                continue
+            faltantes_enum = valores_esperados - valores_reales
+            if faltantes_enum:
+                ok = False
+                print(f"[DRIFT] Tipo enum '{tipo_nombre}' (columna {nombre_tabla}.{columna.name}): "
+                      f"faltan valores {sorted(faltantes_enum)}")
+
     if ok:
-        print("Esquema OK: no falta ninguna columna que el codigo actual necesite.")
+        print("Esquema OK: no falta ninguna columna ni valor de enum que el codigo actual necesite.")
     else:
-        print("\nHay columnas nuevas en app/models.py que todavia no existen en la base.")
-        print("Generar el ALTER TABLE correspondiente y aplicarlo antes de deployar.")
+        print("\nHay columnas o valores de enum nuevos en app/models.py que todavia no existen en la base.")
+        print("Generar el ALTER TABLE / ALTER TYPE ... ADD VALUE correspondiente y aplicarlo antes de deployar.")
 
     return ok
 
