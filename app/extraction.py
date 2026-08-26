@@ -91,7 +91,15 @@ def _build_tool(cuentas_validas: list[tuple[str, str]]) -> dict:
                     "description": "Banco desde el que se hizo la transferencia",
                 },
                 "cuenta_receptora": cuenta_receptora_schema,
-                "titular": {"type": ["string", "null"], "description": "Titular de la cuenta si figura"},
+                "titular": {
+                    "type": ["string", "null"],
+                    "description": (
+                        "Nombre del titular de la cuenta de ORIGEN (quien envia el dinero -- la seccion "
+                        "'De'/'Origen'/'Cuenta debito' del comprobante), si figura. Nunca el nombre de la "
+                        "empresa que recibe el pago: la cuenta receptora siempre es una de las cuentas de "
+                        "la empresa (ver cuenta_receptora), asi que su titular nunca va aca."
+                    ),
+                },
             },
             "required": [],
         },
