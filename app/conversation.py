@@ -68,7 +68,7 @@ class ConversationService:
             if normalized in {"si", "sí", "ok", "confirmo", "correcto"}:
                 conversation.estado = ConversationState.ESPERANDO_CUENTA_FACTURA
                 self.session.commit()
-                return "Indica el numero de cuenta o factura asociado a este pago."
+                return "Indica el numero de cuenta o factura del cliente asociado a este pago."
             if normalized in {"no", "cancelar", "cancelo"}:
                 self._discard(conversation)
                 self.session.commit()
@@ -175,10 +175,11 @@ class ConversationService:
     @staticmethod
     def _summary(movement: Movement) -> str:
         monto = f"${movement.monto}" if movement.monto is not None else "no detectado"
+        cuenta = movement.cuenta_bancaria.alias if movement.cuenta_bancaria is not None else "no detectada"
         return (
             f"Monto: {monto}\n"
             f"Fecha: {movement.fecha_transaccion:%Y-%m-%d}\n"
-            f"Banco emisor: {movement.banco_emisor or 'no detectado'}\n"
+            f"Cuenta receptora: {cuenta}\n"
             f"Operacion: {movement.numero_operacion or 'no detectado'}\n"
             f"Factura/cuenta: {movement.factura_o_cuenta or 'pendiente'}"
         )

@@ -115,7 +115,7 @@ def test_photo_message_is_extracted_and_saved_to_test_store(monkeypatch):
     assert sent == [
         (
             "222",
-            "Monto: $100.00\nFecha: 2026-08-24\nBanco emisor: no detectado\nOperacion: OP-999\n"
+            "Monto: $100.00\nFecha: 2026-08-24\nCuenta receptora: empresa.mp\nOperacion: OP-999\n"
             "Factura/cuenta: pendiente\n\nResponde SI para confirmar o NO para descartar.",
         )
     ]
@@ -157,7 +157,7 @@ def test_second_photo_while_a_draft_is_pending_does_not_orphan_the_first(monkeyp
     assert len(extract_calls) == 1  # el segundo mensaje no debe llegar a extraer nada
     assert sent[-1] == (
         "888",
-        "Monto: $100.00\nFecha: 2026-08-24\nBanco emisor: no detectado\nOperacion: OP-PRIMERO\n"
+        "Monto: $100.00\nFecha: 2026-08-24\nCuenta receptora: empresa.mp\nOperacion: OP-PRIMERO\n"
         "Factura/cuenta: pendiente\n\nResponde SI para confirmar o NO para descartar.",
     )
 
