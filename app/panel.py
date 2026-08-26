@@ -1,5 +1,6 @@
 import csv
 import io
+from collections import Counter
 from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import TypeVar
@@ -623,7 +624,9 @@ def _conteos_por_resumen(db: Session) -> dict[int, dict[str, int]]:
     return conteos
 
 
-def _conciliaciones_context(db: Session, user: PanelUser, error: str | None, resumen_id: str = "") -> dict:
+def _conciliaciones_context(
+    db: Session, user: PanelUser, error: str | None, resumen_id: str = "", mensaje: str | None = None
+) -> dict:
     cuentas = db.scalars(select(BankAccount).order_by(BankAccount.id)).all()
     resumenes = db.scalars(
         select(ImportedStatement)
@@ -679,6 +682,7 @@ def _conciliaciones_context(db: Session, user: PanelUser, error: str | None, res
         "resumen_id": resumen_id,
         "resumen_seleccionado": resumen_seleccionado,
         "error": error,
+        "mensaje": mensaje,
     }
 
 
@@ -733,6 +737,68 @@ async def importar_resumen(
     match_statement(db, resumen, lineas)
     db.commit()
     return RedirectResponse("/conciliaciones", status_code=303)
+
+
+@router.post("/conciliaciones/resumenes/{resumen_id}/actualizar")
+async def actualizar_resumen(
+    resumen_id: int,
+    request: Request,
+    archivo: UploadFile,
+    db: Session = Depends(get_db),
+    user: PanelUser = Depends(require_user),
+):
+    """Vuelve a leer el mismo archivo de resumen (o una version mas nueva del banco,
+    ej. un export acumulativo del dia al que se le siguieron agregando filas) y
+    agrega solo las transacciones que todavia no estaban cargadas para este
+    resumen -- no duplica las que ya se importaron ni toca sus lineas."""
+    resumen = db.get(ImportedStatement, resumen_id)
+    if resumen is None:
+        return RedirectResponse("/conciliaciones", status_code=303)
+
+    contenido = await archivo.read()
+    try:
+        filas, _formato = parse_statement_file(archivo.filename or "", contenido)
+    except StatementParseError as exc:
+        return templates.TemplateResponse(
+            request, "conciliaciones.html", _conciliaciones_context(db, user, str(exc), str(resumen_id)), status_code=400
+        )
+
+    lineas_existentes = db.scalars(select(StatementLine).where(StatementLine.resumen_id == resumen.id)).all()
+    restantes = Counter((linea.fecha, linea.monto, linea.referencia, linea.descripcion) for linea in lineas_existentes)
+
+    nuevas: list[StatementLine] = []
+    for fila in filas:
+        clave = (fila.fecha, fila.monto, fila.referencia, fila.descripcion)
+        if restantes[clave] > 0:
+            # Esta fila del archivo ya estaba cargada -- se "consume" una ocurrencia
+            # en vez de saltearla directamente, para no perder transacciones
+            # legitimamente repetidas (mismo monto/fecha/referencia dos veces).
+            restantes[clave] -= 1
+            continue
+        nuevas.append(
+            StatementLine(
+                resumen_id=resumen.id,
+                resumen=resumen,
+                fecha=fila.fecha,
+                monto=fila.monto,
+                descripcion=fila.descripcion,
+                referencia=fila.referencia,
+            )
+        )
+
+    if nuevas:
+        db.add_all(nuevas)
+        match_statement(db, resumen, nuevas)
+    db.commit()
+
+    mensaje = (
+        f"Se agregaron {len(nuevas)} transaccion{'es' if len(nuevas) != 1 else ''} nueva{'s' if len(nuevas) != 1 else ''} del archivo."
+        if nuevas
+        else "No se encontraron transacciones nuevas en el archivo: ya estaba todo cargado."
+    )
+    return templates.TemplateResponse(
+        request, "conciliaciones.html", _conciliaciones_context(db, user, None, str(resumen_id), mensaje)
+    )
 
 
 @router.post("/conciliaciones/lineas/{linea_id}/emparejar")
