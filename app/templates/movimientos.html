@@ -76,12 +76,11 @@
       <table class="table table-bordered table-sm small mb-0" width="100%" cellspacing="0">
         <thead>
           <tr>
-            <th>Fecha transaccion</th>
-            <th>Fecha subida</th>
+            <th style="width: 90px; white-space: normal;">Fecha transaccion</th>
+            <th style="width: 90px; white-space: normal;">Fecha subida</th>
             <th>Tipo</th>
-            <th>Nro. factura/cuenta</th>
+            <th style="width: 90px; white-space: normal;">Nro. factura/cuenta</th>
             <th>Cuenta banco</th>
-            <th>Banco emisor</th>
             <th>Titular / Emisor</th>
             <th>N. operacion</th>
             <th class="num">Monto</th>
@@ -98,7 +97,6 @@
             <td>{{ "Factura" if movimiento.factura_o_cuenta_tipo and movimiento.factura_o_cuenta_tipo.value == "factura" else "Cuenta" if movimiento.factura_o_cuenta_tipo else "-" }}</td>
             <td>{{ movimiento.factura_o_cuenta_numero or "-" }}</td>
             <td>{{ movimiento.cuenta_bancaria.alias if movimiento.cuenta_bancaria else "Sin banco" }}</td>
-            <td>{{ movimiento.banco_emisor or "-" }}</td>
             <td>{{ movimiento.titular or "-" }}</td>
             <td>{{ movimiento.numero_operacion or "-" }}</td>
             <td class="num">{{ "$" + movimiento.monto|string if movimiento.monto is not none else "-" }}</td>
@@ -123,7 +121,7 @@
             </td>
           </tr>
           {% else %}
-          <tr><td colspan="12">Todavia no hay movimientos confirmados.</td></tr>
+          <tr><td colspan="11">Todavia no hay movimientos confirmados.</td></tr>
           {% endfor %}
         </tbody>
       </table>
