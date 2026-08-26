@@ -85,40 +85,107 @@
 </div>
 
 <div class="card shadow mb-4">
-  <div class="card-header py-3">
-    <h6 class="m-0 font-weight-bold text-primary">Resumen por vendedor</h6>
+  <div class="card-header py-3 d-flex justify-content-between align-items-center">
+    <h6 class="m-0 font-weight-bold text-primary">Actividad — ultimos 14 dias</h6>
+    <span class="hint text-muted small">comprobantes recibidos por dia</span>
   </div>
-  <div class="card-body">
-    <div class="table-responsive">
-      <table class="table table-bordered table-sm small mb-0" width="100%" cellspacing="0">
-        <thead>
-          <tr>
-            <th>Vendedor</th><th>Telefono</th><th>Tipo</th><th class="num">Total</th>
-            <th class="num">Comprobantes</th><th class="num">Pendientes</th><th class="num">Diferencia</th><th>% Conciliado</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for fila in filas %}
-          <tr>
-            <td>{{ fila.operador.nombre }}</td>
-            <td>{{ fila.operador.whatsapp_numero }}</td>
-            <td>{{ fila.operador.tipo }}</td>
-            <td class="num">${{ "%.2f"|format(fila.total) }}</td>
-            <td class="num">{{ fila.cantidad }}</td>
-            <td class="num">{{ fila.pendientes }}</td>
-            <td class="num">{{ fila.diferencia }}</td>
-            <td>
-              <div class="conc-cell">
-                <div class="bar-track"><div class="bar-fill {{ "good" if fila.pct_conciliado >= 90 else "warn" if fila.pct_conciliado >= 75 else "bad" }}" style="width: {{ fila.pct_conciliado }}%;"></div></div>
-                <span class="conc-pct">{{ fila.pct_conciliado }}%</span>
-              </div>
-            </td>
-          </tr>
+  <div class="card-body spark-wrap">
+    <svg viewBox="0 0 {{ sparkline.ancho }} {{ sparkline.alto }}" width="100%" height="96" preserveAspectRatio="none">
+      <defs>
+        <linearGradient id="sparkFill" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#6C5DD3" stop-opacity="0.22"/>
+          <stop offset="100%" stop-color="#6C5DD3" stop-opacity="0"/>
+        </linearGradient>
+      </defs>
+      {% for f in [0.25, 0.5, 0.75] %}
+      <line x1="4" x2="{{ sparkline.ancho - 4 }}" y1="{{ 4 + (sparkline.alto - 8) * f }}" y2="{{ 4 + (sparkline.alto - 8) * f }}" stroke="#EEEFF5" stroke-width="1"/>
+      {% endfor %}
+      <path d="{{ sparkline.area_path }}" fill="url(#sparkFill)"></path>
+      <path d="{{ sparkline.line_path }}" fill="none" stroke="#6C5DD3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>
+      <circle cx="{{ sparkline.dot_x }}" cy="{{ sparkline.dot_y }}" r="4.5" fill="#5645C4" stroke="#fff" stroke-width="2"></circle>
+    </svg>
+    <div class="spark-legend d-flex justify-content-between text-muted small mt-1">
+      <span>{{ actividad_dias[0].fecha }}</span>
+      <span>{{ actividad_dias[-1].fecha }} (hoy)</span>
+    </div>
+  </div>
+</div>
+
+<div class="row">
+  <div class="col-lg-8 mb-4">
+    <div class="card shadow h-100">
+      <div class="card-header py-3">
+        <h6 class="m-0 font-weight-bold text-primary">Resumen por vendedor</h6>
+      </div>
+      <div class="card-body">
+        <div class="table-responsive">
+          <table class="table table-bordered table-sm small mb-0" width="100%" cellspacing="0">
+            <thead>
+              <tr>
+                <th>Vendedor</th><th>Telefono</th><th>Tipo</th><th class="num">Total</th>
+                <th class="num">Comprobantes</th><th class="num">Pendientes</th><th class="num">Diferencia</th><th>% Conciliado</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for fila in filas %}
+              <tr>
+                <td>{{ fila.operador.nombre }}</td>
+                <td>{{ fila.operador.whatsapp_numero }}</td>
+                <td>{{ fila.operador.tipo }}</td>
+                <td class="num">${{ "%.2f"|format(fila.total) }}</td>
+                <td class="num">{{ fila.cantidad }}</td>
+                <td class="num">{{ fila.pendientes }}</td>
+                <td class="num">{{ fila.diferencia }}</td>
+                <td>
+                  <div class="conc-cell">
+                    <div class="bar-track"><div class="bar-fill {{ "good" if fila.pct_conciliado >= 90 else "warn" if fila.pct_conciliado >= 75 else "bad" }}" style="width: {{ fila.pct_conciliado }}%;"></div></div>
+                    <span class="conc-pct">{{ fila.pct_conciliado }}%</span>
+                  </div>
+                </td>
+              </tr>
+              {% else %}
+              <tr><td colspan="8">No hay comprobantes que coincidan con los filtros.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-4 mb-4">
+    <div class="card shadow h-100">
+      <div class="card-header py-3">
+        <h6 class="m-0 font-weight-bold text-primary">Ultimos movimientos</h6>
+      </div>
+      <div class="card-body p-0">
+        <div class="moves">
+          {% for mov in ultimos_movimientos %}
+          {% set partes = mov.operador.nombre.split() %}
+          {% set iniciales = (partes[0][0] + (partes[1][0] if partes|length > 1 else "")) | upper %}
+          {% set ref = (("Factura " if mov.factura_o_cuenta_tipo.value == "factura" else "Cuenta ") + mov.factura_o_cuenta_numero) if mov.factura_o_cuenta_numero else "sin ref." %}
+          <div class="move-row">
+            <div class="move-avatar">{{ iniciales }}</div>
+            <div class="move-mid">
+              <div class="move-name">{{ mov.operador.nombre }}</div>
+              <div class="move-meta">{{ ref }} · {{ mov.banco_emisor or "banco no detectado" }} · {{ mov.fecha_subida.strftime("%d/%m %H:%M") }}</div>
+            </div>
+            <div class="move-right text-right">
+              <div class="move-amount">{{ "$" + "%.2f"|format(mov.monto) if mov.monto is not none else "-" }}</div>
+              {% if mov.estado_conciliacion.value == "pendiente" %}
+              <span class="badge-pill-estado badge-pill-pendiente">Pendiente</span>
+              {% elif mov.estado_conciliacion.value == "con_diferencia" %}
+              <span class="badge-pill-estado badge-pill-diferencia">Con diferencia</span>
+              {% else %}
+              <span class="badge-pill-estado badge-pill-conciliado">Conciliado</span>
+              {% endif %}
+            </div>
+          </div>
           {% else %}
-          <tr><td colspan="8">No hay comprobantes que coincidan con los filtros.</td></tr>
+          <div class="move-row">No hay movimientos todavia.</div>
           {% endfor %}
-        </tbody>
-      </table>
+        </div>
+      </div>
     </div>
   </div>
 </div>

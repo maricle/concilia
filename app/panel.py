@@ -316,6 +316,63 @@ def _conteo_conciliacion(movimientos: list[Movement]) -> dict[str, int]:
     return conteo
 
 
+def _actividad_ultimos_dias(db: Session, dias: int = 14) -> list[dict]:
+    """Cantidad de comprobantes confirmados por dia (segun fecha_transaccion), para
+    el sparkline de actividad. Es independiente de los filtros del formulario --
+    siempre muestra el pulso general de los ultimos N dias, no el resultado filtrado."""
+    hoy = datetime.utcnow().date()
+    desde = hoy - timedelta(days=dias - 1)
+    movimientos = db.scalars(
+        select(Movement).where(
+            Movement.estado_registro == RecordState.CONFIRMADO,
+            Movement.fecha_transaccion >= datetime(desde.year, desde.month, desde.day),
+        )
+    ).all()
+    conteo_por_dia: dict = {}
+    for movimiento in movimientos:
+        if movimiento.fecha_transaccion is None:
+            continue
+        dia = movimiento.fecha_transaccion.date()
+        conteo_por_dia[dia] = conteo_por_dia.get(dia, 0) + 1
+    return [
+        {"fecha": (desde + timedelta(days=i)).strftime("%d/%m"), "cantidad": conteo_por_dia.get(desde + timedelta(days=i), 0)}
+        for i in range(dias)
+    ]
+
+
+def _sparkline_svg(dias_data: list[dict], ancho: int = 1180, alto: int = 96, pad: int = 4) -> dict:
+    """Calcula los puntos del sparkline server-side (sin JS en el cliente): una
+    polilinea simple mas el area rellena debajo, escaladas al maximo del periodo."""
+    cantidades = [d["cantidad"] for d in dias_data]
+    maximo = max(cantidades) if cantidades and max(cantidades) > 0 else 1
+    paso_x = (ancho - pad * 2) / (len(dias_data) - 1) if len(dias_data) > 1 else 0
+
+    def y_para(valor: int) -> float:
+        return alto - pad - (valor / maximo) * (alto - pad * 2 - 14)
+
+    puntos = [(pad + i * paso_x, y_para(c)) for i, c in enumerate(cantidades)]
+    line_path = "M " + " L ".join(f"{x:.1f},{y:.1f}" for x, y in puntos)
+    area_path = line_path + f" L {puntos[-1][0]:.1f},{alto} L {puntos[0][0]:.1f},{alto} Z"
+    return {
+        "ancho": ancho,
+        "alto": alto,
+        "line_path": line_path,
+        "area_path": area_path,
+        "dot_x": puntos[-1][0],
+        "dot_y": puntos[-1][1],
+    }
+
+
+def _ultimos_movimientos(db: Session, limite: int = 8) -> list[Movement]:
+    return db.scalars(
+        select(Movement)
+        .where(Movement.estado_registro == RecordState.CONFIRMADO)
+        .options(selectinload(Movement.operador))
+        .order_by(Movement.fecha_subida.desc())
+        .limit(limite)
+    ).all()
+
+
 @router.get("/resumen")
 def resumen(
     request: Request,
@@ -349,6 +406,9 @@ def resumen(
             "fecha_hasta": fecha_hasta,
             "cuenta_bancaria_id": cuenta_bancaria_id,
             "cuentas": cuentas,
+            "actividad_dias": (actividad_dias := _actividad_ultimos_dias(db)),
+            "sparkline": _sparkline_svg(actividad_dias),
+            "ultimos_movimientos": _ultimos_movimientos(db),
         },
     )
 
