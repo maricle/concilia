@@ -42,7 +42,7 @@
   </div>
   <div class="card-body">
     <div class="table-responsive">
-      <table class="table table-bordered" width="100%" cellspacing="0">
+      <table class="table table-bordered table-sm small mb-0" width="100%" cellspacing="0">
         <thead>
           <tr>
             <th>Fecha importacion</th><th>Cuenta</th><th>Fecha resumen</th><th>Archivo</th>
@@ -62,9 +62,9 @@
             <td>{{ conteo.pendientes }}</td>
             <td>
               {% if conteo.pendientes == 0 and conteo.a_revisar == 0 %}
-              <span class="badge-activo">Completo</span>
+              <span class="badge-pill-estado badge-pill-conciliado">Completo</span>
               {% else %}
-              <span class="badge-con-diferencia">Pendiente</span>
+              <span class="badge-pill-estado badge-pill-pendiente">Pendiente</span>
               {% endif %}
             </td>
           </tr>
@@ -83,7 +83,7 @@
   </div>
   <div class="card-body">
     <div class="table-responsive">
-      <table class="table table-bordered" width="100%" cellspacing="0">
+      <table class="table table-bordered table-sm small mb-0" width="100%" cellspacing="0">
         <thead>
           <tr><th>Fecha transaccion</th><th>N. operacion</th><th>Monto</th><th>Vendedor</th><th>Estado</th></tr>
         </thead>
@@ -94,7 +94,15 @@
             <td>{{ movimiento.numero_operacion or "-" }}</td>
             <td>{{ "$" + movimiento.monto|string if movimiento.monto is not none else "-" }}</td>
             <td>{{ movimiento.operador.nombre }}</td>
-            <td>{{ movimiento.estado_conciliacion.value }}</td>
+            <td>
+              {% if movimiento.estado_conciliacion.value == "pendiente" %}
+              <span class="badge-pill-estado badge-pill-pendiente">Pendiente</span>
+              {% elif movimiento.estado_conciliacion.value == "con_diferencia" %}
+              <span class="badge-pill-estado badge-pill-diferencia">Con diferencia</span>
+              {% else %}
+              <span class="badge-pill-estado badge-pill-conciliado">Conciliado</span>
+              {% endif %}
+            </td>
           </tr>
           {% else %}
           <tr><td colspan="5">No hay movimientos pendientes de conciliar.</td></tr>
@@ -111,7 +119,7 @@
   </div>
   <div class="card-body">
     <div class="table-responsive">
-      <table class="table table-bordered" width="100%" cellspacing="0">
+      <table class="table table-bordered table-sm small mb-0" width="100%" cellspacing="0">
         <thead>
           <tr><th>Fecha</th><th>Monto</th><th>Referencia</th><th>Movimiento vinculado</th><th>Vendedor</th><th>Estado</th></tr>
         </thead>
@@ -125,9 +133,9 @@
             <td>{{ linea.movimiento.operador.nombre if linea.movimiento else "-" }}</td>
             <td>
               {% if linea.movimiento and linea.movimiento.estado_conciliacion.value == "con_diferencia" %}
-              <span class="badge-con-diferencia">Con diferencia</span>
+              <span class="badge-pill-estado badge-pill-diferencia">Con diferencia</span>
               {% else %}
-              <span class="badge-activo">Conciliado</span>
+              <span class="badge-pill-estado badge-pill-conciliado">Conciliado</span>
               {% endif %}
             </td>
           </tr>
@@ -146,7 +154,7 @@
   </div>
   <div class="card-body">
     <div class="table-responsive">
-      <table class="table table-bordered" width="100%" cellspacing="0">
+      <table class="table table-bordered table-sm small mb-0" width="100%" cellspacing="0">
         <thead>
           <tr><th>Fecha</th><th>Monto</th><th>Descripcion</th><th>Referencia</th><th>Cuenta</th><th>Emparejar</th><th></th></tr>
         </thead>
@@ -168,12 +176,12 @@
                   </option>
                   {% endfor %}
                 </select>
-                <button type="submit" class="btn btn-sm btn-primary">Emparejar</button>
+                <button type="submit" class="btn btn-sm btn-outline-primary" title="Emparejar"><i class="fas fa-link"></i></button>
               </form>
             </td>
             <td>
               <form method="post" action="/conciliaciones/lineas/{{ linea.id }}/no-corresponde">
-                <button type="submit" class="btn btn-sm btn-outline-secondary">No corresponde</button>
+                <button type="submit" class="btn btn-sm btn-outline-secondary" title="No corresponde"><i class="fas fa-ban"></i></button>
               </form>
             </td>
           </tr>

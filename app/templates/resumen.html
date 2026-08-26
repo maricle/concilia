@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% block title %}Resumen - Concilia{% endblock %}
+{% block content %}
+<h1 class="h3 mb-4 text-gray-800">Resumen</h1>
+
+<form method="get" action="/resumen" class="form-row align-items-end mb-4">
+  <div class="form-group col-md-3">
+    <label>Buscar vendedor</label>
+    <input type="text" class="form-control" name="vendedor" value="{{ vendedor }}" placeholder="Nombre del vendedor">
+  </div>
+  <div class="form-group col-md-3">
+    <label>Cuenta bancaria receptora</label>
+    <select class="form-control" name="cuenta_bancaria_id">
+      <option value="">Todas las cuentas</option>
+      {% for cuenta in cuentas %}
+      <option value="{{ cuenta.id }}" {{ "selected" if cuenta_bancaria_id == cuenta.id|string }}>{{ cuenta.alias }} ({{ cuenta.banco }})</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="form-group col-md-2">
+    <label>Desde</label>
+    <input type="date" class="form-control" name="fecha_desde" value="{{ fecha_desde }}">
+  </div>
+  <div class="form-group col-md-2">
+    <label>Hasta</label>
+    <input type="date" class="form-control" name="fecha_hasta" value="{{ fecha_hasta }}">
+  </div>
+  <div class="form-group col-md-2 d-flex">
+    <button type="submit" class="btn btn-primary btn-block mr-1">Filtrar</button>
+    <button type="submit" formaction="/resumen/exportar" class="btn btn-outline-secondary btn-block ml-1" title="Exportar CSV"><i class="fas fa-file-csv"></i></button>
+  </div>
+</form>
+
+<div class="row">
+  <div class="col-xl-4 col-md-6 mb-4">
+    <div class="card border-left-primary shadow h-100 py-2">
+      <div class="card-body">
+        <div class="row no-gutters align-items-center">
+          <div class="col mr-2">
+            <div class="text-xs font-weight-bold text-primary text-uppercase mb-1">Vendedores</div>
+            <div class="h5 mb-0 font-weight-bold text-gray-800">{{ cantidad_vendedores }}</div>
+          </div>
+          <div class="col-auto"><i class="fas fa-users fa-2x text-gray-300"></i></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-xl-4 col-md-6 mb-4">
+    <div class="card border-left-success shadow h-100 py-2">
+      <div class="card-body">
+        <div class="row no-gutters align-items-center">
+          <div class="col mr-2">
+            <div class="text-xs font-weight-bold text-success text-uppercase mb-1">Monto total</div>
+            <div class="h5 mb-0 font-weight-bold text-gray-800">${{ "%.2f"|format(monto_total) }}</div>
+          </div>
+          <div class="col-auto"><i class="fas fa-dollar-sign fa-2x text-gray-300"></i></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-xl-4 col-md-6 mb-4">
+    <div class="card border-left-info shadow h-100 py-2">
+      <div class="card-body">
+        <div class="row no-gutters align-items-center">
+          <div class="col mr-2">
+            <div class="text-xs font-weight-bold text-info text-uppercase mb-1">Comprobantes</div>
+            <div class="h5 mb-0 font-weight-bold text-gray-800">{{ cantidad_comprobantes }}</div>
+          </div>
+          <div class="col-auto"><i class="fas fa-file-invoice-dollar fa-2x text-gray-300"></i></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card shadow mb-4">
+  <div class="card-header py-3">
+    <h6 class="m-0 font-weight-bold text-primary">Resumen por vendedor</h6>
+  </div>
+  <div class="card-body">
+    <div class="table-responsive">
+      <table class="table table-bordered table-sm small mb-0" width="100%" cellspacing="0">
+        <thead>
+          <tr>
+            <th>Vendedor</th><th>Telefono</th><th>Tipo</th><th>Total</th>
+            <th>Comprobantes</th><th>Conciliados con el banco</th><th>Pendientes de conciliar</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for fila in filas %}
+          <tr>
+            <td>{{ fila.operador.nombre }}</td>
+            <td>{{ fila.operador.whatsapp_numero }}</td>
+            <td>{{ fila.operador.tipo }}</td>
+            <td>${{ "%.2f"|format(fila.total) }}</td>
+            <td>{{ fila.cantidad }}</td>
+            <td>{{ fila.conciliados }}</td>
+            <td>{{ fila.pendientes }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="7">No hay comprobantes que coincidan con los filtros.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

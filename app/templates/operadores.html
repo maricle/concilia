@@ -9,9 +9,9 @@
   </div>
   <div class="card-body">
     <div class="table-responsive">
-      <table class="table table-bordered" width="100%" cellspacing="0">
+      <table class="table table-bordered table-sm small mb-0" width="100%" cellspacing="0">
         <thead>
-          <tr><th>Nombre</th><th>Numero</th><th>Telegram vinculado</th><th>Tipo</th><th>Estado</th><th></th><th></th></tr>
+          <tr><th>Nombre</th><th>Numero</th><th>Telegram vinculado</th><th>Tipo</th><th>Estado</th><th></th></tr>
         </thead>
         <tbody>
           {% for operador in operadores %}
@@ -21,17 +21,25 @@
             <td>{{ operador.telegram_chat_id or "-" }}</td>
             <td>{{ operador.tipo }}</td>
             <td>
-              {% if operador.activo %}<span class="badge-activo">Activo</span>{% else %}<span class="badge-inactivo">Inactivo</span>{% endif %}
+              {% if operador.activo %}
+              <span class="badge-pill-estado badge-pill-activo">Activo</span>
+              {% else %}
+              <span class="badge-pill-estado badge-pill-inactivo">Inactivo</span>
+              {% endif %}
             </td>
-            <td><a href="/config/operadores/{{ operador.id }}/editar" class="btn btn-sm btn-outline-primary">Editar</a></td>
-            <td>
-              <form method="post" action="/config/operadores/{{ operador.id }}/toggle">
-                <button type="submit" class="btn btn-sm btn-outline-secondary">{{ "Desactivar" if operador.activo else "Activar" }}</button>
+            <td class="text-nowrap">
+              <a href="/config/operadores/{{ operador.id }}/editar" class="btn btn-sm btn-outline-primary" title="Editar"><i class="fas fa-pencil-alt"></i></a>
+              <form class="d-inline" method="post" action="/config/operadores/{{ operador.id }}/toggle">
+                {% if operador.activo %}
+                <button type="submit" class="btn btn-sm btn-outline-secondary" title="Desactivar"><i class="fas fa-toggle-on"></i></button>
+                {% else %}
+                <button type="submit" class="btn btn-sm btn-outline-secondary" title="Activar"><i class="fas fa-toggle-off"></i></button>
+                {% endif %}
               </form>
             </td>
           </tr>
           {% else %}
-          <tr><td colspan="7">Todavia no hay operadores dados de alta.</td></tr>
+          <tr><td colspan="6">Todavia no hay operadores dados de alta.</td></tr>
           {% endfor %}
         </tbody>
       </table>

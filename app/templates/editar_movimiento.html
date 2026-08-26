@@ -9,8 +9,8 @@
     <form method="post" action="/comprobantes/{{ movimiento.id }}/editar">
       <div class="form-row">
         <div class="form-group col-md-6">
-          <label>Fecha de transaccion</label>
-          <input type="date" class="form-control" name="fecha_transaccion" value="{{ movimiento.fecha_transaccion.strftime('%Y-%m-%d') if movimiento.fecha_transaccion else '' }}" required>
+          <label>Fecha y hora de transaccion</label>
+          <input type="datetime-local" class="form-control" name="fecha_transaccion" value="{{ movimiento.fecha_transaccion.strftime('%Y-%m-%dT%H:%M') if movimiento.fecha_transaccion else '' }}" required>
         </div>
         <div class="form-group col-md-6">
           <label>Monto</label>
@@ -30,12 +30,22 @@
         <input type="text" class="form-control" name="cuenta_receptora_extraida" value="{{ movimiento.cuenta_receptora_extraida or '' }}">
       </div>
       <div class="form-group">
-        <label>Titular</label>
+        <label>Titular / Emisor</label>
         <input type="text" class="form-control" name="titular" value="{{ movimiento.titular or '' }}">
       </div>
-      <div class="form-group">
-        <label>Factura o cuenta</label>
-        <input type="text" class="form-control" name="factura_o_cuenta" value="{{ movimiento.factura_o_cuenta or '' }}">
+      <div class="form-row">
+        <div class="form-group col-md-4">
+          <label>Tipo</label>
+          <select class="form-control" name="factura_o_cuenta_tipo">
+            <option value="" {{ "selected" if not movimiento.factura_o_cuenta_tipo }}>-- Elegir --</option>
+            <option value="factura" {{ "selected" if movimiento.factura_o_cuenta_tipo and movimiento.factura_o_cuenta_tipo.value == "factura" }}>Factura</option>
+            <option value="cuenta" {{ "selected" if movimiento.factura_o_cuenta_tipo and movimiento.factura_o_cuenta_tipo.value == "cuenta" }}>Cuenta</option>
+          </select>
+        </div>
+        <div class="form-group col-md-8">
+          <label>Numero de factura o cuenta</label>
+          <input type="text" class="form-control" name="factura_o_cuenta_numero" value="{{ movimiento.factura_o_cuenta_numero or '' }}">
+        </div>
       </div>
       <button type="submit" class="btn btn-primary">Guardar cambios</button>
     </form>

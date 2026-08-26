@@ -7,12 +7,40 @@ from decimal import Decimal
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from .models import BankAccount, ConversationState, Movement, Operator, RecordState, WhatsAppConversation
+from .models import BankAccount, ConversationState, Movement, Operator, RecordState, TipoIdentificador, WhatsAppConversation
 
 NO_CUENTA_RECEPTORA_TEXTO = (
     "No pudimos identificar a que cuenta bancaria de la empresa corresponde este pago. "
     "Reenvia el comprobante, o si el problema persiste contacta al administrador para cargarlo manualmente."
 )
+
+_TIPO_POR_TEXTO = {
+    "factura": TipoIdentificador.FACTURA,
+    "nro factura": TipoIdentificador.FACTURA,
+    "numero de factura": TipoIdentificador.FACTURA,
+    "n de factura": TipoIdentificador.FACTURA,
+    "cuenta": TipoIdentificador.CUENTA,
+    "nro cuenta": TipoIdentificador.CUENTA,
+    "numero de cuenta": TipoIdentificador.CUENTA,
+    "n de cuenta": TipoIdentificador.CUENTA,
+}
+
+
+def _parse_tipo_identificador(normalized: str) -> TipoIdentificador | None:
+    return _TIPO_POR_TEXTO.get(normalized)
+
+
+def _etiqueta_tipo(tipo: TipoIdentificador | None) -> str:
+    return "factura" if tipo == TipoIdentificador.FACTURA else "cuenta"
+
+
+def _formatear_fecha(fecha: datetime) -> str:
+    """La hora solo se muestra si se detecto (fecha.hour/minute != 0); si el
+    comprobante no traia hora, fecha_transaccion queda en medianoche y no tiene
+    sentido mostrar una hora que nunca se leyo."""
+    if fecha.hour or fecha.minute:
+        return fecha.strftime("%Y-%m-%d %H:%M")
+    return fecha.strftime("%Y-%m-%d")
 
 
 @dataclass
@@ -66,22 +94,36 @@ class ConversationService:
         normalized = text.strip().lower()
         if conversation.estado == ConversationState.ESPERANDO_CONFIRMACION_DATOS:
             if normalized in {"si", "sí", "ok", "confirmo", "correcto"}:
-                conversation.estado = ConversationState.ESPERANDO_CUENTA_FACTURA
+                conversation.estado = ConversationState.ESPERANDO_TIPO_FACTURA_CUENTA
                 self.session.commit()
-                return "Indica el numero de cuenta o factura del cliente asociado a este pago."
+                return "¿El dato que vas a cargar es un numero de factura o un numero de cuenta del cliente?"
             if normalized in {"no", "cancelar", "cancelo"}:
                 self._discard(conversation)
                 self.session.commit()
                 return "Registro descartado. Puedes reenviar el comprobante."
             return "Responde SI para confirmar los datos o NO para descartar el comprobante."
 
-        if conversation.estado == ConversationState.ESPERANDO_CUENTA_FACTURA:
+        if conversation.estado == ConversationState.ESPERANDO_TIPO_FACTURA_CUENTA:
             movement = conversation.movimiento_borrador
             if movement is None:
                 conversation.estado = ConversationState.ESPERANDO_COMPROBANTE
                 self.session.commit()
                 return "La sesion vencio. Reenvia el comprobante, por favor."
-            movement.factura_o_cuenta = text.strip()
+            tipo = _parse_tipo_identificador(normalized)
+            if tipo is None:
+                return "Respondé 'factura' o 'cuenta' para indicar que numero vas a cargar."
+            movement.factura_o_cuenta_tipo = tipo
+            conversation.estado = ConversationState.ESPERANDO_NUMERO_FACTURA_CUENTA
+            self.session.commit()
+            return f"Indica el numero de {_etiqueta_tipo(tipo)} del cliente asociado a este pago."
+
+        if conversation.estado == ConversationState.ESPERANDO_NUMERO_FACTURA_CUENTA:
+            movement = conversation.movimiento_borrador
+            if movement is None:
+                conversation.estado = ConversationState.ESPERANDO_COMPROBANTE
+                self.session.commit()
+                return "La sesion vencio. Reenvia el comprobante, por favor."
+            movement.factura_o_cuenta_numero = text.strip()
             conversation.estado = ConversationState.ESPERANDO_CONFIRMACION_FINAL
             self.session.commit()
             return self._summary(movement) + "\n\nConfirma la operacion respondiendo OK para que se registre el movimiento, o NO para descartarlo."
@@ -116,6 +158,12 @@ class ConversationService:
             ConversationState.ESPERANDO_CONFIRMACION_FINAL,
         }
 
+    def needs_tipo_keyboard(self, number: str) -> bool:
+        """True si el operador tiene que elegir entre factura o cuenta, para que el
+        canal le muestre botones en vez de pedirle que escriba la respuesta."""
+        conversation = self.session.get(WhatsAppConversation, number)
+        return conversation is not None and conversation.estado == ConversationState.ESPERANDO_TIPO_FACTURA_CUENTA
+
     def pending_prompt(self, number: str) -> str | None:
         """Si el operador ya tiene un comprobante sin cerrar, devuelve el mensaje que
         corresponde re-mostrarle en vez de arrancar uno nuevo (para no dejar el
@@ -125,8 +173,8 @@ class ConversationService:
         if conversation is None or conversation.estado == ConversationState.ESPERANDO_COMPROBANTE:
             return None
 
-        if conversation.estado == ConversationState.ESPERANDO_CUENTA_FACTURA:
-            return "Todavia estoy esperando que indiques el numero de cuenta o factura del comprobante anterior."
+        if conversation.estado == ConversationState.ESPERANDO_TIPO_FACTURA_CUENTA:
+            return "Todavia estoy esperando que indiques si el dato que vas a cargar es un numero de factura o de cuenta."
 
         movement = conversation.movimiento_borrador
         if movement is None:
@@ -136,6 +184,8 @@ class ConversationService:
 
         if conversation.estado == ConversationState.ESPERANDO_CONFIRMACION_DATOS:
             return self._summary(movement) + "\n\nResponde SI para confirmar o NO para descartar."
+        if conversation.estado == ConversationState.ESPERANDO_NUMERO_FACTURA_CUENTA:
+            return f"Todavia estoy esperando el numero de {_etiqueta_tipo(movement.factura_o_cuenta_tipo)} del comprobante anterior."
         if conversation.estado == ConversationState.ESPERANDO_CONFIRMACION_FINAL:
             return (
                 self._summary(movement)
@@ -186,10 +236,17 @@ class ConversationService:
     def _summary(movement: Movement) -> str:
         monto = f"${movement.monto}" if movement.monto is not None else "no detectado"
         cuenta = movement.cuenta_bancaria.alias if movement.cuenta_bancaria is not None else "no detectada"
-        return (
-            f"Monto: {monto}\n"
-            f"Fecha: {movement.fecha_transaccion:%Y-%m-%d}\n"
-            f"Cuenta receptora: {cuenta}\n"
-            f"Operacion: {movement.numero_operacion or 'no detectado'}\n"
-            f"Factura/cuenta: {movement.factura_o_cuenta or 'pendiente'}"
-        )
+        if movement.factura_o_cuenta_tipo is not None and movement.factura_o_cuenta_numero:
+            factura_cuenta = f"{_etiqueta_tipo(movement.factura_o_cuenta_tipo).capitalize()}: {movement.factura_o_cuenta_numero}"
+        else:
+            factura_cuenta = "pendiente"
+        lineas = [
+            f"Monto: {monto}",
+            f"Fecha: {_formatear_fecha(movement.fecha_transaccion)}",
+            f"Cuenta receptora: {cuenta}",
+            f"Operacion: {movement.numero_operacion or 'no detectado'}",
+        ]
+        if movement.titular:
+            lineas.append(f"Emisor: {movement.titular}")
+        lineas.append(f"Factura/cuenta: {factura_cuenta}")
+        return "\n".join(lineas)

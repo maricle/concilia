@@ -28,9 +28,21 @@ SI_NO_MARKUP = {
     "inline_keyboard": [[{"text": "Si", "callback_data": "si"}, {"text": "No", "callback_data": "no"}]]
 }
 
+TIPO_FACTURA_CUENTA_MARKUP = {
+    "inline_keyboard": [[{"text": "Factura", "callback_data": "factura"}, {"text": "Cuenta", "callback_data": "cuenta"}]]
+}
+
 PEDIR_TELEFONO_TEXTO = "Para registrar comprobantes primero compartinos tu numero de telefono con el boton de abajo."
 NUMERO_NO_HABILITADO_TEXTO = "Tu numero no esta habilitado. Contacta al administrador para que te registre."
 NUMERO_VINCULADO_TEXTO = "Numero vinculado correctamente. Ya podes enviar tus comprobantes."
+
+
+def _reply_markup(service: ConversationService, numero: str) -> dict | None:
+    if service.needs_confirmation_keyboard(numero):
+        return SI_NO_MARKUP
+    if service.needs_tipo_keyboard(numero):
+        return TIPO_FACTURA_CUENTA_MARKUP
+    return None
 
 
 def _api_url(method: str) -> str:
@@ -158,7 +170,7 @@ async def receive_telegram_update(
         with SessionLocal() as session:
             service = ConversationService(session)
             reply = service.handle_text(numero, callback_query.get("data", ""))
-            markup = SI_NO_MARKUP if service.needs_confirmation_keyboard(numero) else None
+            markup = _reply_markup(service, numero)
         await send_telegram_message(chat_id, reply, reply_markup=markup)
         return {"status": "accepted"}
 
@@ -176,14 +188,14 @@ async def receive_telegram_update(
         with SessionLocal() as session:
             service = ConversationService(session)
             reply = service.handle_text(numero, message["text"])
-            markup = SI_NO_MARKUP if service.needs_confirmation_keyboard(numero) else None
+            markup = _reply_markup(service, numero)
         await send_telegram_message(chat_id, reply, reply_markup=markup)
         return {"status": "accepted"}
 
     with SessionLocal() as session:
         service = ConversationService(session)
         pendiente = service.pending_prompt(numero)
-        markup = SI_NO_MARKUP if service.needs_confirmation_keyboard(numero) else None
+        markup = _reply_markup(service, numero)
     if pendiente is not None:
         await send_telegram_message(chat_id, pendiente, reply_markup=markup)
         return {"status": "ignored"}
@@ -229,6 +241,6 @@ async def receive_telegram_update(
     with SessionLocal() as session:
         service = ConversationService(session)
         reply = service.start_transfer(numero, transfer, archivo_id)
-        markup = SI_NO_MARKUP if service.needs_confirmation_keyboard(numero) else None
+        markup = _reply_markup(service, numero)
     await send_telegram_message(chat_id, reply, reply_markup=markup)
     return {"status": "accepted"}

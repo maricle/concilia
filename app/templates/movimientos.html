@@ -14,8 +14,11 @@
           <tr>
             <th>Fecha transaccion</th>
             <th>Fecha subida</th>
-            <th>Factura o cuenta</th>
+            <th>Tipo</th>
+            <th>Nro. factura/cuenta</th>
+            <th>Cuenta banco</th>
             <th>Banco emisor</th>
+            <th>Titular / Emisor</th>
             <th>N. operacion</th>
             <th>Monto</th>
             <th>Vendedor</th>
@@ -26,10 +29,13 @@
         <tbody>
           {% for movimiento in movimientos %}
           <tr>
-            <td>{{ movimiento.fecha_transaccion.strftime("%Y-%m-%d") if movimiento.fecha_transaccion else "-" }}</td>
+            <td>{{ movimiento.fecha_transaccion|fecha_transaccion }}</td>
             <td>{{ movimiento.fecha_subida.strftime("%Y-%m-%d %H:%M") }}</td>
-            <td>{{ movimiento.factura_o_cuenta or "-" }}</td>
+            <td>{{ "Factura" if movimiento.factura_o_cuenta_tipo and movimiento.factura_o_cuenta_tipo.value == "factura" else "Cuenta" if movimiento.factura_o_cuenta_tipo else "-" }}</td>
+            <td>{{ movimiento.factura_o_cuenta_numero or "-" }}</td>
+            <td>{{ movimiento.cuenta_bancaria.alias if movimiento.cuenta_bancaria else "Sin banco" }}</td>
             <td>{{ movimiento.banco_emisor or "-" }}</td>
+            <td>{{ movimiento.titular or "-" }}</td>
             <td>{{ movimiento.numero_operacion or "-" }}</td>
             <td>{{ "$" + movimiento.monto|string if movimiento.monto is not none else "-" }}</td>
             <td>{{ movimiento.operador.nombre }}</td>
@@ -50,7 +56,7 @@
             </td>
           </tr>
           {% else %}
-          <tr><td colspan="9">Todavia no hay movimientos confirmados.</td></tr>
+          <tr><td colspan="12">Todavia no hay movimientos confirmados.</td></tr>
           {% endfor %}
         </tbody>
       </table>

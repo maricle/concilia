@@ -18,13 +18,12 @@
   .sidebar .sidebar-brand { color: #fff; }
   .sidebar-divider { border-top: 1px solid rgba(255, 255, 255, .15); }
   .sidebar-heading { color: rgba(255, 255, 255, .4); }
-  .badge-activo { background-color: #dcfce7; color: #15803d; padding: .35em .65em; border-radius: .35rem; font-weight: 600; }
-  .badge-inactivo { background-color: #fee2e2; color: #b91c1c; padding: .35em .65em; border-radius: .35rem; font-weight: 600; }
-  .badge-con-diferencia { background-color: #fef3c7; color: #92400e; padding: .35em .65em; border-radius: .35rem; font-weight: 600; }
   .badge-pill-estado { display: inline-block; padding: .3em .75em; border-radius: 50rem; font-weight: 600; font-size: .75rem; }
   .badge-pill-pendiente { background-color: #fef9c3; color: #854d0e; }
   .badge-pill-conciliado { background-color: #dcfce7; color: #15803d; }
   .badge-pill-diferencia { background-color: #ffedd5; color: #9a3412; }
+  .badge-pill-activo { background-color: #dcfce7; color: #15803d; }
+  .badge-pill-inactivo { background-color: #fee2e2; color: #b91c1c; }
   .login-wrapper { min-height: 100vh; display: flex; align-items: center; justify-content: center; background: #f8f9fc; }
 </style>
 </head>
@@ -32,11 +31,14 @@
 {% if user %}
 <div id="wrapper">
   <ul class="navbar-nav sidebar sidebar-dark accordion" id="accordionSidebar">
-    <a class="sidebar-brand d-flex align-items-center justify-content-center" href="/comprobantes">
+    <a class="sidebar-brand d-flex align-items-center justify-content-center" href="/resumen">
       <div class="sidebar-brand-icon"><i class="fas fa-university"></i></div>
       <div class="sidebar-brand-text mx-3">Concilia</div>
     </a>
     <hr class="sidebar-divider my-0">
+    <li class="nav-item {{ 'active' if request.url.path == '/resumen' }}">
+      <a class="nav-link" href="/resumen"><i class="fas fa-fw fa-chart-pie"></i><span>Resumen</span></a>
+    </li>
     <li class="nav-item {{ 'active' if request.url.path == '/comprobantes' }}">
       <a class="nav-link" href="/comprobantes"><i class="fas fa-fw fa-file-invoice-dollar"></i><span>Comprobantes</span></a>
     </li>

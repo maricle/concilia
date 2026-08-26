@@ -1,4 +1,6 @@
-from datetime import datetime
+import csv
+import io
+from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import TypeVar
 
@@ -20,12 +22,27 @@ from .models import (
     RecordState,
     StatementLine,
     StatementLineState,
+    TipoIdentificador,
 )
 from .reconciliation import StatementParseError, match_statement, parse_statement_file
 from .storage import get_comprobante_archivo
 
 router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
+
+
+def _fecha_transaccion_display(fecha: datetime | None) -> str:
+    """La hora solo se muestra si se detecto (fecha.hour/minute != 0): si el
+    comprobante no traia hora, fecha_transaccion queda en medianoche y mostrarla
+    daria a entender que la hora se leyo del comprobante cuando en realidad no."""
+    if fecha is None:
+        return "-"
+    if fecha.hour or fecha.minute:
+        return fecha.strftime("%Y-%m-%d %H:%M")
+    return fecha.strftime("%Y-%m-%d")
+
+
+templates.env.filters["fecha_transaccion"] = _fecha_transaccion_display
 
 _Model = TypeVar("_Model", bound=DeclarativeBase)
 
@@ -78,7 +95,7 @@ def _duplicate_exists(db: Session, field: InstrumentedAttribute, value: str, *, 
 @router.get("/login")
 def login_form(request: Request, db: Session = Depends(get_db)):
     if get_logged_in_user(request, db) is not None:
-        return RedirectResponse("/config/operadores", status_code=303)
+        return RedirectResponse("/resumen", status_code=303)
     return templates.TemplateResponse(request, "login.html", {"user": None, "error": None})
 
 
@@ -98,7 +115,7 @@ def login_submit(
             status_code=401,
         )
     request.session["user_id"] = user.id
-    return RedirectResponse("/config/operadores", status_code=303)
+    return RedirectResponse("/resumen", status_code=303)
 
 
 @router.post("/logout")
@@ -240,12 +257,116 @@ def editar_cuenta_submit(
     return RedirectResponse("/config/cuentas", status_code=303)
 
 
+def _resumen_query(vendedor: str, fecha_desde: str, fecha_hasta: str, cuenta_bancaria_id: int | None):
+    query = (
+        select(Movement)
+        .join(Operator)
+        .where(Movement.estado_registro == RecordState.CONFIRMADO)
+        .options(selectinload(Movement.operador))
+    )
+    if vendedor.strip():
+        query = query.where(Operator.nombre.ilike(f"%{vendedor.strip()}%"))
+    if fecha_desde:
+        query = query.where(Movement.fecha_transaccion >= datetime.strptime(fecha_desde, "%Y-%m-%d"))
+    if fecha_hasta:
+        query = query.where(Movement.fecha_transaccion < datetime.strptime(fecha_hasta, "%Y-%m-%d") + timedelta(days=1))
+    if cuenta_bancaria_id is not None:
+        query = query.where(Movement.cuenta_bancaria_id == cuenta_bancaria_id)
+    return query
+
+
+def _resumen_por_operador(movimientos: list[Movement]) -> list[dict]:
+    por_operador: dict[int, dict] = {}
+    for movimiento in movimientos:
+        fila = por_operador.setdefault(
+            movimiento.operador_id,
+            {"operador": movimiento.operador, "total": Decimal("0"), "cantidad": 0, "conciliados": 0, "pendientes": 0},
+        )
+        fila["cantidad"] += 1
+        if movimiento.monto is not None:
+            fila["total"] += movimiento.monto
+        if movimiento.estado_conciliacion in (ReconciliationState.CONCILIADO, ReconciliationState.CONCILIADO_MANUALMENTE):
+            fila["conciliados"] += 1
+        else:
+            fila["pendientes"] += 1
+    return sorted(por_operador.values(), key=lambda f: f["operador"].nombre)
+
+
+@router.get("/resumen")
+def resumen(
+    request: Request,
+    vendedor: str = "",
+    fecha_desde: str = "",
+    fecha_hasta: str = "",
+    cuenta_bancaria_id: str = "",
+    db: Session = Depends(get_db),
+    user: PanelUser = Depends(require_user),
+):
+    cuenta_id = int(cuenta_bancaria_id) if cuenta_bancaria_id else None
+    movimientos = db.scalars(_resumen_query(vendedor, fecha_desde, fecha_hasta, cuenta_id)).all()
+    filas = _resumen_por_operador(movimientos)
+    cuentas = db.scalars(select(BankAccount).order_by(BankAccount.id)).all()
+
+    return templates.TemplateResponse(
+        request,
+        "resumen.html",
+        {
+            "user": user,
+            "filas": filas,
+            "cantidad_vendedores": len(filas),
+            "monto_total": sum((f["total"] for f in filas), Decimal("0")),
+            "cantidad_comprobantes": len(movimientos),
+            "vendedor": vendedor,
+            "fecha_desde": fecha_desde,
+            "fecha_hasta": fecha_hasta,
+            "cuenta_bancaria_id": cuenta_bancaria_id,
+            "cuentas": cuentas,
+        },
+    )
+
+
+@router.get("/resumen/exportar")
+def resumen_exportar(
+    vendedor: str = "",
+    fecha_desde: str = "",
+    fecha_hasta: str = "",
+    cuenta_bancaria_id: str = "",
+    db: Session = Depends(get_db),
+    user: PanelUser = Depends(require_user),
+):
+    cuenta_id = int(cuenta_bancaria_id) if cuenta_bancaria_id else None
+    movimientos = db.scalars(_resumen_query(vendedor, fecha_desde, fecha_hasta, cuenta_id)).all()
+    filas = _resumen_por_operador(movimientos)
+
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow(["Vendedor", "Telefono", "Tipo", "Total", "Comprobantes", "Conciliados con el banco", "Pendientes de conciliar"])
+    for fila in filas:
+        writer.writerow(
+            [
+                fila["operador"].nombre,
+                fila["operador"].whatsapp_numero,
+                fila["operador"].tipo,
+                fila["total"],
+                fila["cantidad"],
+                fila["conciliados"],
+                fila["pendientes"],
+            ]
+        )
+
+    return Response(
+        content=("﻿" + buffer.getvalue()).encode("utf-8"),
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="resumen.csv"'},
+    )
+
+
 @router.get("/comprobantes")
 def list_movimientos(request: Request, db: Session = Depends(get_db), user: PanelUser = Depends(require_user)):
     movimientos = db.scalars(
         select(Movement)
         .where(Movement.estado_registro == RecordState.CONFIRMADO)
-        .options(selectinload(Movement.operador))
+        .options(selectinload(Movement.operador), selectinload(Movement.cuenta_bancaria))
         .order_by(Movement.fecha_subida.desc())
     ).all()
     return templates.TemplateResponse(request, "movimientos.html", {"user": user, "movimientos": movimientos})
@@ -293,14 +414,15 @@ def editar_movimiento_submit(
     banco_emisor: str = Form(""),
     cuenta_receptora_extraida: str = Form(""),
     titular: str = Form(""),
-    factura_o_cuenta: str = Form(""),
+    factura_o_cuenta_tipo: str = Form(""),
+    factura_o_cuenta_numero: str = Form(""),
     db: Session = Depends(get_db),
     user: PanelUser = Depends(require_user),
 ):
     movimiento = _get_or_redirect(db, Movement, movimiento_id, "/comprobantes")
 
     try:
-        nueva_fecha = datetime.strptime(fecha_transaccion, "%Y-%m-%d")
+        nueva_fecha = datetime.strptime(fecha_transaccion, "%Y-%m-%dT%H:%M")
         nuevo_monto = Decimal(monto) if monto.strip() else None
     except (ValueError, InvalidOperation):
         return templates.TemplateResponse(
@@ -325,7 +447,8 @@ def editar_movimiento_submit(
     movimiento.banco_emisor = banco_emisor or None
     movimiento.cuenta_receptora_extraida = cuenta_receptora_extraida or None
     movimiento.titular = titular or None
-    movimiento.factura_o_cuenta = factura_o_cuenta or None
+    movimiento.factura_o_cuenta_tipo = TipoIdentificador(factura_o_cuenta_tipo) if factura_o_cuenta_tipo else None
+    movimiento.factura_o_cuenta_numero = factura_o_cuenta_numero or None
     db.commit()
     return RedirectResponse("/comprobantes", status_code=303)
 

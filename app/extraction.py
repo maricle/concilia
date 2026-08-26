@@ -71,7 +71,10 @@ def _build_tool(cuentas_validas: list[tuple[str, str]]) -> dict:
                 "monto": {"type": ["number", "null"], "description": "Monto de la transferencia"},
                 "fecha_transaccion": {
                     "type": ["string", "null"],
-                    "description": "Fecha de la operacion, formato YYYY-MM-DD",
+                    "description": (
+                        "Fecha de la operacion. Si el comprobante tambien muestra la hora, devolvela en formato "
+                        "'YYYY-MM-DD HH:MM' (24 horas); si solo hay fecha, devolve 'YYYY-MM-DD'."
+                    ),
                 },
                 "numero_operacion": {
                     "type": ["string", "null"],
@@ -215,12 +218,16 @@ def _has_minimum_fields(result: dict | None) -> bool:
     return _parse_monto(result.get("monto")) is not None
 
 
+_FORMATOS_FECHA_TRANSACCION = ("%Y-%m-%d %H:%M", "%Y-%m-%dT%H:%M", "%Y-%m-%d")
+
+
 def _parse_fecha_o_actual(valor: object) -> datetime:
     if _es_valor_valido(valor):
-        try:
-            return datetime.strptime(valor, "%Y-%m-%d")
-        except ValueError:
-            pass
+        for formato in _FORMATOS_FECHA_TRANSACCION:
+            try:
+                return datetime.strptime(valor.strip(), formato)
+            except ValueError:
+                continue
     return datetime.utcnow()
 
 

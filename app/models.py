@@ -11,8 +11,14 @@ from .db import Base
 class ConversationState(StrEnum):
     ESPERANDO_COMPROBANTE = "esperando_comprobante"
     ESPERANDO_CONFIRMACION_DATOS = "esperando_confirmacion_datos"
-    ESPERANDO_CUENTA_FACTURA = "esperando_cuenta_factura"
+    ESPERANDO_TIPO_FACTURA_CUENTA = "esperando_tipo_factura_cuenta"
+    ESPERANDO_NUMERO_FACTURA_CUENTA = "esperando_numero_factura_cuenta"
     ESPERANDO_CONFIRMACION_FINAL = "esperando_confirmacion_final"
+
+
+class TipoIdentificador(StrEnum):
+    FACTURA = "factura"
+    CUENTA = "cuenta"
 
 
 class RecordState(StrEnum):
@@ -68,7 +74,8 @@ class Movement(Base):
     cuenta_receptora_extraida: Mapped[str | None] = mapped_column(String(150))
     numero_operacion: Mapped[str | None] = mapped_column(String(120), index=True)
     titular: Mapped[str | None] = mapped_column(String(150))
-    factura_o_cuenta: Mapped[str | None] = mapped_column(String(150))
+    factura_o_cuenta_tipo: Mapped[TipoIdentificador | None] = mapped_column(default=None)
+    factura_o_cuenta_numero: Mapped[str | None] = mapped_column(String(150))
     cuenta_bancaria_id: Mapped[int | None] = mapped_column(ForeignKey("cuentas_bancarias.id"))
     archivo_url: Mapped[str | None] = mapped_column(Text)
     archivo_id: Mapped[int | None] = mapped_column(ForeignKey("comprobantes_archivo.id"))
