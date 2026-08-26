@@ -74,6 +74,24 @@ def test_has_minimum_fields_rejects_unparseable_monto():
     assert _has_minimum_fields(resultado) is False
 
 
+def test_few_shot_example_image_exists_and_loads():
+    assert len(extraction._FEW_SHOT_EXAMPLES) >= 1
+    for ejemplo in extraction._FEW_SHOT_EXAMPLES:
+        contenido = extraction._leer_ejemplo(ejemplo["archivo"])
+        assert len(contenido) > 0
+
+
+def test_few_shot_messages_precede_the_real_question():
+    mensajes = extraction._few_shot_messages("registrar_transferencia")
+    # 3 mensajes por ejemplo: usuario+imagen, asistente+tool_use, usuario+tool_result.
+    assert len(mensajes) == len(extraction._FEW_SHOT_EXAMPLES) * 3
+    assert mensajes[0]["role"] == "user"
+    assert mensajes[1]["role"] == "assistant"
+    assert mensajes[1]["content"][0]["type"] == "tool_use"
+    assert mensajes[1]["content"][0]["input"]["numero_operacion"] is None
+    assert mensajes[2]["content"][0]["type"] == "tool_result"
+
+
 @dataclass
 class _FakeBlock:
     type: str

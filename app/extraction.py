@@ -1,6 +1,8 @@
 import base64
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
+from functools import lru_cache
+from pathlib import Path
 
 from anthropic import Anthropic
 
@@ -9,6 +11,27 @@ from .conversation import ExtractedTransfer
 
 HAIKU_MODEL = "claude-haiku-4-5-20251001"
 SONNET_MODEL = "claude-sonnet-5"
+
+_FEW_SHOT_DIR = Path(__file__).parent / "few_shot"
+
+# Ejemplos fijos que se muestran antes de cada extraccion real, para corregir errores
+# ya observados en produccion. Las imagenes son comprobantes SINTETICOS (datos
+# inventados) que reproducen la estructura problematica, no comprobantes reales de
+# clientes -- no hay que agregar aca ningun archivo con datos personales de verdad.
+_FEW_SHOT_EXAMPLES = [
+    {
+        "archivo": "mercadopago_sin_numero_operacion.jpg",
+        "media_type": "image/jpeg",
+        "salida_esperada": {
+            "monto": 8750,
+            "fecha_transaccion": "2026-03-12",
+            "numero_operacion": None,
+            "banco_emisor": "Mercado Pago",
+            "cuenta_receptora": None,
+            "titular": "Empresa Ejemplo Sociedad Anonima",
+        },
+    },
+]
 
 def _build_tool(cuentas_validas: list[tuple[str, str]]) -> dict:
     """Arma el schema de la herramienta de extraccion. Si se pasan cuentas_validas
@@ -111,22 +134,62 @@ def _content_block(content_type: str, data: bytes) -> dict:
     return {"type": "image", "source": {"type": "base64", "media_type": content_type, "data": encoded}}
 
 
+@lru_cache
+def _leer_ejemplo(archivo: str) -> bytes:
+    return (_FEW_SHOT_DIR / archivo).read_bytes()
+
+
+def _few_shot_messages(tool_name: str) -> list[dict]:
+    """Turnos previos (usuario con la imagen, asistente con la extraccion correcta)
+    que se anteponen a la consulta real, para fijar por ejemplo concreto un patron
+    que ya fallo antes en vez de depender solo de la descripcion en texto."""
+    mensajes: list[dict] = []
+    for indice, ejemplo in enumerate(_FEW_SHOT_EXAMPLES):
+        contenido = _leer_ejemplo(ejemplo["archivo"])
+        tool_use_id = f"toolu_ejemplo_{indice}"
+        mensajes.append(
+            {
+                "role": "user",
+                "content": [
+                    _content_block(ejemplo["media_type"], contenido),
+                    {"type": "text", "text": "Extrae los datos de este comprobante de transferencia."},
+                ],
+            }
+        )
+        mensajes.append(
+            {
+                "role": "assistant",
+                "content": [
+                    {"type": "tool_use", "id": tool_use_id, "name": tool_name, "input": ejemplo["salida_esperada"]}
+                ],
+            }
+        )
+        mensajes.append(
+            {
+                "role": "user",
+                "content": [{"type": "tool_result", "tool_use_id": tool_use_id, "content": "Datos registrados."}],
+            }
+        )
+    return mensajes
+
+
 def _call_model(client: Anthropic, model: str, content_type: str, data: bytes, tool: dict) -> dict | None:
+    messages = _few_shot_messages(tool["name"]) + [
+        {
+            "role": "user",
+            "content": [
+                _content_block(content_type, data),
+                {"type": "text", "text": "Extrae los datos de este comprobante de transferencia."},
+            ],
+        }
+    ]
     response = client.messages.create(
         model=model,
         max_tokens=1024,
         system=SYSTEM_PROMPT,
         tools=[tool],
         tool_choice={"type": "tool", "name": tool["name"]},
-        messages=[
-            {
-                "role": "user",
-                "content": [
-                    _content_block(content_type, data),
-                    {"type": "text", "text": "Extrae los datos de este comprobante de transferencia."},
-                ],
-            }
-        ],
+        messages=messages,
     )
     for block in response.content:
         if block.type == "tool_use":
