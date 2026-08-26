@@ -603,6 +603,23 @@ def editar_movimiento_submit(
     return RedirectResponse("/comprobantes", status_code=303)
 
 
+@router.post("/comprobantes/{movimiento_id}/eliminar")
+def eliminar_movimiento(
+    movimiento_id: int, request: Request, db: Session = Depends(get_db), user: PanelUser = Depends(require_user)
+):
+    movimiento = db.get(Movement, movimiento_id)
+    if movimiento is not None:
+        # Si estaba emparejado con una linea de resumen, la linea vuelve a quedar
+        # pendiente en vez de arrastrar una referencia rota a un movimiento borrado.
+        lineas_vinculadas = db.scalars(select(StatementLine).where(StatementLine.movimiento_id == movimiento.id)).all()
+        for linea in lineas_vinculadas:
+            linea.movimiento_id = None
+            linea.estado = StatementLineState.PENDIENTE
+        db.delete(movimiento)
+        db.commit()
+    return RedirectResponse("/comprobantes", status_code=303)
+
+
 def _conteos_por_resumen(db: Session) -> dict[int, dict[str, int]]:
     """Cantidad de lineas por estado de conciliacion, agrupadas por resumen importado."""
     filas = db.execute(
@@ -692,6 +709,47 @@ def conciliaciones(
 ):
     return templates.TemplateResponse(
         request, "conciliaciones.html", _conciliaciones_context(db, user, None, resumen_id)
+    )
+
+
+@router.post("/conciliaciones/reconciliar")
+def reconciliar_pendientes(
+    request: Request,
+    resumen_id: str = Form(""),
+    db: Session = Depends(get_db),
+    user: PanelUser = Depends(require_user),
+):
+    """Reintenta el matching automatico sobre las lineas pendientes SIN pedir un
+    archivo nuevo -- util cuando lo que cambio no fue el resumen del banco sino que
+    se confirmaron comprobantes nuevos despues de la ultima carga, que antes no
+    tenian con que emparejar."""
+    if resumen_id:
+        resumen = db.get(ImportedStatement, int(resumen_id))
+        resumenes = [resumen] if resumen is not None else []
+    else:
+        resumenes = db.scalars(select(ImportedStatement)).all()
+
+    conciliadas = 0
+    for resumen in resumenes:
+        lineas_pendientes = db.scalars(
+            select(StatementLine).where(
+                StatementLine.resumen_id == resumen.id, StatementLine.estado == StatementLineState.PENDIENTE
+            )
+        ).all()
+        if not lineas_pendientes:
+            continue
+        match_statement(db, resumen, lineas_pendientes)
+        conciliadas += sum(1 for linea in lineas_pendientes if linea.estado == StatementLineState.CONCILIADA)
+    db.commit()
+
+    mensaje = (
+        f"Se {'concilio' if conciliadas == 1 else 'conciliaron'} {conciliadas} "
+        f"linea{'s' if conciliadas != 1 else ''} nueva{'s' if conciliadas != 1 else ''}."
+        if conciliadas
+        else "No se encontraron coincidencias nuevas."
+    )
+    return templates.TemplateResponse(
+        request, "conciliaciones.html", _conciliaciones_context(db, user, None, resumen_id, mensaje)
     )
 
 

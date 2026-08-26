@@ -228,6 +228,8 @@ a { color: var(--accent-strong); }
 }
 .btn-outline-primary:hover { background: var(--accent); border-color: var(--accent); }
 .btn-outline-secondary:hover { background: var(--surface-2); color: var(--text-primary); }
+.btn-outline-danger { border-color: var(--border); color: var(--bad); }
+.btn-outline-danger:hover { background: var(--bad); border-color: var(--bad); color: #fff; }
 
 /* ---------- FORMULARIOS ---------- */
 .form-control, .form-control-sm, select.form-control {
