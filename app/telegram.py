@@ -4,6 +4,7 @@ from typing import Any
 
 import httpx
 from fastapi import APIRouter, Header, HTTPException, Request
+from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -226,7 +227,11 @@ async def receive_telegram_update(
     contenido, _ = await _download_telegram_file(file_id)
     with SessionLocal() as session:
         cuentas_validas = [(c.alias, c.numero_cuenta) for c in session.scalars(select(BankAccount)).all()]
-    transfer = extract_transfer(content_type, contenido, cuentas_validas)
+    # extract_transfer llama a la API de Claude de forma sincrona (varios segundos,
+    # mas si hace fallback a Sonnet); correrla directo en el handler async bloquearia
+    # el unico event loop del proceso y congelaria a todos los demas operadores
+    # mientras tanto, asi que se delega a un thread del pool.
+    transfer = await run_in_threadpool(extract_transfer, content_type, contenido, cuentas_validas)
     if transfer is None:
         await send_telegram_message(
             chat_id,
