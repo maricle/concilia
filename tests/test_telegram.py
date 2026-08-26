@@ -96,14 +96,14 @@ def test_photo_message_is_extracted_and_saved_to_test_store(monkeypatch):
 
     saved: list[bytes] = []
 
-    def fake_save(nombre_archivo: str, content_type: str, contenido: bytes, numero_operacion=None) -> int:
+    def fake_save(nombre_archivo: str, content_type: str, contenido: bytes) -> int:
         saved.append(contenido)
         return 1
 
     monkeypatch.setattr(telegram, "send_telegram_message", fake_send)
     monkeypatch.setattr(telegram, "_download_telegram_file", fake_download)
     monkeypatch.setattr(telegram, "extract_transfer", fake_extract)
-    monkeypatch.setattr(telegram, "save_comprobante_prueba", fake_save)
+    monkeypatch.setattr(telegram, "save_comprobante_archivo", fake_save)
 
     response = client.post(
         "/telegram/webhook",
@@ -141,7 +141,7 @@ def test_second_photo_while_a_draft_is_pending_does_not_orphan_the_first(monkeyp
     monkeypatch.setattr(telegram, "send_telegram_message", fake_send)
     monkeypatch.setattr(telegram, "_download_telegram_file", fake_download)
     monkeypatch.setattr(telegram, "extract_transfer", fake_extract)
-    monkeypatch.setattr(telegram, "save_comprobante_prueba", lambda **kwargs: 1)
+    monkeypatch.setattr(telegram, "save_comprobante_archivo", lambda **kwargs: 1)
 
     photo_message = {"message": {"chat": {"id": 888}, "photo": [{"file_id": "abc", "file_size": 100}]}}
     client.post("/telegram/webhook", json=photo_message)  # primer comprobante: crea el borrador

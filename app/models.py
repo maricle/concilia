@@ -2,7 +2,7 @@ from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
 
-from sqlalchemy import DateTime, ForeignKey, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import DateTime, ForeignKey, LargeBinary, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .db import Base
@@ -71,15 +71,28 @@ class Movement(Base):
     factura_o_cuenta: Mapped[str | None] = mapped_column(String(150))
     cuenta_bancaria_id: Mapped[int | None] = mapped_column(ForeignKey("cuentas_bancarias.id"))
     archivo_url: Mapped[str | None] = mapped_column(Text)
-    archivo_prueba_id: Mapped[int | None] = mapped_column()
-    """Id del archivo en el storage de prueba de Turso (app/storage.py), no en el S3/R2
-    real del spec tecnico. Solo se completa para comprobantes recibidos por Telegram."""
+    archivo_id: Mapped[int | None] = mapped_column(ForeignKey("comprobantes_archivo.id"))
     origen: Mapped[str] = mapped_column(String(20), default="whatsapp")
     estado_registro: Mapped[RecordState] = mapped_column(default=RecordState.PENDIENTE_CONFIRMACION)
     estado_conciliacion: Mapped[ReconciliationState] = mapped_column(default=ReconciliationState.PENDIENTE)
 
     operador: Mapped[Operator] = relationship()
     cuenta_bancaria: Mapped[BankAccount | None] = relationship()
+    archivo: Mapped["ComprobanteArchivo | None"] = relationship()
+
+
+class ComprobanteArchivo(Base):
+    """Archivo original (imagen o PDF) de un comprobante recibido por Telegram,
+    guardado directo en Postgres (no en storage externo: son archivos chicos y
+    Postgres ya es la base confiable que usa el resto de la app)."""
+
+    __tablename__ = "comprobantes_archivo"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    nombre_archivo: Mapped[str] = mapped_column(String(255))
+    content_type: Mapped[str] = mapped_column(String(100))
+    contenido: Mapped[bytes] = mapped_column(LargeBinary)
+    creado_en: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
 class ImportedStatement(Base):

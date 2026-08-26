@@ -238,7 +238,7 @@ def test_ver_archivo_returns_file_content(monkeypatch):
                 fecha_transaccion=datetime(2026, 8, 24),
                 numero_operacion="OP-1",
                 estado_registro=RecordState.CONFIRMADO,
-                archivo_prueba_id=42,
+                archivo_id=42,
             )
         )
         session.commit()
@@ -248,7 +248,7 @@ def test_ver_archivo_returns_file_content(monkeypatch):
         content_type = "image/jpeg"
         nombre_archivo = "comprobante.jpg"
 
-    monkeypatch.setattr(panel, "get_comprobante_prueba", lambda archivo_id: _FakeArchivo() if archivo_id == 42 else None)
+    monkeypatch.setattr(panel, "get_comprobante_archivo", lambda archivo_id: _FakeArchivo() if archivo_id == 42 else None)
 
     client.post("/login", data={"email": "admin@concilia.test", "password": "secreta123"})
     response = client.get("/comprobantes/1/archivo")

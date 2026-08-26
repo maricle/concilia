@@ -22,7 +22,7 @@ from .models import (
     StatementLineState,
 )
 from .reconciliation import StatementParseError, match_statement, parse_statement_file
-from .storage import get_comprobante_prueba
+from .storage import get_comprobante_archivo
 
 router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
@@ -256,11 +256,11 @@ def ver_archivo_movimiento(
     movimiento_id: int, request: Request, db: Session = Depends(get_db), user: PanelUser = Depends(require_user)
 ):
     movimiento = db.get(Movement, movimiento_id)
-    if movimiento is None or movimiento.archivo_prueba_id is None:
+    if movimiento is None or movimiento.archivo_id is None:
         return RedirectResponse("/comprobantes", status_code=303)
 
     try:
-        archivo = get_comprobante_prueba(movimiento.archivo_prueba_id)
+        archivo = get_comprobante_archivo(movimiento.archivo_id)
     except Exception:
         return RedirectResponse("/comprobantes", status_code=303)
     if archivo is None:

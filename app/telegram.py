@@ -12,7 +12,7 @@ from .conversation import ConversationService
 from .db import SessionLocal
 from .extraction import extract_transfer
 from .models import BankAccount, Operator
-from .storage import save_comprobante_prueba
+from .storage import save_comprobante_archivo
 
 router = APIRouter()
 
@@ -186,18 +186,17 @@ async def receive_telegram_update(
         )
         return {"status": "accepted"}
 
-    archivo_prueba_id = None
+    archivo_id = None
     try:
-        archivo_prueba_id = save_comprobante_prueba(
+        archivo_id = save_comprobante_archivo(
             nombre_archivo=file_name,
             content_type=content_type,
             contenido=contenido,
-            numero_operacion=transfer.numero_operacion,
         )
     except Exception:
-        logging.exception("No se pudo guardar el archivo de prueba en Turso; se continua sin bloquear el registro.")
+        logging.exception("No se pudo guardar el archivo del comprobante; se continua sin bloquear el registro.")
 
     with SessionLocal() as session:
-        reply = ConversationService(session).start_transfer(numero, transfer, archivo_prueba_id)
+        reply = ConversationService(session).start_transfer(numero, transfer, archivo_id)
     await send_telegram_message(chat_id, reply)
     return {"status": "accepted"}

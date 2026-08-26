@@ -12,8 +12,6 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     session_secret: str = "change-me"
     modo_dev: bool = True
-    turso_database_url: str = ""
-    turso_auth_token: str = ""
     telegram_bot_token: str = ""
     telegram_webhook_secret: str = ""
 

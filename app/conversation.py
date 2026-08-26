@@ -133,7 +133,7 @@ class ConversationService:
             )
         return None
 
-    def start_transfer(self, number: str, transfer: ExtractedTransfer, archivo_prueba_id: int | None = None) -> str:
+    def start_transfer(self, number: str, transfer: ExtractedTransfer, archivo_id: int | None = None) -> str:
         operator = self.session.scalar(select(Operator).where(Operator.whatsapp_numero == number, Operator.activo.is_(True)))
         if operator is None:
             return "Este numero no esta habilitado para registrar comprobantes."
@@ -155,7 +155,7 @@ class ConversationService:
             banco_emisor=transfer.banco_emisor,
             cuenta_receptora_extraida=transfer.cuenta_receptora,
             titular=transfer.titular,
-            archivo_prueba_id=archivo_prueba_id,
+            archivo_id=archivo_id,
             cuenta_bancaria_id=cuenta_bancaria.id,
         )
         self.session.add(movement)

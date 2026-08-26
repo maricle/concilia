@@ -35,7 +35,7 @@
             <td>{{ movimiento.operador.nombre }}</td>
             <td>{{ movimiento.estado_conciliacion.value }}</td>
             <td>
-              {% if movimiento.archivo_prueba_id %}
+              {% if movimiento.archivo_id %}
               <a href="/comprobantes/{{ movimiento.id }}/archivo" target="_blank" class="btn btn-sm btn-outline-secondary">Ver</a>
               {% endif %}
               <a href="/comprobantes/{{ movimiento.id }}/editar" class="btn btn-sm btn-outline-primary">Editar</a>

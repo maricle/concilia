@@ -4,7 +4,6 @@ sqlalchemy>=2.0,<3.0
 pydantic-settings>=2.7,<3.0
 httpx>=0.28,<1.0
 python-multipart>=0.0.20,<1.0
-sqlalchemy-libsql>=0.1,<1.0
 anthropic>=0.40,<1.0
 jinja2>=3.1,<4.0
 itsdangerous>=2.2,<3.0
