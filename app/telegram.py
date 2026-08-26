@@ -70,10 +70,16 @@ async def send_telegram_message(chat_id: str, text: str, reply_markup: dict | No
 
 
 async def _answer_callback_query(callback_query_id: str) -> None:
-    response = await _get_http_client().post(
-        _api_url("answerCallbackQuery"), json={"callback_query_id": callback_query_id}
-    )
-    response.raise_for_status()
+    """Le avisa a Telegram que se recibio el click (apaga el spinner del boton).
+    Es solo cosmetico -- si Telegram la rechaza (ej. "query is too old"), no debe
+    impedir que se procese la respuesta real del operador."""
+    try:
+        response = await _get_http_client().post(
+            _api_url("answerCallbackQuery"), json={"callback_query_id": callback_query_id}
+        )
+        response.raise_for_status()
+    except httpx.HTTPError:
+        logging.exception("No se pudo confirmar el callback_query a Telegram; se continua igual.")
 
 
 async def _download_telegram_file(file_id: str) -> tuple[bytes, str]:
