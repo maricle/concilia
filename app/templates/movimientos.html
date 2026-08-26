@@ -9,7 +9,7 @@
   </div>
   <div class="card-body">
     <div class="table-responsive">
-      <table class="table table-bordered" width="100%" cellspacing="0">
+      <table class="table table-bordered table-sm small mb-0" width="100%" cellspacing="0">
         <thead>
           <tr>
             <th>Fecha transaccion</th>
@@ -33,12 +33,20 @@
             <td>{{ movimiento.numero_operacion or "-" }}</td>
             <td>{{ "$" + movimiento.monto|string if movimiento.monto is not none else "-" }}</td>
             <td>{{ movimiento.operador.nombre }}</td>
-            <td>{{ movimiento.estado_conciliacion.value }}</td>
             <td>
-              {% if movimiento.archivo_id %}
-              <a href="/comprobantes/{{ movimiento.id }}/archivo" target="_blank" class="btn btn-sm btn-outline-secondary">Ver</a>
+              {% if movimiento.estado_conciliacion.value == "pendiente" %}
+              <span class="badge-pill-estado badge-pill-pendiente">Pendiente</span>
+              {% elif movimiento.estado_conciliacion.value == "con_diferencia" %}
+              <span class="badge-pill-estado badge-pill-diferencia">Con diferencia</span>
+              {% else %}
+              <span class="badge-pill-estado badge-pill-conciliado">Conciliado</span>
               {% endif %}
-              <a href="/comprobantes/{{ movimiento.id }}/editar" class="btn btn-sm btn-outline-primary">Editar</a>
+            </td>
+            <td class="text-nowrap">
+              {% if movimiento.archivo_id %}
+              <a href="/comprobantes/{{ movimiento.id }}/archivo" target="_blank" class="btn btn-sm btn-outline-secondary" title="Ver comprobante"><i class="fas fa-eye"></i></a>
+              {% endif %}
+              <a href="/comprobantes/{{ movimiento.id }}/editar" class="btn btn-sm btn-outline-primary" title="Editar"><i class="fas fa-pencil-alt"></i></a>
             </td>
           </tr>
           {% else %}
