@@ -129,6 +129,7 @@ def login_submit(
     password: str = Form(...),
     db: Session = Depends(get_db),
 ):
+    email = email.strip().lower()
     user = db.scalar(select(PanelUser).where(PanelUser.email == email, PanelUser.activo.is_(True)))
     if user is None or not verify_password(password, user.password_hash):
         return templates.TemplateResponse(
@@ -163,6 +164,7 @@ def create_usuario(
     db: Session = Depends(get_db),
     user: PanelUser = Depends(require_user),
 ):
+    email = email.strip().lower()
     error = None
     if _duplicate_exists(db, PanelUser.email, email):
         error = f"Ya existe un usuario con el email {email}."
@@ -216,6 +218,7 @@ def editar_usuario_submit(
 ):
     usuario = _get_or_redirect(db, PanelUser, usuario_id, "/config/usuarios")
 
+    email = email.strip().lower()
     error = None
     if _duplicate_exists(db, PanelUser.email, email, exclude_id=usuario.id):
         error = f"Ya existe otro usuario con el email {email}."
