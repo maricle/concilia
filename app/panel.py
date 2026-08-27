@@ -4,6 +4,7 @@ from collections import Counter
 from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import TypeVar
+from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, Form, Request, UploadFile
 from fastapi.responses import RedirectResponse, Response
@@ -44,6 +45,22 @@ def _fecha_transaccion_display(fecha: datetime | None) -> str:
 
 
 templates.env.filters["fecha_transaccion"] = _fecha_transaccion_display
+
+
+def _sort_url(request: Request, campo: str) -> str:
+    """URL para el link de un encabezado de columna ordenable: conserva todos los
+    filtros/parametros actuales de la pagina, pisando solo sort/order. Si ya se
+    esta ordenando por esa misma columna invierte la direccion; si no, arranca
+    ascendente."""
+    parametros = dict(request.query_params)
+    ya_activo = parametros.get("sort") == campo
+    nuevo_orden = "desc" if ya_activo and parametros.get("order", "asc") == "asc" else "asc"
+    parametros["sort"] = campo
+    parametros["order"] = nuevo_orden
+    return f"{request.url.path}?{urlencode(parametros)}"
+
+
+templates.env.globals["sort_url"] = _sort_url
 
 _Model = TypeVar("_Model", bound=DeclarativeBase)
 
@@ -553,6 +570,15 @@ def resumen_exportar(
     )
 
 
+_COLUMNAS_ORDENABLES = {
+    "fecha_transaccion": Movement.fecha_transaccion,
+    "fecha_subida": Movement.fecha_subida,
+    "monto": Movement.monto,
+    "numero_operacion": Movement.numero_operacion,
+    "conciliacion": Movement.estado_conciliacion,
+}
+
+
 def _comprobantes_query(
     banco: str,
     estado_conciliacion: str,
@@ -562,6 +588,8 @@ def _comprobantes_query(
     fecha_subida_desde: str,
     fecha_subida_hasta: str,
     q: str,
+    sort: str = "",
+    order: str = "asc",
 ):
     query = (
         select(Movement)
@@ -594,7 +622,17 @@ def _comprobantes_query(
                 Movement.banco_emisor.ilike(needle),
             )
         )
-    return query.order_by(Movement.fecha_subida.desc())
+    if sort == "vendedor":
+        query = query.join(Operator, Movement.operador_id == Operator.id)
+        columna_orden = Operator.nombre
+    elif sort == "cuenta_banco":
+        query = query.outerjoin(BankAccount, Movement.cuenta_bancaria_id == BankAccount.id)
+        columna_orden = BankAccount.banco
+    else:
+        columna_orden = _COLUMNAS_ORDENABLES.get(sort, Movement.fecha_subida)
+    descendente = order == "desc" if sort else True  # sin sort explicito, default = fecha_subida desc (como antes)
+    orden = columna_orden.desc() if descendente else columna_orden.asc()
+    return query.order_by(orden.nullslast())
 
 
 @router.get("/comprobantes")
@@ -608,6 +646,8 @@ def list_movimientos(
     fecha_subida_desde: str = "",
     fecha_subida_hasta: str = "",
     q: str = "",
+    sort: str = "",
+    order: str = "asc",
     db: Session = Depends(get_db),
     user: PanelUser = Depends(require_user),
 ):
@@ -615,6 +655,7 @@ def list_movimientos(
         _comprobantes_query(
             banco, estado_conciliacion, operador_id,
             fecha_transaccion_desde, fecha_transaccion_hasta, fecha_subida_desde, fecha_subida_hasta, q,
+            sort, order,
         )
     ).all()
     cuentas = db.scalars(select(BankAccount).order_by(BankAccount.id)).all()
@@ -636,6 +677,8 @@ def list_movimientos(
             "fecha_subida_desde": fecha_subida_desde,
             "fecha_subida_hasta": fecha_subida_hasta,
             "q": q,
+            "sort": sort,
+            "order": order,
         },
     )
 
@@ -650,6 +693,8 @@ def comprobantes_exportar(
     fecha_subida_desde: str = "",
     fecha_subida_hasta: str = "",
     q: str = "",
+    sort: str = "",
+    order: str = "asc",
     db: Session = Depends(get_db),
     user: PanelUser = Depends(require_user),
 ):
@@ -657,6 +702,7 @@ def comprobantes_exportar(
         _comprobantes_query(
             banco, estado_conciliacion, operador_id,
             fecha_transaccion_desde, fecha_transaccion_hasta, fecha_subida_desde, fecha_subida_hasta, q,
+            sort, order,
         )
     ).all()
 

@@ -1,5 +1,17 @@
 {% extends "base.html" %}
 {% block title %}Comprobantes - Concilia{% endblock %}
+{% macro th_ordenable(campo, etiqueta, style="", cls="") %}
+<th class="{{ cls }}" style="{{ style }}">
+  <a href="{{ sort_url(request, campo) }}" class="th-sort-link">
+    {{ etiqueta }}
+    {% if sort == campo %}
+    <i class="fas fa-sort-{{ 'up' if order == 'asc' else 'down' }}"></i>
+    {% else %}
+    <i class="fas fa-sort text-muted"></i>
+    {% endif %}
+  </a>
+</th>
+{% endmacro %}
 {% block content %}
 <h1 class="h3 mb-4 text-gray-800">Comprobantes registrados</h1>
 
@@ -77,15 +89,15 @@
       <table class="table table-bordered table-sm small mb-0" width="100%" cellspacing="0">
         <thead>
           <tr>
-            <th style="width: 90px; white-space: normal;">Fecha transaccion</th>
-            <th style="width: 90px; white-space: normal;">Fecha subida</th>
+            {{ th_ordenable("fecha_transaccion", "Fecha transaccion", "width: 90px; white-space: normal;") }}
+            {{ th_ordenable("fecha_subida", "Fecha subida", "width: 90px; white-space: normal;") }}
             <th style="width: 85px; white-space: normal;">Factura/Cuenta</th>
-            <th>Cuenta banco</th>
+            {{ th_ordenable("cuenta_banco", "Cuenta banco") }}
             <th>Titular / Emisor</th>
-            <th>N. operacion</th>
-            <th class="num">Monto</th>
-            <th>Vendedor</th>
-            <th>Conciliacion</th>
+            {{ th_ordenable("numero_operacion", "N. operacion") }}
+            {{ th_ordenable("monto", "Monto", cls="num") }}
+            {{ th_ordenable("vendedor", "Vendedor") }}
+            {{ th_ordenable("conciliacion", "Conciliacion") }}
             <th></th>
           </tr>
         </thead>
