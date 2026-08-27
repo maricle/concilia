@@ -34,6 +34,9 @@
     </li>
     <hr class="sidebar-divider">
     <div class="sidebar-heading">Configuracion</div>
+    <li class="nav-item {{ 'active' if request.url.path == '/config/usuarios' }}">
+      <a class="nav-link" href="/config/usuarios"><i class="fas fa-fw fa-user-shield"></i><span>Usuarios</span></a>
+    </li>
     <li class="nav-item {{ 'active' if request.url.path == '/config/operadores' }}">
       <a class="nav-link" href="/config/operadores"><i class="fas fa-fw fa-users"></i><span>Operadores</span></a>
     </li>

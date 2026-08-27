@@ -11,7 +11,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy import or_, select
 from sqlalchemy.orm import DeclarativeBase, InstrumentedAttribute, Session, selectinload
 
-from .auth import verify_password
+from .auth import hash_password, verify_password
 from .db import SessionLocal
 from .models import (
     BankAccount,
@@ -123,6 +123,95 @@ def login_submit(
 def logout(request: Request):
     request.session.clear()
     return RedirectResponse("/login", status_code=303)
+
+
+@router.get("/config/usuarios")
+def list_usuarios(request: Request, db: Session = Depends(get_db), user: PanelUser = Depends(require_user)):
+    usuarios = db.scalars(select(PanelUser).order_by(PanelUser.id)).all()
+    return templates.TemplateResponse(request, "usuarios.html", {"user": user, "usuarios": usuarios, "error": None})
+
+
+@router.post("/config/usuarios")
+def create_usuario(
+    request: Request,
+    nombre: str = Form(...),
+    email: str = Form(...),
+    password: str = Form(...),
+    rol: str = Form("Administrador"),
+    db: Session = Depends(get_db),
+    user: PanelUser = Depends(require_user),
+):
+    error = None
+    if _duplicate_exists(db, PanelUser.email, email):
+        error = f"Ya existe un usuario con el email {email}."
+    elif len(password) < 8:
+        error = "La contrasena tiene que tener al menos 8 caracteres."
+
+    if error:
+        usuarios = db.scalars(select(PanelUser).order_by(PanelUser.id)).all()
+        return templates.TemplateResponse(
+            request, "usuarios.html", {"user": user, "usuarios": usuarios, "error": error}, status_code=400
+        )
+
+    db.add(PanelUser(nombre=nombre, email=email, password_hash=hash_password(password), rol=rol))
+    db.commit()
+    return RedirectResponse("/config/usuarios", status_code=303)
+
+
+@router.post("/config/usuarios/{usuario_id}/toggle")
+def toggle_usuario(
+    usuario_id: int, request: Request, db: Session = Depends(get_db), user: PanelUser = Depends(require_user)
+):
+    usuario = db.get(PanelUser, usuario_id)
+    if usuario is not None and usuario.id != user.id:
+        # No se permite que un usuario se desactive a si mismo, para evitar que
+        # el panel quede sin nadie que pueda volver a activar cuentas.
+        usuario.activo = not usuario.activo
+        db.commit()
+    return RedirectResponse("/config/usuarios", status_code=303)
+
+
+@router.get("/config/usuarios/{usuario_id}/editar")
+def editar_usuario_form(
+    usuario_id: int, request: Request, db: Session = Depends(get_db), user: PanelUser = Depends(require_user)
+):
+    usuario = _get_or_redirect(db, PanelUser, usuario_id, "/config/usuarios")
+    return templates.TemplateResponse(
+        request, "editar_usuario.html", {"user": user, "usuario": usuario, "error": None}
+    )
+
+
+@router.post("/config/usuarios/{usuario_id}/editar")
+def editar_usuario_submit(
+    usuario_id: int,
+    request: Request,
+    nombre: str = Form(...),
+    email: str = Form(...),
+    rol: str = Form("Administrador"),
+    password: str = Form(""),
+    db: Session = Depends(get_db),
+    user: PanelUser = Depends(require_user),
+):
+    usuario = _get_or_redirect(db, PanelUser, usuario_id, "/config/usuarios")
+
+    error = None
+    if _duplicate_exists(db, PanelUser.email, email, exclude_id=usuario.id):
+        error = f"Ya existe otro usuario con el email {email}."
+    elif password and len(password) < 8:
+        error = "La contrasena tiene que tener al menos 8 caracteres."
+
+    if error:
+        return templates.TemplateResponse(
+            request, "editar_usuario.html", {"user": user, "usuario": usuario, "error": error}, status_code=400
+        )
+
+    usuario.nombre = nombre
+    usuario.email = email
+    usuario.rol = rol
+    if password:
+        usuario.password_hash = hash_password(password)
+    db.commit()
+    return RedirectResponse("/config/usuarios", status_code=303)
 
 
 @router.get("/config/operadores")
