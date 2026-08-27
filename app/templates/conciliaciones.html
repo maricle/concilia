@@ -120,7 +120,7 @@
     <div class="table-responsive">
       <table class="table table-bordered table-sm small mb-0" width="100%" cellspacing="0">
         <thead>
-          <tr><th>Fecha transaccion</th><th>N. operacion</th><th class="num">Monto</th><th>Vendedor</th><th>Estado</th></tr>
+          <tr><th>Fecha transaccion</th><th>N. operacion</th><th class="num">Monto</th><th>Vendedor</th><th>Estado</th><th></th></tr>
         </thead>
         <tbody>
           {% for movimiento in movimientos_pendientes %}
@@ -138,9 +138,10 @@
               <span class="badge-pill-estado badge-pill-conciliado">Conciliado</span>
               {% endif %}
             </td>
+            <td><a href="/comprobantes/{{ movimiento.id }}/editar" class="btn btn-sm btn-outline-primary" title="Editar"><i class="fas fa-pencil-alt"></i></a></td>
           </tr>
           {% else %}
-          <tr><td colspan="5">No hay movimientos pendientes de conciliar.</td></tr>
+          <tr><td colspan="6">No hay movimientos pendientes de conciliar.</td></tr>
           {% endfor %}
         </tbody>
       </table>
