@@ -242,6 +242,8 @@ a { color: var(--accent-strong); }
 }
 
 .login-wrapper { background: var(--bg); }
+.login-footer .txt { font-size: 11px; color: var(--text-muted); letter-spacing: .03em; margin-bottom: 6px; }
+.login-footer-logo { height: 20px; width: auto; }
 
 /* ---------- RESPONSIVE ---------- */
 @media (max-width: 980px) {

@@ -1,24 +1,30 @@
 {% extends "base.html" %}
 {% block title %}Ingresar - Concilia{% endblock %}
 {% block login_content %}
-<div class="card shadow" style="width: 100%; max-width: 400px;">
-  <div class="card-body p-5">
-    <div class="text-center mb-4">
-      <i class="fas fa-university fa-2x text-primary mb-2"></i>
-      <h1 class="h4 text-gray-900">Concilia</h1>
+<div class="text-center" style="width: 100%; max-width: 400px;">
+  <div class="card shadow">
+    <div class="card-body p-5">
+      <div class="text-center mb-4">
+        <i class="fas fa-university fa-2x text-primary mb-2"></i>
+        <h1 class="h4 text-gray-900">Concilia</h1>
+      </div>
+      <form method="post" action="/login">
+        <div class="form-group">
+          <label>Email</label>
+          <input type="email" class="form-control" name="email" required autofocus>
+        </div>
+        <div class="form-group">
+          <label>Contrasena</label>
+          <input type="password" class="form-control" name="password" required>
+        </div>
+        {% if error %}<p class="text-danger small">{{ error }}</p>{% endif %}
+        <button type="submit" class="btn btn-primary btn-block">Ingresar</button>
+      </form>
     </div>
-    <form method="post" action="/login">
-      <div class="form-group">
-        <label>Email</label>
-        <input type="email" class="form-control" name="email" required autofocus>
-      </div>
-      <div class="form-group">
-        <label>Contrasena</label>
-        <input type="password" class="form-control" name="password" required>
-      </div>
-      {% if error %}<p class="text-danger small">{{ error }}</p>{% endif %}
-      <button type="submit" class="btn btn-primary btn-block">Ingresar</button>
-    </form>
+  </div>
+  <div class="login-footer mt-4">
+    <div class="txt">Desarrollado por</div>
+    <img src="/static/img/kleba-logo.png" alt="Kleba Dev" class="login-footer-logo">
   </div>
 </div>
 {% endblock %}

@@ -93,6 +93,11 @@ def _duplicate_exists(db: Session, field: InstrumentedAttribute, value: str, *, 
     return db.scalar(query) is not None
 
 
+@router.get("/")
+def raiz():
+    return RedirectResponse("/login", status_code=303)
+
+
 @router.get("/login")
 def login_form(request: Request, db: Session = Depends(get_db)):
     if get_logged_in_user(request, db) is not None:
