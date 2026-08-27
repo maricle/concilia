@@ -56,6 +56,16 @@ a { color: var(--accent-strong); }
 }
 .text-primary { color: var(--accent-strong) !important; }
 
+/* ---------- LAYOUT: sidebar fijo, solo el contenido scrollea ---------- */
+/* Por defecto el sidebar completo (incluido su pie con el logo) scrollea junto
+   con toda la pagina. Wrapper y sidebar quedan clavados a 100vh, y el scroll
+   vertical pasa a #content-wrapper (topbar + contenido), que es la unica parte
+   que se desplaza. */
+html, body { height: 100%; }
+#wrapper { height: 100vh; overflow: hidden; }
+.sidebar { height: 100vh; overflow-y: auto; }
+#content-wrapper { height: 100vh; overflow-y: auto; overflow-x: hidden; }
+
 /* ---------- SIDEBAR ---------- */
 /* El ancho NO se fuerza con !important a proposito: sb-admin-2 ya trae el
    toggle para plegar el sidebar (boton #sidebarToggle / #sidebarToggleTop,
