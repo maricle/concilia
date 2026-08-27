@@ -256,7 +256,7 @@ html, body { height: 100%; }
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--bg);
+  background: var(--bg) url("/static/img/concilia-bg01.png") center / cover no-repeat;
 }
 .login-footer .txt { font-size: 11px; color: var(--text-muted); letter-spacing: .03em; margin-bottom: 8px; }
 .login-footer .logo-chip {
