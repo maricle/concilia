@@ -112,25 +112,29 @@
 </div>
 
 <div class="row">
-  <div class="col-lg-8 mb-4">
+  <div class="col-lg-9 mb-4">
     <div class="card shadow h-100">
       <div class="card-header py-3">
         <h6 class="m-0 font-weight-bold text-primary">Resumen por vendedor</h6>
       </div>
       <div class="card-body">
         <div class="table-responsive">
-          <table class="table table-bordered table-sm small mb-0" width="100%" cellspacing="0">
+          <table class="table table-bordered table-sm small mb-0" width="100%" cellspacing="0" style="table-layout: fixed;">
             <thead>
               <tr>
-                <th>Vendedor</th><th>Telefono</th><th>Tipo</th><th class="num">Total</th>
-                <th class="num">Comprobantes</th><th class="num">Pendientes</th><th class="num">Diferencia</th><th>% Conciliado</th>
+                <th style="width: 19%;">Operador</th>
+                <th style="width: 16%; white-space: normal;">Tipo</th>
+                <th class="num" style="width: 16%;">Total</th>
+                <th class="num" style="width: 12%; white-space: normal;">Comprobantes</th>
+                <th class="num" style="width: 12%; white-space: normal;">Pendientes</th>
+                <th class="num" style="width: 12%; white-space: normal;">Diferencia</th>
+                <th style="width: 13%; white-space: normal;">% Conciliado</th>
               </tr>
             </thead>
             <tbody>
               {% for fila in filas %}
               <tr>
                 <td>{{ fila.operador.nombre }}</td>
-                <td>{{ fila.operador.whatsapp_numero }}</td>
                 <td>{{ fila.operador.tipo }}</td>
                 <td class="num">${{ "%.2f"|format(fila.total) }}</td>
                 <td class="num">{{ fila.cantidad }}</td>
@@ -144,7 +148,7 @@
                 </td>
               </tr>
               {% else %}
-              <tr><td colspan="8">No hay comprobantes que coincidan con los filtros.</td></tr>
+              <tr><td colspan="7">No hay comprobantes que coincidan con los filtros.</td></tr>
               {% endfor %}
             </tbody>
           </table>
@@ -153,7 +157,7 @@
     </div>
   </div>
 
-  <div class="col-lg-4 mb-4">
+  <div class="col-lg-3 mb-4">
     <div class="card shadow h-100">
       <div class="card-header py-3">
         <h6 class="m-0 font-weight-bold text-primary">Ultimos movimientos</h6>

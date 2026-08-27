@@ -478,6 +478,12 @@ def resumen(
     db: Session = Depends(get_db),
     user: PanelUser = Depends(require_user),
 ):
+    if not fecha_desde and not fecha_hasta:
+        # Sin filtro de fecha explicito, el Resumen arranca mostrando el mes en
+        # curso (no todo el historico) -- fecha_hasta queda abierta para que
+        # incluya lo que se cargue el resto del mes sin tener que recalcularla.
+        fecha_desde = datetime.utcnow().date().replace(day=1).strftime("%Y-%m-%d")
+
     cuenta_id = int(cuenta_bancaria_id) if cuenta_bancaria_id else None
     movimientos = db.scalars(_resumen_query(vendedor, fecha_desde, fecha_hasta, cuenta_id)).all()
     filas = _resumen_por_operador(movimientos)
