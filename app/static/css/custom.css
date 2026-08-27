@@ -241,9 +241,48 @@ a { color: var(--accent-strong); }
   box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
-.login-wrapper { background: var(--bg); }
-.login-footer .txt { font-size: 11px; color: var(--text-muted); letter-spacing: .03em; margin-bottom: 6px; }
-.login-footer-logo { height: 20px; width: auto; }
+.login-wrapper {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  background: var(--bg) url("/static/img/concilia-bg.png") center / cover no-repeat;
+  padding-left: 9vw;
+}
+/* El fondo detras del pie varia de oscuro a claro segun donde caiga la tarjeta
+   (la imagen tiene un degrade), asi que el texto va con su propia chapita en
+   vez de depender de un color de texto fijo -- igual criterio que el logo. */
+.login-footer .txt-chip {
+  background: rgba(255, 255, 255, .92);
+  border-radius: 20px;
+  padding: 4px 12px;
+  display: inline-block;
+  font-size: 11px;
+  color: var(--text-secondary);
+  letter-spacing: .03em;
+  margin-bottom: 8px;
+  box-shadow: var(--shadow-card);
+}
+.login-footer .logo-chip {
+  background: #fff;
+  border-radius: 8px;
+  padding: 6px 10px;
+  display: inline-flex;
+  align-items: center;
+  box-shadow: var(--shadow-card);
+}
+.login-footer-logo { height: 18px; width: auto; display: block; }
+
+/* En pantallas angostas la imagen de fondo se recorta demasiado (queda solo la
+   parte con la ilustracion, no la zona oscura pensada para el formulario) --
+   se vuelve al fondo liso y centrado. */
+@media (max-width: 900px) {
+  .login-wrapper {
+    background: var(--bg);
+    justify-content: center;
+    padding-left: 0;
+  }
+}
 
 /* ---------- RESPONSIVE ---------- */
 @media (max-width: 980px) {
