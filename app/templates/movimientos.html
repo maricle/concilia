@@ -63,6 +63,7 @@
       </div>
       <button type="submit" class="btn btn-primary">Filtrar</button>
       <a href="/comprobantes" class="btn btn-outline-secondary">Limpiar</a>
+      <button type="submit" formaction="/comprobantes/exportar" class="btn btn-outline-secondary" title="Exportar el listado filtrado a CSV"><i class="fas fa-file-csv mr-1"></i>Exportar</button>
     </form>
   </div>
 </div>
@@ -78,8 +79,7 @@
           <tr>
             <th style="width: 90px; white-space: normal;">Fecha transaccion</th>
             <th style="width: 90px; white-space: normal;">Fecha subida</th>
-            <th>Tipo</th>
-            <th style="width: 90px; white-space: normal;">Nro. factura/cuenta</th>
+            <th style="width: 85px; white-space: normal;">Factura/Cuenta</th>
             <th>Cuenta banco</th>
             <th>Titular / Emisor</th>
             <th>N. operacion</th>
@@ -94,9 +94,14 @@
           <tr>
             <td>{{ movimiento.fecha_transaccion|fecha_transaccion }}</td>
             <td>{{ movimiento.fecha_subida.strftime("%Y-%m-%d %H:%M") }}</td>
-            <td>{{ "Factura" if movimiento.factura_o_cuenta_tipo and movimiento.factura_o_cuenta_tipo.value == "factura" else "Cuenta" if movimiento.factura_o_cuenta_tipo else "-" }}</td>
-            <td>{{ movimiento.factura_o_cuenta_numero or "-" }}</td>
-            <td>{{ movimiento.cuenta_bancaria.alias if movimiento.cuenta_bancaria else "Sin banco" }}</td>
+            <td>
+              {% if movimiento.factura_o_cuenta_numero %}
+              {{ "F: " if movimiento.factura_o_cuenta_tipo and movimiento.factura_o_cuenta_tipo.value == "factura" else "Cta: " }}{{ movimiento.factura_o_cuenta_numero }}
+              {% else %}
+              -
+              {% endif %}
+            </td>
+            <td>{{ movimiento.cuenta_bancaria.banco if movimiento.cuenta_bancaria else "Sin banco" }}</td>
             <td>{{ movimiento.titular or "-" }}</td>
             <td>{{ movimiento.numero_operacion or "-" }}</td>
             <td class="num">{{ "$" + movimiento.monto|string if movimiento.monto is not none else "-" }}</td>
@@ -121,7 +126,7 @@
             </td>
           </tr>
           {% else %}
-          <tr><td colspan="11">Todavia no hay movimientos confirmados.</td></tr>
+          <tr><td colspan="10">Todavia no hay movimientos confirmados.</td></tr>
           {% endfor %}
         </tbody>
       </table>

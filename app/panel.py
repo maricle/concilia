@@ -553,19 +553,15 @@ def resumen_exportar(
     )
 
 
-@router.get("/comprobantes")
-def list_movimientos(
-    request: Request,
-    banco: str = "",
-    estado_conciliacion: str = "",
-    operador_id: str = "",
-    fecha_transaccion_desde: str = "",
-    fecha_transaccion_hasta: str = "",
-    fecha_subida_desde: str = "",
-    fecha_subida_hasta: str = "",
-    q: str = "",
-    db: Session = Depends(get_db),
-    user: PanelUser = Depends(require_user),
+def _comprobantes_query(
+    banco: str,
+    estado_conciliacion: str,
+    operador_id: str,
+    fecha_transaccion_desde: str,
+    fecha_transaccion_hasta: str,
+    fecha_subida_desde: str,
+    fecha_subida_hasta: str,
+    q: str,
 ):
     query = (
         select(Movement)
@@ -598,7 +594,29 @@ def list_movimientos(
                 Movement.banco_emisor.ilike(needle),
             )
         )
-    movimientos = db.scalars(query.order_by(Movement.fecha_subida.desc())).all()
+    return query.order_by(Movement.fecha_subida.desc())
+
+
+@router.get("/comprobantes")
+def list_movimientos(
+    request: Request,
+    banco: str = "",
+    estado_conciliacion: str = "",
+    operador_id: str = "",
+    fecha_transaccion_desde: str = "",
+    fecha_transaccion_hasta: str = "",
+    fecha_subida_desde: str = "",
+    fecha_subida_hasta: str = "",
+    q: str = "",
+    db: Session = Depends(get_db),
+    user: PanelUser = Depends(require_user),
+):
+    movimientos = db.scalars(
+        _comprobantes_query(
+            banco, estado_conciliacion, operador_id,
+            fecha_transaccion_desde, fecha_transaccion_hasta, fecha_subida_desde, fecha_subida_hasta, q,
+        )
+    ).all()
     cuentas = db.scalars(select(BankAccount).order_by(BankAccount.id)).all()
     operadores = db.scalars(select(Operator).order_by(Operator.nombre)).all()
 
@@ -619,6 +637,58 @@ def list_movimientos(
             "fecha_subida_hasta": fecha_subida_hasta,
             "q": q,
         },
+    )
+
+
+@router.get("/comprobantes/exportar")
+def comprobantes_exportar(
+    banco: str = "",
+    estado_conciliacion: str = "",
+    operador_id: str = "",
+    fecha_transaccion_desde: str = "",
+    fecha_transaccion_hasta: str = "",
+    fecha_subida_desde: str = "",
+    fecha_subida_hasta: str = "",
+    q: str = "",
+    db: Session = Depends(get_db),
+    user: PanelUser = Depends(require_user),
+):
+    movimientos = db.scalars(
+        _comprobantes_query(
+            banco, estado_conciliacion, operador_id,
+            fecha_transaccion_desde, fecha_transaccion_hasta, fecha_subida_desde, fecha_subida_hasta, q,
+        )
+    ).all()
+
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow(
+        [
+            "Fecha transaccion", "Fecha subida", "Tipo", "Nro. factura/cuenta", "Cuenta banco", "Banco emisor",
+            "Titular/Emisor", "N. operacion", "Monto", "Vendedor", "Conciliacion",
+        ]
+    )
+    for movimiento in movimientos:
+        writer.writerow(
+            [
+                movimiento.fecha_transaccion.strftime("%Y-%m-%d %H:%M") if movimiento.fecha_transaccion else "",
+                movimiento.fecha_subida.strftime("%Y-%m-%d %H:%M"),
+                movimiento.factura_o_cuenta_tipo.value if movimiento.factura_o_cuenta_tipo else "",
+                movimiento.factura_o_cuenta_numero or "",
+                movimiento.cuenta_bancaria.banco if movimiento.cuenta_bancaria else "Sin banco",
+                movimiento.banco_emisor or "",
+                movimiento.titular or "",
+                movimiento.numero_operacion or "",
+                movimiento.monto if movimiento.monto is not None else "",
+                movimiento.operador.nombre,
+                movimiento.estado_conciliacion.value,
+            ]
+        )
+
+    return Response(
+        content=("﻿" + buffer.getvalue()).encode("utf-8"),
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="comprobantes.csv"'},
     )
 
 
