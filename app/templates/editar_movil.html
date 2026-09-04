@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}Editar movil - Concilia{% endblock %}
+{% block content %}
+<h1 class="h3 mb-4 text-gray-800">Editar movil</h1>
+
+<div class="card shadow mb-4" style="max-width: 500px;">
+  <div class="card-body">
+    {% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
+    <form method="post" action="/config/moviles/{{ movil.id }}/editar">
+      <div class="form-group">
+        <label>Numero</label>
+        <input type="text" class="form-control" name="numero" value="{{ movil.numero }}" required>
+      </div>
+      <div class="form-group">
+        <label>Nombre</label>
+        <input type="text" class="form-control" name="nombre" value="{{ movil.nombre }}" required>
+      </div>
+      <div class="form-group">
+        <label>Descripcion</label>
+        <input type="text" class="form-control" name="descripcion" value="{{ movil.descripcion or '' }}">
+      </div>
+      <div class="form-group">
+        <label>Responsable</label>
+        <select class="form-control" name="responsable_operador_id" required>
+          <option value="">Elegir operador...</option>
+          {% for operador in operadores %}
+          <option value="{{ operador.id }}" {{ "selected" if movil.responsable_operador_id == operador.id }}>{{ operador.nombre }} ({{ operador.whatsapp_numero }})</option>
+          {% endfor %}
+        </select>
+      </div>
+      <p class="text-muted small">El responsable tiene que tener celular cargado.</p>
+      <button type="submit" class="btn btn-primary">Guardar cambios</button>
+    </form>
+  </div>
+</div>
+{% endblock %}

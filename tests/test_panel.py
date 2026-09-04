@@ -10,7 +10,7 @@ from app import panel
 from app.auth import hash_password
 from app.db import Base
 from app.main import app
-from app.models import BankAccount, Movement, Operator, PanelUser, RecordState
+from app.models import BankAccount, Movement, Movil, Operator, PanelUser, RecordState
 
 
 def _client_with_admin():
@@ -54,7 +54,7 @@ def test_login_and_create_operador():
         "/login", data={"email": "admin@concilia.test", "password": "secreta123"}, follow_redirects=False
     )
     assert login.status_code == 303
-    assert login.headers["location"] == "/config/operadores"
+    assert login.headers["location"] == "/resumen"
 
     create = client.post(
         "/config/operadores",
@@ -279,13 +279,14 @@ def test_editar_movimiento_updates_fields():
     response = client.post(
         "/comprobantes/1/editar",
         data={
-            "fecha_transaccion": "2026-08-20",
+            "fecha_transaccion": "2026-08-20T00:00",
             "monto": "650.50",
             "numero_operacion": "OP-1-CORREGIDO",
             "banco_emisor": "Banco Nuevo",
             "cuenta_receptora_extraida": "CBU12345",
             "titular": "Juan Perez",
-            "factura_o_cuenta": "9999",
+            "factura_o_cuenta_tipo": "factura",
+            "factura_o_cuenta_numero": "9999",
         },
         follow_redirects=False,
     )
@@ -298,7 +299,7 @@ def test_editar_movimiento_updates_fields():
         assert movimiento.banco_emisor == "Banco Nuevo"
         assert movimiento.cuenta_receptora_extraida == "CBU12345"
         assert movimiento.titular == "Juan Perez"
-        assert movimiento.factura_o_cuenta == "9999"
+        assert movimiento.factura_o_cuenta_numero == "9999"
         assert movimiento.fecha_transaccion == datetime(2026, 8, 20)
 
 
@@ -321,7 +322,7 @@ def test_editar_movimiento_allows_blank_monto():
     client.post("/login", data={"email": "admin@concilia.test", "password": "secreta123"})
     response = client.post(
         "/comprobantes/1/editar",
-        data={"fecha_transaccion": "2026-08-24", "monto": "", "numero_operacion": "OP-1"},
+        data={"fecha_transaccion": "2026-08-24T00:00", "monto": "", "numero_operacion": "OP-1"},
         follow_redirects=False,
     )
     assert response.status_code == 303
@@ -360,7 +361,7 @@ def test_editar_movimiento_allows_blank_numero_operacion_without_colliding():
     for movimiento_id in (1, 2):
         response = client.post(
             f"/comprobantes/{movimiento_id}/editar",
-            data={"fecha_transaccion": "2026-08-24", "monto": "500", "numero_operacion": ""},
+            data={"fecha_transaccion": "2026-08-24T00:00", "monto": "500", "numero_operacion": ""},
             follow_redirects=False,
         )
         assert response.status_code == 303
@@ -399,10 +400,230 @@ def test_editar_movimiento_rejects_duplicate_numero_operacion():
     response = client.post(
         "/comprobantes/2/editar",
         data={
-            "fecha_transaccion": "2026-08-24",
+            "fecha_transaccion": "2026-08-24T00:00",
             "monto": "300",
             "numero_operacion": "OP-1",
         },
     )
     assert response.status_code == 400
     assert "Ya existe otro comprobante" in response.text
+
+
+def test_crear_movil_ok():
+    client, test_session = _client_with_admin()
+    with test_session() as session:
+        session.add(Operator(nombre="Resp", whatsapp_numero="7770001"))
+        session.commit()
+
+    client.post("/login", data={"email": "admin@concilia.test", "password": "secreta123"})
+    response = client.post(
+        "/config/moviles",
+        data={"numero": "M-01", "nombre": "Camion 1", "descripcion": "", "responsable_operador_id": "1"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+
+    with test_session() as session:
+        movil = session.query(Movil).filter_by(numero="M-01").one()
+        assert movil.nombre == "Camion 1"
+        assert movil.responsable_operador_id == 1
+
+
+def test_crear_movil_numero_duplicado_rechazado():
+    client, test_session = _client_with_admin()
+    with test_session() as session:
+        session.add(Operator(nombre="Resp", whatsapp_numero="7770001"))
+        session.commit()
+
+    client.post("/login", data={"email": "admin@concilia.test", "password": "secreta123"})
+    client.post("/config/moviles", data={"numero": "M-01", "nombre": "Camion 1", "responsable_operador_id": "1"})
+
+    response = client.post("/config/moviles", data={"numero": "M-01", "nombre": "Otro", "responsable_operador_id": "1"})
+    assert response.status_code == 400
+    assert "Ya existe un movil" in response.text
+
+
+def test_crear_movil_sin_responsable_rechazado():
+    client, _ = _client_with_admin()
+    client.post("/login", data={"email": "admin@concilia.test", "password": "secreta123"})
+
+    response = client.post("/config/moviles", data={"numero": "M-01", "nombre": "Camion 1", "responsable_operador_id": ""})
+    assert response.status_code == 400
+    assert "necesita un operador responsable" in response.text
+
+
+def test_crear_movil_responsable_sin_celular_rechazado():
+    client, test_session = _client_with_admin()
+    with test_session() as session:
+        operador = Operator(nombre="SinCelular", whatsapp_numero="")
+        session.add(operador)
+        session.commit()
+        responsable_id = operador.id
+
+    client.post("/login", data={"email": "admin@concilia.test", "password": "secreta123"})
+    response = client.post(
+        "/config/moviles",
+        data={"numero": "M-01", "nombre": "Camion 1", "responsable_operador_id": str(responsable_id)},
+    )
+    assert response.status_code == 400
+    assert "no tiene celular cargado" in response.text
+
+
+def test_editar_movil_updates_fields():
+    client, test_session = _client_with_admin()
+    with test_session() as session:
+        session.add_all(
+            [
+                Operator(nombre="Resp1", whatsapp_numero="7770001"),
+                Operator(nombre="Resp2", whatsapp_numero="7770002"),
+            ]
+        )
+        session.commit()
+        session.add(Movil(numero="M-01", nombre="Camion 1", responsable_operador_id=1))
+        session.commit()
+
+    client.post("/login", data={"email": "admin@concilia.test", "password": "secreta123"})
+    response = client.post(
+        "/config/moviles/1/editar",
+        data={"numero": "M-01B", "nombre": "Camion Nuevo", "descripcion": "desc", "responsable_operador_id": "2"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+
+    with test_session() as session:
+        movil = session.get(Movil, 1)
+        assert movil.numero == "M-01B"
+        assert movil.nombre == "Camion Nuevo"
+        assert movil.responsable_operador_id == 2
+
+
+def test_editar_operador_asigna_y_limpia_movil():
+    client, test_session = _client_with_admin()
+    with test_session() as session:
+        session.add(Operator(nombre="Ana", whatsapp_numero="111"))
+        session.commit()
+        session.add(Movil(numero="M-01", nombre="Camion 1", responsable_operador_id=1))
+        session.commit()
+
+    client.post("/login", data={"email": "admin@concilia.test", "password": "secreta123"})
+    response = client.post(
+        "/config/operadores/1/editar",
+        data={"nombre": "Ana", "whatsapp_numero": "111", "tipo": "Reparto", "movil_id": "1"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    with test_session() as session:
+        assert session.get(Operator, 1).movil_id == 1
+
+    response = client.post(
+        "/config/operadores/1/editar",
+        data={"nombre": "Ana", "whatsapp_numero": "111", "tipo": "Reparto", "movil_id": ""},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    with test_session() as session:
+        assert session.get(Operator, 1).movil_id is None
+
+
+def test_editar_operador_rechaza_celular_vacio_si_es_responsable():
+    client, test_session = _client_with_admin()
+    with test_session() as session:
+        session.add(Operator(nombre="Ana", whatsapp_numero="111"))
+        session.commit()
+        session.add(Movil(numero="M-01", nombre="Camion 1", responsable_operador_id=1))
+        session.commit()
+
+    client.post("/login", data={"email": "admin@concilia.test", "password": "secreta123"})
+    response = client.post(
+        "/config/operadores/1/editar",
+        data={"nombre": "Ana", "whatsapp_numero": "", "tipo": "Reparto"},
+    )
+    assert response.status_code == 400
+    assert "responsable del movil" in response.text
+
+
+def test_toggle_operador_bloqueado_si_es_responsable():
+    client, test_session = _client_with_admin()
+    with test_session() as session:
+        session.add(Operator(nombre="Ana", whatsapp_numero="111"))
+        session.commit()
+        session.add(Movil(numero="M-01", nombre="Camion 1", responsable_operador_id=1))
+        session.commit()
+
+    client.post("/login", data={"email": "admin@concilia.test", "password": "secreta123"})
+    response = client.post("/config/operadores/1/toggle", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert "/config/operadores?error=" in response.headers["location"]
+    with test_session() as session:
+        assert session.get(Operator, 1).activo is True
+
+
+def test_comprobantes_filtra_por_movil():
+    client, test_session = _client_with_admin()
+    with test_session() as session:
+        session.add(Operator(nombre="Ana", whatsapp_numero="111"))
+        session.commit()
+        session.add_all(
+            [
+                Movil(numero="M-01", nombre="Camion 1", responsable_operador_id=1),
+                Movil(numero="M-02", nombre="Camion 2", responsable_operador_id=1),
+            ]
+        )
+        session.commit()
+        session.add_all(
+            [
+                Movement(
+                    operador_id=1,
+                    monto=Decimal("500"),
+                    fecha_transaccion=datetime(2026, 8, 24),
+                    numero_operacion="OP-M1",
+                    estado_registro=RecordState.CONFIRMADO,
+                    movil_id=1,
+                ),
+                Movement(
+                    operador_id=1,
+                    monto=Decimal("300"),
+                    fecha_transaccion=datetime(2026, 8, 24),
+                    numero_operacion="OP-M2",
+                    estado_registro=RecordState.CONFIRMADO,
+                    movil_id=2,
+                ),
+            ]
+        )
+        session.commit()
+
+    client.post("/login", data={"email": "admin@concilia.test", "password": "secreta123"})
+    response = client.get("/comprobantes", params={"movil_id": "1"})
+
+    assert response.status_code == 200
+    assert "OP-M1" in response.text
+    assert "OP-M2" not in response.text
+
+
+def test_comprobantes_exportar_incluye_columna_movil():
+    client, test_session = _client_with_admin()
+    with test_session() as session:
+        session.add(Operator(nombre="Ana", whatsapp_numero="111"))
+        session.commit()
+        session.add(Movil(numero="M-01", nombre="Camion 1", responsable_operador_id=1))
+        session.commit()
+        session.add(
+            Movement(
+                operador_id=1,
+                monto=Decimal("500"),
+                fecha_transaccion=datetime(2026, 8, 24),
+                numero_operacion="OP-1",
+                estado_registro=RecordState.CONFIRMADO,
+                movil_id=1,
+            )
+        )
+        session.commit()
+
+    client.post("/login", data={"email": "admin@concilia.test", "password": "secreta123"})
+    response = client.get("/comprobantes/exportar")
+
+    assert response.status_code == 200
+    contenido = response.content.decode("utf-8-sig")
+    assert "Movil" in contenido
+    assert "M-01" in contenido

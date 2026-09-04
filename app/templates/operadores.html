@@ -3,6 +3,8 @@
 {% block content %}
 <h1 class="h3 mb-4 text-gray-800">Operadores / Vendedores</h1>
 
+{% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
+
 <div class="card shadow mb-4">
   <div class="card-header py-3">
     <h6 class="m-0 font-weight-bold text-primary">Listado</h6>
@@ -11,7 +13,7 @@
     <div class="table-responsive">
       <table class="table table-bordered table-sm small mb-0" width="100%" cellspacing="0">
         <thead>
-          <tr><th>Nombre</th><th>Numero</th><th>Telegram vinculado</th><th>Tipo</th><th>Estado</th><th></th></tr>
+          <tr><th>Nombre</th><th>Numero</th><th>Telegram vinculado</th><th>Tipo</th><th>Movil</th><th>Estado</th><th></th></tr>
         </thead>
         <tbody>
           {% for operador in operadores %}
@@ -20,6 +22,7 @@
             <td>{{ operador.whatsapp_numero }}</td>
             <td>{{ operador.telegram_chat_id or "-" }}</td>
             <td>{{ operador.tipo }}</td>
+            <td>{{ operador.movil.numero if operador.movil else "-" }}</td>
             <td>
               {% if operador.activo %}
               <span class="badge-pill-estado badge-pill-activo">Activo</span>
@@ -39,7 +42,7 @@
             </td>
           </tr>
           {% else %}
-          <tr><td colspan="6">Todavia no hay operadores dados de alta.</td></tr>
+          <tr><td colspan="7">Todavia no hay operadores dados de alta.</td></tr>
           {% endfor %}
         </tbody>
       </table>
@@ -67,6 +70,17 @@
           <select class="form-control" name="tipo">
             <option value="Reparto">Reparto</option>
             <option value="Administrativo">Administrativo</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group col-md-4">
+          <label>Movil</label>
+          <select class="form-control" name="movil_id">
+            <option value="">Sin movil</option>
+            {% for movil in moviles %}
+            <option value="{{ movil.id }}">{{ movil.numero }} - {{ movil.nombre }}</option>
+            {% endfor %}
           </select>
         </div>
       </div>

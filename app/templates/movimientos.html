@@ -57,6 +57,15 @@
       </div>
       <div class="form-row align-items-end">
         <div class="form-group col-md-3">
+          <label>Movil</label>
+          <select class="form-control" name="movil_id">
+            <option value="">Todos</option>
+            {% for movil in moviles %}
+            <option value="{{ movil.id }}" {{ "selected" if movil_id == movil.id|string }}>{{ movil.numero }} - {{ movil.nombre }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-group col-md-3">
           <label>Fecha transaccion desde</label>
           <input type="date" class="form-control" name="fecha_transaccion_desde" value="{{ fecha_transaccion_desde }}">
         </div>
@@ -97,6 +106,7 @@
             {{ th_ordenable("numero_operacion", "N. operacion") }}
             {{ th_ordenable("monto", "Monto", cls="num") }}
             {{ th_ordenable("vendedor", "Vendedor") }}
+            <th>Movil</th>
             {{ th_ordenable("conciliacion", "Conciliacion") }}
             <th></th>
           </tr>
@@ -118,6 +128,7 @@
             <td>{{ movimiento.numero_operacion or "-" }}</td>
             <td class="num">{{ "$" + movimiento.monto|string if movimiento.monto is not none else "-" }}</td>
             <td>{{ movimiento.operador.nombre }}</td>
+            <td>{{ movimiento.movil.numero if movimiento.movil else "-" }}</td>
             <td>
               {% if movimiento.estado_conciliacion.value == "pendiente" %}
               <span class="badge-pill-estado badge-pill-pendiente">Pendiente</span>
@@ -138,7 +149,7 @@
             </td>
           </tr>
           {% else %}
-          <tr><td colspan="10">Todavia no hay movimientos confirmados.</td></tr>
+          <tr><td colspan="11">Todavia no hay movimientos confirmados.</td></tr>
           {% endfor %}
         </tbody>
       </table>

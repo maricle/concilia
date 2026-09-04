@@ -303,7 +303,13 @@ def test_callback_query_confirms_pending_draft_like_typing_si(monkeypatch):
 
     assert response.status_code == 200
     assert answered == ["cbq1"]
-    assert sent == [("999", "Indica el numero de cuenta o factura del cliente asociado a este pago.", None)]
+    assert sent == [
+        (
+            "999",
+            "¿El dato que vas a cargar es un numero de factura o un numero de cuenta del cliente?",
+            {"inline_keyboard": [[{"text": "Factura", "callback_data": "factura"}, {"text": "Cuenta", "callback_data": "cuenta"}]]},
+        )
+    ]
 
 
 def test_already_linked_chat_skips_phone_request(monkeypatch):

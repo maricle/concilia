@@ -18,6 +18,7 @@ from .models import (
     BankAccount,
     ImportedStatement,
     Movement,
+    Movil,
     Operator,
     PanelUser,
     ReconciliationState,
@@ -108,6 +109,19 @@ def _duplicate_exists(db: Session, field: InstrumentedAttribute, value: str, *, 
     if exclude_id is not None:
         query = query.where(field.class_.id != exclude_id)
     return db.scalar(query) is not None
+
+
+def _validar_responsable_movil(db: Session, responsable_operador_id: int | None) -> str | None:
+    """Un movil no se puede guardar sin un responsable que tenga celular cargado
+    -- devuelve el mensaje de error, o None si esta todo bien."""
+    if responsable_operador_id is None:
+        return "El movil necesita un operador responsable."
+    responsable = db.get(Operator, responsable_operador_id)
+    if responsable is None:
+        return "El operador responsable seleccionado no existe."
+    if not responsable.whatsapp_numero.strip():
+        return f"El operador responsable ({responsable.nombre}) no tiene celular cargado."
+    return None
 
 
 @router.get("/")
@@ -240,10 +254,13 @@ def editar_usuario_submit(
 
 
 @router.get("/config/operadores")
-def list_operadores(request: Request, db: Session = Depends(get_db), user: PanelUser = Depends(require_user)):
+def list_operadores(
+    request: Request, error: str = "", db: Session = Depends(get_db), user: PanelUser = Depends(require_user)
+):
     operadores = db.scalars(select(Operator).order_by(Operator.id)).all()
+    moviles = db.scalars(select(Movil).where(Movil.activo.is_(True)).order_by(Movil.nombre)).all()
     return templates.TemplateResponse(
-        request, "operadores.html", {"user": user, "operadores": operadores, "error": None}
+        request, "operadores.html", {"user": user, "operadores": operadores, "moviles": moviles, "error": error or None}
     )
 
 
@@ -253,23 +270,30 @@ def create_operador(
     nombre: str = Form(...),
     whatsapp_numero: str = Form(...),
     tipo: str = Form("Reparto"),
+    movil_id: str = Form(""),
     db: Session = Depends(get_db),
     user: PanelUser = Depends(require_user),
 ):
     if _duplicate_exists(db, Operator.whatsapp_numero, whatsapp_numero):
         operadores = db.scalars(select(Operator).order_by(Operator.id)).all()
+        moviles = db.scalars(select(Movil).where(Movil.activo.is_(True)).order_by(Movil.nombre)).all()
         return templates.TemplateResponse(
             request,
             "operadores.html",
             {
                 "user": user,
                 "operadores": operadores,
+                "moviles": moviles,
                 "error": f"Ya existe un operador con el numero {whatsapp_numero}.",
             },
             status_code=400,
         )
 
-    db.add(Operator(nombre=nombre, whatsapp_numero=whatsapp_numero, tipo=tipo))
+    db.add(
+        Operator(
+            nombre=nombre, whatsapp_numero=whatsapp_numero, tipo=tipo, movil_id=int(movil_id) if movil_id else None
+        )
+    )
     db.commit()
     return RedirectResponse("/config/operadores", status_code=303)
 
@@ -280,6 +304,13 @@ def toggle_operador(
 ):
     operador = db.get(Operator, operador_id)
     if operador is not None:
+        if operador.activo:
+            es_responsable = db.scalar(
+                select(Movil).where(Movil.responsable_operador_id == operador.id, Movil.activo.is_(True))
+            )
+            if es_responsable is not None:
+                mensaje = f"No se puede desactivar a {operador.nombre}: es responsable del movil {es_responsable.numero}."
+                return RedirectResponse(f"/config/operadores?{urlencode({'error': mensaje})}", status_code=303)
         operador.activo = not operador.activo
         db.commit()
     return RedirectResponse("/config/operadores", status_code=303)
@@ -290,8 +321,9 @@ def editar_operador_form(
     operador_id: int, request: Request, db: Session = Depends(get_db), user: PanelUser = Depends(require_user)
 ):
     operador = _get_or_redirect(db, Operator, operador_id, "/config/operadores")
+    moviles = db.scalars(select(Movil).where(Movil.activo.is_(True)).order_by(Movil.nombre)).all()
     return templates.TemplateResponse(
-        request, "editar_operador.html", {"user": user, "operador": operador, "error": None}
+        request, "editar_operador.html", {"user": user, "operador": operador, "moviles": moviles, "error": None}
     )
 
 
@@ -300,26 +332,152 @@ def editar_operador_submit(
     operador_id: int,
     request: Request,
     nombre: str = Form(...),
-    whatsapp_numero: str = Form(...),
+    whatsapp_numero: str = Form(""),
     tipo: str = Form("Reparto"),
+    movil_id: str = Form(""),
     db: Session = Depends(get_db),
     user: PanelUser = Depends(require_user),
 ):
     operador = _get_or_redirect(db, Operator, operador_id, "/config/operadores")
+    moviles = db.scalars(select(Movil).where(Movil.activo.is_(True)).order_by(Movil.nombre)).all()
+
+    if not whatsapp_numero.strip():
+        es_responsable = db.scalar(
+            select(Movil).where(Movil.responsable_operador_id == operador.id, Movil.activo.is_(True))
+        )
+        mensaje = (
+            f"No se puede dejar sin celular a {operador.nombre}: es responsable del movil {es_responsable.numero}."
+            if es_responsable is not None
+            else "El numero de celular es obligatorio."
+        )
+        return templates.TemplateResponse(
+            request,
+            "editar_operador.html",
+            {"user": user, "operador": operador, "moviles": moviles, "error": mensaje},
+            status_code=400,
+        )
 
     if _duplicate_exists(db, Operator.whatsapp_numero, whatsapp_numero, exclude_id=operador.id):
         return templates.TemplateResponse(
             request,
             "editar_operador.html",
-            {"user": user, "operador": operador, "error": f"Ya existe otro operador con el numero {whatsapp_numero}."},
+            {"user": user, "operador": operador, "moviles": moviles, "error": f"Ya existe otro operador con el numero {whatsapp_numero}."},
             status_code=400,
         )
 
     operador.nombre = nombre
     operador.whatsapp_numero = whatsapp_numero
     operador.tipo = tipo
+    operador.movil_id = int(movil_id) if movil_id else None
     db.commit()
     return RedirectResponse("/config/operadores", status_code=303)
+
+
+@router.get("/config/moviles")
+def list_moviles(
+    request: Request, error: str = "", db: Session = Depends(get_db), user: PanelUser = Depends(require_user)
+):
+    moviles = db.scalars(select(Movil).order_by(Movil.id)).all()
+    operadores = db.scalars(select(Operator).where(Operator.activo.is_(True)).order_by(Operator.nombre)).all()
+    return templates.TemplateResponse(
+        request, "moviles.html", {"user": user, "moviles": moviles, "operadores": operadores, "error": error or None}
+    )
+
+
+@router.post("/config/moviles")
+def create_movil(
+    request: Request,
+    numero: str = Form(...),
+    nombre: str = Form(...),
+    descripcion: str = Form(""),
+    responsable_operador_id: str = Form(""),
+    db: Session = Depends(get_db),
+    user: PanelUser = Depends(require_user),
+):
+    error = None
+    if _duplicate_exists(db, Movil.numero, numero):
+        error = f"Ya existe un movil con el numero {numero}."
+    else:
+        error = _validar_responsable_movil(db, int(responsable_operador_id) if responsable_operador_id else None)
+
+    if error:
+        moviles = db.scalars(select(Movil).order_by(Movil.id)).all()
+        operadores = db.scalars(select(Operator).where(Operator.activo.is_(True)).order_by(Operator.nombre)).all()
+        return templates.TemplateResponse(
+            request,
+            "moviles.html",
+            {"user": user, "moviles": moviles, "operadores": operadores, "error": error},
+            status_code=400,
+        )
+
+    db.add(
+        Movil(
+            numero=numero,
+            nombre=nombre,
+            descripcion=descripcion or None,
+            responsable_operador_id=int(responsable_operador_id),
+        )
+    )
+    db.commit()
+    return RedirectResponse("/config/moviles", status_code=303)
+
+
+@router.post("/config/moviles/{movil_id}/toggle")
+def toggle_movil(
+    movil_id: int, request: Request, db: Session = Depends(get_db), user: PanelUser = Depends(require_user)
+):
+    movil = db.get(Movil, movil_id)
+    if movil is not None:
+        movil.activo = not movil.activo
+        db.commit()
+    return RedirectResponse("/config/moviles", status_code=303)
+
+
+@router.get("/config/moviles/{movil_id}/editar")
+def editar_movil_form(
+    movil_id: int, request: Request, db: Session = Depends(get_db), user: PanelUser = Depends(require_user)
+):
+    movil = _get_or_redirect(db, Movil, movil_id, "/config/moviles")
+    operadores = db.scalars(select(Operator).where(Operator.activo.is_(True)).order_by(Operator.nombre)).all()
+    return templates.TemplateResponse(
+        request, "editar_movil.html", {"user": user, "movil": movil, "operadores": operadores, "error": None}
+    )
+
+
+@router.post("/config/moviles/{movil_id}/editar")
+def editar_movil_submit(
+    movil_id: int,
+    request: Request,
+    numero: str = Form(...),
+    nombre: str = Form(...),
+    descripcion: str = Form(""),
+    responsable_operador_id: str = Form(""),
+    db: Session = Depends(get_db),
+    user: PanelUser = Depends(require_user),
+):
+    movil = _get_or_redirect(db, Movil, movil_id, "/config/moviles")
+    operadores = db.scalars(select(Operator).where(Operator.activo.is_(True)).order_by(Operator.nombre)).all()
+
+    error = None
+    if _duplicate_exists(db, Movil.numero, numero, exclude_id=movil.id):
+        error = f"Ya existe otro movil con el numero {numero}."
+    else:
+        error = _validar_responsable_movil(db, int(responsable_operador_id) if responsable_operador_id else None)
+
+    if error:
+        return templates.TemplateResponse(
+            request,
+            "editar_movil.html",
+            {"user": user, "movil": movil, "operadores": operadores, "error": error},
+            status_code=400,
+        )
+
+    movil.numero = numero
+    movil.nombre = nombre
+    movil.descripcion = descripcion or None
+    movil.responsable_operador_id = int(responsable_operador_id)
+    db.commit()
+    return RedirectResponse("/config/moviles", status_code=303)
 
 
 @router.get("/config/cuentas")
@@ -593,11 +751,12 @@ def _comprobantes_query(
     q: str,
     sort: str = "",
     order: str = "asc",
+    movil_id: str = "",
 ):
     query = (
         select(Movement)
         .where(Movement.estado_registro == RecordState.CONFIRMADO)
-        .options(selectinload(Movement.operador), selectinload(Movement.cuenta_bancaria))
+        .options(selectinload(Movement.operador), selectinload(Movement.cuenta_bancaria), selectinload(Movement.movil))
     )
     if banco:
         query = query.where(Movement.cuenta_bancaria_id == int(banco))
@@ -605,6 +764,8 @@ def _comprobantes_query(
         query = query.where(Movement.estado_conciliacion == ReconciliationState(estado_conciliacion))
     if operador_id:
         query = query.where(Movement.operador_id == int(operador_id))
+    if movil_id:
+        query = query.where(Movement.movil_id == int(movil_id))
     if fecha_transaccion_desde:
         query = query.where(Movement.fecha_transaccion >= datetime.strptime(fecha_transaccion_desde, "%Y-%m-%d"))
     if fecha_transaccion_hasta:
@@ -651,6 +812,7 @@ def list_movimientos(
     q: str = "",
     sort: str = "",
     order: str = "asc",
+    movil_id: str = "",
     db: Session = Depends(get_db),
     user: PanelUser = Depends(require_user),
 ):
@@ -658,11 +820,12 @@ def list_movimientos(
         _comprobantes_query(
             banco, estado_conciliacion, operador_id,
             fecha_transaccion_desde, fecha_transaccion_hasta, fecha_subida_desde, fecha_subida_hasta, q,
-            sort, order,
+            sort, order, movil_id,
         )
     ).all()
     cuentas = db.scalars(select(BankAccount).order_by(BankAccount.id)).all()
     operadores = db.scalars(select(Operator).order_by(Operator.nombre)).all()
+    moviles = db.scalars(select(Movil).order_by(Movil.nombre)).all()
 
     return templates.TemplateResponse(
         request,
@@ -672,6 +835,7 @@ def list_movimientos(
             "movimientos": movimientos,
             "cuentas": cuentas,
             "operadores": operadores,
+            "moviles": moviles,
             "banco": banco,
             "estado_conciliacion": estado_conciliacion,
             "operador_id": operador_id,
@@ -682,6 +846,7 @@ def list_movimientos(
             "q": q,
             "sort": sort,
             "order": order,
+            "movil_id": movil_id,
         },
     )
 
@@ -698,6 +863,7 @@ def comprobantes_exportar(
     q: str = "",
     sort: str = "",
     order: str = "asc",
+    movil_id: str = "",
     db: Session = Depends(get_db),
     user: PanelUser = Depends(require_user),
 ):
@@ -705,7 +871,7 @@ def comprobantes_exportar(
         _comprobantes_query(
             banco, estado_conciliacion, operador_id,
             fecha_transaccion_desde, fecha_transaccion_hasta, fecha_subida_desde, fecha_subida_hasta, q,
-            sort, order,
+            sort, order, movil_id,
         )
     ).all()
 
@@ -714,7 +880,7 @@ def comprobantes_exportar(
     writer.writerow(
         [
             "Fecha transaccion", "Fecha subida", "Tipo", "Nro. factura/cuenta", "Cuenta banco", "Banco emisor",
-            "Titular/Emisor", "N. operacion", "Monto", "Vendedor", "Conciliacion",
+            "Titular/Emisor", "N. operacion", "Monto", "Vendedor", "Movil", "Conciliacion",
         ]
     )
     for movimiento in movimientos:
@@ -730,6 +896,7 @@ def comprobantes_exportar(
                 movimiento.numero_operacion or "",
                 movimiento.monto if movimiento.monto is not None else "",
                 movimiento.operador.nombre,
+                movimiento.movil.numero if movimiento.movil else "",
                 movimiento.estado_conciliacion.value,
             ]
         )

@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% block title %}Moviles - Concilia{% endblock %}
+{% block content %}
+<h1 class="h3 mb-4 text-gray-800">Moviles</h1>
+
+{% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
+
+<div class="card shadow mb-4">
+  <div class="card-header py-3">
+    <h6 class="m-0 font-weight-bold text-primary">Listado</h6>
+  </div>
+  <div class="card-body">
+    <div class="table-responsive">
+      <table class="table table-bordered table-sm small mb-0" width="100%" cellspacing="0">
+        <thead>
+          <tr><th>Numero</th><th>Nombre</th><th>Descripcion</th><th>Responsable</th><th>Estado</th><th></th></tr>
+        </thead>
+        <tbody>
+          {% for movil in moviles %}
+          <tr>
+            <td>{{ movil.numero }}</td>
+            <td>{{ movil.nombre }}</td>
+            <td>{{ movil.descripcion or "-" }}</td>
+            <td>{{ movil.responsable.nombre if movil.responsable else "-" }}</td>
+            <td>
+              {% if movil.activo %}
+              <span class="badge-pill-estado badge-pill-activo">Activo</span>
+              {% else %}
+              <span class="badge-pill-estado badge-pill-inactivo">Inactivo</span>
+              {% endif %}
+            </td>
+            <td class="text-nowrap">
+              <a href="/config/moviles/{{ movil.id }}/editar" class="btn btn-sm btn-outline-primary" title="Editar"><i class="fas fa-pencil-alt"></i></a>
+              <form class="d-inline" method="post" action="/config/moviles/{{ movil.id }}/toggle">
+                {% if movil.activo %}
+                <button type="submit" class="btn btn-sm btn-outline-secondary" title="Desactivar"><i class="fas fa-toggle-on"></i></button>
+                {% else %}
+                <button type="submit" class="btn btn-sm btn-outline-secondary" title="Activar"><i class="fas fa-toggle-off"></i></button>
+                {% endif %}
+              </form>
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="6">Todavia no hay moviles dados de alta.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="card shadow mb-4">
+  <div class="card-header py-3">
+    <h6 class="m-0 font-weight-bold text-primary">Nuevo movil</h6>
+  </div>
+  <div class="card-body">
+    <form method="post" action="/config/moviles">
+      <div class="form-row">
+        <div class="form-group col-md-3">
+          <label>Numero</label>
+          <input type="text" class="form-control" name="numero" placeholder="M-01" required>
+        </div>
+        <div class="form-group col-md-3">
+          <label>Nombre</label>
+          <input type="text" class="form-control" name="nombre" required>
+        </div>
+        <div class="form-group col-md-3">
+          <label>Descripcion</label>
+          <input type="text" class="form-control" name="descripcion">
+        </div>
+        <div class="form-group col-md-3">
+          <label>Responsable</label>
+          <select class="form-control" name="responsable_operador_id" required>
+            <option value="">Elegir operador...</option>
+            {% for operador in operadores %}
+            <option value="{{ operador.id }}">{{ operador.nombre }} ({{ operador.whatsapp_numero }})</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+      <p class="text-muted small">El responsable tiene que tener celular cargado.</p>
+      <button type="submit" class="btn btn-primary">Dar de alta</button>
+    </form>
+  </div>
+</div>
+{% endblock %}

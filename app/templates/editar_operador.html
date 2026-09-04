@@ -22,6 +22,15 @@
           <option value="Administrativo" {{ "selected" if operador.tipo == "Administrativo" }}>Administrativo</option>
         </select>
       </div>
+      <div class="form-group">
+        <label>Movil</label>
+        <select class="form-control" name="movil_id">
+          <option value="">Sin movil</option>
+          {% for movil in moviles %}
+          <option value="{{ movil.id }}" {{ "selected" if operador.movil_id == movil.id }}>{{ movil.numero }} - {{ movil.nombre }}</option>
+          {% endfor %}
+        </select>
+      </div>
       <p class="text-muted small">Telegram vinculado: {{ operador.telegram_chat_id or "todavia no vinculo su Telegram" }}</p>
       <button type="submit" class="btn btn-primary">Guardar cambios</button>
     </form>
