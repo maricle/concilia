@@ -1,4 +1,5 @@
-from datetime import datetime
+import csv
+from datetime import date, datetime
 from decimal import Decimal
 
 from fastapi.testclient import TestClient
@@ -10,7 +11,7 @@ from app import panel
 from app.auth import hash_password
 from app.db import Base
 from app.main import app
-from app.models import BankAccount, Movement, Movil, Operator, PanelUser, RecordState
+from app.models import BankAccount, Movement, Movil, Operator, PanelUser, RecordState, Reparto
 
 
 def _client_with_admin():
@@ -627,3 +628,137 @@ def test_comprobantes_exportar_incluye_columna_movil():
     contenido = response.content.decode("utf-8-sig")
     assert "Movil" in contenido
     assert "M-01" in contenido
+
+
+def test_comprobantes_muestra_nro_de_reparto():
+    client, test_session = _client_with_admin()
+    with test_session() as session:
+        session.add(Operator(nombre="Ana", whatsapp_numero="111"))
+        session.commit()
+        session.add(Movil(numero="M-01", nombre="Camion 1", responsable_operador_id=1))
+        session.commit()
+        session.add(
+            Reparto(movil_id=1, fecha=date(2026, 8, 24), hora_inicio=datetime(2026, 8, 24, 8, 0), numero_reparto=5)
+        )
+        session.commit()
+        session.add(
+            Movement(
+                operador_id=1,
+                monto=Decimal("500"),
+                fecha_transaccion=datetime(2026, 8, 24),
+                numero_operacion="OP-1",
+                estado_registro=RecordState.CONFIRMADO,
+                movil_id=1,
+                reparto_id=1,
+            )
+        )
+        session.commit()
+
+    client.post("/login", data={"email": "admin@concilia.test", "password": "secreta123"})
+    response = client.get("/comprobantes")
+
+    assert response.status_code == 200
+    assert "Nro. Reparto" in response.text
+
+    export = client.get("/comprobantes/exportar")
+    filas = list(csv.reader(export.content.decode("utf-8-sig").splitlines()))
+    encabezado, fila = filas[0], filas[1]
+    assert encabezado[encabezado.index("Nro. Reparto")] == "Nro. Reparto"
+    assert fila[encabezado.index("Nro. Reparto")] == "5"
+
+
+def test_repartos_listado_y_filtro_por_movil():
+    client, test_session = _client_with_admin()
+    with test_session() as session:
+        session.add(Operator(nombre="Ana", whatsapp_numero="111"))
+        session.commit()
+        session.add_all(
+            [
+                Movil(numero="M-01", nombre="Camion 1", responsable_operador_id=1),
+                Movil(numero="M-02", nombre="Camion 2", responsable_operador_id=1),
+            ]
+        )
+        session.commit()
+        session.add_all(
+            [
+                Reparto(movil_id=1, fecha=date(2026, 8, 24), hora_inicio=datetime(2026, 8, 24, 8, 0), numero_reparto=1),
+                Reparto(
+                    movil_id=1,
+                    fecha=date(2026, 8, 24),
+                    hora_inicio=datetime(2026, 8, 24, 14, 0),
+                    hora_fin=datetime(2026, 8, 24, 18, 0),
+                    numero_reparto=2,
+                ),
+                Reparto(movil_id=2, fecha=date(2026, 8, 24), hora_inicio=datetime(2026, 8, 24, 9, 0), numero_reparto=1),
+            ]
+        )
+        session.commit()
+        session.add(
+            Movement(
+                operador_id=1,
+                monto=Decimal("500"),
+                fecha_transaccion=datetime(2026, 8, 24),
+                numero_operacion="OP-1",
+                estado_registro=RecordState.CONFIRMADO,
+                movil_id=1,
+                reparto_id=1,
+            )
+        )
+        session.commit()
+
+    client.post("/login", data={"email": "admin@concilia.test", "password": "secreta123"})
+    response = client.get("/repartos")
+
+    assert response.status_code == 200
+    assert response.text.count("<tr>") - 1 == 3  # 3 filas de datos (sin contar el <tr> del thead)
+    assert "Abierto" in response.text
+    assert "Cerrado" in response.text
+
+    filtrado = client.get("/repartos", params={"movil_id": "2"})
+    assert filtrado.status_code == 200
+    filas_filtradas = filtrado.text.split("<tbody>")[1]
+    assert "M-02" in filas_filtradas
+    assert "M-01" not in filas_filtradas
+
+
+def test_repartos_muestra_cantidad_de_comprobantes():
+    client, test_session = _client_with_admin()
+    with test_session() as session:
+        session.add(Operator(nombre="Ana", whatsapp_numero="111"))
+        session.commit()
+        session.add(Movil(numero="M-01", nombre="Camion 1", responsable_operador_id=1))
+        session.commit()
+        session.add(
+            Reparto(movil_id=1, fecha=date(2026, 8, 24), hora_inicio=datetime(2026, 8, 24, 8, 0), numero_reparto=1)
+        )
+        session.commit()
+        session.add_all(
+            [
+                Movement(
+                    operador_id=1,
+                    monto=Decimal("500"),
+                    fecha_transaccion=datetime(2026, 8, 24),
+                    numero_operacion="OP-1",
+                    estado_registro=RecordState.CONFIRMADO,
+                    movil_id=1,
+                    reparto_id=1,
+                ),
+                Movement(
+                    operador_id=1,
+                    monto=Decimal("300"),
+                    fecha_transaccion=datetime(2026, 8, 24),
+                    numero_operacion="OP-2",
+                    estado_registro=RecordState.CONFIRMADO,
+                    movil_id=1,
+                    reparto_id=1,
+                ),
+            ]
+        )
+        session.commit()
+
+    client.post("/login", data={"email": "admin@concilia.test", "password": "secreta123"})
+    response = client.get("/repartos")
+
+    assert response.status_code == 200
+    rows = response.text.split("<tbody>")[1]
+    assert ">2<" in rows

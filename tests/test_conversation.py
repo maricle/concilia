@@ -393,6 +393,31 @@ def test_confirmacion_pide_movil_si_operador_no_tiene_asignado():
     assert db.get(Operator, 1).movil_id == 1
 
 
+def test_confirmacion_via_esperando_movil_asigna_reparto_abierto():
+    db = session()
+    db.add(Operator(nombre="Ana", whatsapp_numero="5491112345678"))
+    _con_cuenta_registrada(db)
+    db.add(Movil(numero="M-01", nombre="Camion 1", responsable_operador_id=1))
+    db.commit()
+    service = ConversationService(db)
+    # el operador arranca el reparto con OTRO operador que ya tiene el movil (simulado
+    # arrancandolo antes de que este operador tenga movil asignado)
+    service.handle_text("5491112345678", "inicio movil M-01 reparto nro 3")
+    reparto = db.query(Reparto).one()
+    db.get(Operator, 1).movil_id = None  # forzar el camino ESPERANDO_MOVIL igual
+    db.commit()
+
+    transfer = ExtractedTransfer(Decimal("500"), datetime(2026, 8, 21), "OP-1", cuenta_receptora="empresa.mp")
+    service.start_transfer("5491112345678", transfer)
+    service.handle_text("5491112345678", "SI")
+    service.handle_text("5491112345678", "factura")
+    service.handle_text("5491112345678", "FAC-9")
+    service.handle_text("5491112345678", "OK")
+    service.handle_text("5491112345678", "M-01")
+
+    assert db.query(Movement).one().reparto_id == reparto.id
+
+
 def test_confirmacion_completa_movil_id_si_operador_ya_tiene_asignado():
     db = session()
     db.add(Operator(nombre="Ana", whatsapp_numero="5491112345678"))
@@ -412,6 +437,45 @@ def test_confirmacion_completa_movil_id_si_operador_ya_tiene_asignado():
 
     assert respuesta == "Comprobante registrado correctamente."
     assert db.query(Movement).one().movil_id == 1
+
+
+def test_confirmacion_asigna_el_reparto_abierto_del_movil():
+    db = session()
+    db.add(Operator(nombre="Ana", whatsapp_numero="5491112345678"))
+    _con_cuenta_registrada(db)
+    db.add(Movil(numero="M-01", nombre="Camion 1", responsable_operador_id=1))
+    db.commit()
+    service = ConversationService(db)
+    service.handle_text("5491112345678", "inicio movil M-01 reparto nro 5")
+    reparto = db.query(Reparto).one()
+
+    transfer = ExtractedTransfer(Decimal("500"), datetime(2026, 8, 21), "OP-1", cuenta_receptora="empresa.mp")
+    service.start_transfer("5491112345678", transfer)
+    service.handle_text("5491112345678", "SI")
+    service.handle_text("5491112345678", "factura")
+    service.handle_text("5491112345678", "FAC-9")
+    service.handle_text("5491112345678", "OK")
+
+    assert db.query(Movement).one().reparto_id == reparto.id
+
+
+def test_confirmacion_sin_reparto_abierto_deja_reparto_id_nulo():
+    db = session()
+    db.add(Operator(nombre="Ana", whatsapp_numero="5491112345678"))
+    _con_cuenta_registrada(db)
+    db.add(Movil(numero="M-01", nombre="Camion 1", responsable_operador_id=1))
+    db.commit()
+    db.get(Operator, 1).movil_id = 1  # tiene movil asignado, pero nunca inicio un reparto
+    db.commit()
+    service = ConversationService(db)
+    transfer = ExtractedTransfer(Decimal("500"), datetime(2026, 8, 21), "OP-1", cuenta_receptora="empresa.mp")
+    service.start_transfer("5491112345678", transfer)
+    service.handle_text("5491112345678", "SI")
+    service.handle_text("5491112345678", "factura")
+    service.handle_text("5491112345678", "FAC-9")
+    service.handle_text("5491112345678", "OK")
+
+    assert db.query(Movement).one().reparto_id is None
 
 
 def test_pending_prompt_reshows_decision_reparto_abierto():

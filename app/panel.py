@@ -9,7 +9,7 @@ from urllib.parse import urlencode
 from fastapi import APIRouter, Depends, Form, Request, UploadFile
 from fastapi.responses import RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import DeclarativeBase, InstrumentedAttribute, Session, selectinload
 
 from .auth import hash_password, verify_password
@@ -23,6 +23,7 @@ from .models import (
     PanelUser,
     ReconciliationState,
     RecordState,
+    Reparto,
     StatementLine,
     StatementLineState,
     TipoIdentificador,
@@ -756,7 +757,12 @@ def _comprobantes_query(
     query = (
         select(Movement)
         .where(Movement.estado_registro == RecordState.CONFIRMADO)
-        .options(selectinload(Movement.operador), selectinload(Movement.cuenta_bancaria), selectinload(Movement.movil))
+        .options(
+            selectinload(Movement.operador),
+            selectinload(Movement.cuenta_bancaria),
+            selectinload(Movement.movil),
+            selectinload(Movement.reparto),
+        )
     )
     if banco:
         query = query.where(Movement.cuenta_bancaria_id == int(banco))
@@ -880,7 +886,7 @@ def comprobantes_exportar(
     writer.writerow(
         [
             "Fecha transaccion", "Fecha subida", "Tipo", "Nro. factura/cuenta", "Cuenta banco", "Banco emisor",
-            "Titular/Emisor", "N. operacion", "Monto", "Vendedor", "Movil", "Conciliacion",
+            "Titular/Emisor", "N. operacion", "Monto", "Vendedor", "Movil", "Nro. Reparto", "Conciliacion",
         ]
     )
     for movimiento in movimientos:
@@ -897,6 +903,7 @@ def comprobantes_exportar(
                 movimiento.monto if movimiento.monto is not None else "",
                 movimiento.operador.nombre,
                 movimiento.movil.numero if movimiento.movil else "",
+                movimiento.reparto.numero_reparto if movimiento.reparto and movimiento.reparto.numero_reparto is not None else "",
                 movimiento.estado_conciliacion.value,
             ]
         )
@@ -905,6 +912,53 @@ def comprobantes_exportar(
         content=("﻿" + buffer.getvalue()).encode("utf-8"),
         media_type="text/csv",
         headers={"Content-Disposition": 'attachment; filename="comprobantes.csv"'},
+    )
+
+
+@router.get("/repartos")
+def list_repartos(
+    request: Request,
+    movil_id: str = "",
+    fecha_desde: str = "",
+    fecha_hasta: str = "",
+    db: Session = Depends(get_db),
+    user: PanelUser = Depends(require_user),
+):
+    query = select(Reparto).options(selectinload(Reparto.movil))
+    if movil_id:
+        query = query.where(Reparto.movil_id == int(movil_id))
+    if fecha_desde:
+        query = query.where(Reparto.fecha >= datetime.strptime(fecha_desde, "%Y-%m-%d").date())
+    if fecha_hasta:
+        query = query.where(Reparto.fecha <= datetime.strptime(fecha_hasta, "%Y-%m-%d").date())
+    repartos = db.scalars(
+        query.order_by(Reparto.fecha.desc(), Reparto.movil_id, Reparto.hora_inicio.desc())
+    ).all()
+
+    conteos_comprobantes: dict[int, int] = {}
+    if repartos:
+        conteos_comprobantes = dict(
+            db.execute(
+                select(Movement.reparto_id, func.count(Movement.id))
+                .where(Movement.reparto_id.in_([reparto.id for reparto in repartos]))
+                .group_by(Movement.reparto_id)
+            ).all()
+        )
+
+    moviles = db.scalars(select(Movil).order_by(Movil.nombre)).all()
+
+    return templates.TemplateResponse(
+        request,
+        "repartos.html",
+        {
+            "user": user,
+            "repartos": repartos,
+            "conteos_comprobantes": conteos_comprobantes,
+            "moviles": moviles,
+            "movil_id": movil_id,
+            "fecha_desde": fecha_desde,
+            "fecha_hasta": fecha_hasta,
+        },
     )
 
 

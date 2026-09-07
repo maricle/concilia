@@ -133,6 +133,8 @@ class ConversationService:
                 return f"No encontramos un movil activo con el numero {text.strip()}. Respondé con el numero correcto."
             operator.movil_id = movil.id
             movement.movil_id = movil.id
+            reparto_abierto = self._reparto_abierto(movil.id)
+            movement.reparto_id = reparto_abierto.id if reparto_abierto is not None else None
             movement.estado_registro = RecordState.CONFIRMADO
             conversation.movimiento_borrador_id = None
             conversation.estado = ConversationState.ESPERANDO_COMPROBANTE
@@ -187,6 +189,8 @@ class ConversationService:
                     self.session.commit()
                     return "¿En que movil estas? Respondé con el numero del movil."
                 movement.movil_id = operator.movil_id
+                reparto_abierto = self._reparto_abierto(operator.movil_id)
+                movement.reparto_id = reparto_abierto.id if reparto_abierto is not None else None
                 movement.estado_registro = RecordState.CONFIRMADO
                 conversation.movimiento_borrador_id = None
                 conversation.estado = ConversationState.ESPERANDO_COMPROBANTE

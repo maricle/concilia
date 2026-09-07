@@ -107,6 +107,7 @@
             {{ th_ordenable("monto", "Monto", cls="num") }}
             {{ th_ordenable("vendedor", "Vendedor") }}
             <th>Movil</th>
+            <th>Nro. Reparto</th>
             {{ th_ordenable("conciliacion", "Conciliacion") }}
             <th></th>
           </tr>
@@ -129,6 +130,7 @@
             <td class="num">{{ "$" + movimiento.monto|string if movimiento.monto is not none else "-" }}</td>
             <td>{{ movimiento.operador.nombre }}</td>
             <td>{{ movimiento.movil.numero if movimiento.movil else "-" }}</td>
+            <td>{{ movimiento.reparto.numero_reparto if movimiento.reparto and movimiento.reparto.numero_reparto is not none else "-" }}</td>
             <td>
               {% if movimiento.estado_conciliacion.value == "pendiente" %}
               <span class="badge-pill-estado badge-pill-pendiente">Pendiente</span>
@@ -149,7 +151,7 @@
             </td>
           </tr>
           {% else %}
-          <tr><td colspan="11">Todavia no hay movimientos confirmados.</td></tr>
+          <tr><td colspan="12">Todavia no hay movimientos confirmados.</td></tr>
           {% endfor %}
         </tbody>
       </table>

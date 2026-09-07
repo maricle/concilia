@@ -98,11 +98,16 @@ class Movement(Base):
     # movil vigente del operador al momento de registrarse el movimiento -- no se
     # resuelve dinamicamente despues, queda fijo aunque el operador cambie de movil.
     movil_id: Mapped[int | None] = mapped_column(ForeignKey("moviles.id"), index=True)
+    # reparto abierto del movil al momento de confirmarse el movimiento -- misma
+    # logica de "foto del momento" que movil_id, null si no habia ningun reparto
+    # abierto en ese movil cuando se confirmo.
+    reparto_id: Mapped[int | None] = mapped_column(ForeignKey("repartos.id"), index=True)
 
     operador: Mapped[Operator] = relationship()
     cuenta_bancaria: Mapped[BankAccount | None] = relationship()
     archivo: Mapped["ComprobanteArchivo | None"] = relationship()
     movil: Mapped["Movil | None"] = relationship()
+    reparto: Mapped["Reparto | None"] = relationship()
 
 
 class Movil(Base):
