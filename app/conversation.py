@@ -273,7 +273,7 @@ class ConversationService:
             movement.factura_o_cuenta_numero = text.strip()
             conversation.estado = ConversationState.ESPERANDO_CONFIRMACION_FINAL
             self.session.commit()
-            return self._summary(movement) + "\n\nConfirma la operacion respondiendo OK para que se registre el movimiento, o NO para descartarlo."
+            return self._summary(movement) + "\n\nConfirma la operacion respondiendo SI para que se registre el movimiento, o NO para descartarlo."
 
         if conversation.estado == ConversationState.ESPERANDO_CONFIRMACION_FINAL:
             if normalized in {"si", "sí", "ok", "confirmo", "registrar"}:
@@ -298,7 +298,7 @@ class ConversationService:
                 self._discard(conversation)
                 self.session.commit()
                 return "Registro descartado. Puedes reenviar el comprobante."
-            return "Responde OK para registrar el comprobante o NO para descartarlo."
+            return "Responde SI para registrar el comprobante o NO para descartarlo."
 
         return "Envia una imagen o PDF del comprobante de transferencia."
 
@@ -373,7 +373,7 @@ class ConversationService:
         if conversation.estado == ConversationState.ESPERANDO_CONFIRMACION_FINAL:
             return (
                 self._summary(movement)
-                + "\n\nConfirma la operacion respondiendo OK para que se registre el movimiento, o NO para descartarlo."
+                + "\n\nConfirma la operacion respondiendo SI para que se registre el movimiento, o NO para descartarlo."
             )
         if conversation.estado == ConversationState.ESPERANDO_MOVIL:
             return "Todavia estoy esperando que me digas en que movil estas para poder registrar el comprobante."
