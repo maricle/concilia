@@ -15,6 +15,7 @@ from .models import (
     Operator,
     RecordState,
     Reparto,
+    RepartoOperador,
     TipoIdentificador,
     WhatsAppConversation,
 )
@@ -108,6 +109,7 @@ class ConversationService:
                 ConversationState.ESPERANDO_COMPROBANTE,
                 ConversationState.ESPERANDO_DECISION_REPARTO_ABIERTO,
                 ConversationState.ESPERANDO_DATOS_INICIO_REPARTO,
+                ConversationState.ESPERANDO_CONFIRMACION_INICIO_REPARTO,
             ):
                 return "Todavia tenes un comprobante pendiente de confirmar. Termina o cancela esa carga antes de iniciar/cerrar un reparto."
             return self._handle_comando_reparto(operator, conversation, comando)
@@ -134,6 +136,15 @@ class ConversationService:
             self._limpiar_decision_reparto(conversation)
             return self._iniciar_reparto(operator, comando_completo)
 
+        if conversation.estado == ConversationState.ESPERANDO_CONFIRMACION_INICIO_REPARTO:
+            if normalized in {"si", "sí", "ok", "confirmo"}:
+                return self._confirmar_inicio_reparto(operator, conversation)
+            if normalized in {"no", "cancelar", "cancelo"}:
+                self._limpiar_decision_reparto(conversation)
+                self.session.commit()
+                return "Inicio de reparto cancelado."
+            return "Respondé SI para confirmar el inicio del reparto o NO para cancelarlo."
+
         if conversation.estado == ConversationState.ESPERANDO_DECISION_REPARTO_ABIERTO:
             if normalized == "cerrar":
                 return self._cerrar_y_arrancar_reparto_pendiente(operator, conversation)
@@ -149,18 +160,39 @@ class ConversationService:
                 conversation.estado = ConversationState.ESPERANDO_COMPROBANTE
                 self.session.commit()
                 return "La sesion vencio. Reenvia el comprobante, por favor."
-            movil = self.session.scalar(select(Movil).where(Movil.numero == text.strip(), Movil.activo.is_(True)))
+            movil = self._buscar_movil_activo(text)
             if movil is None:
                 return f"No encontramos un movil activo con el numero {text.strip()}. Respondé con el numero correcto."
-            operator.movil_id = movil.id
-            movement.movil_id = movil.id
+
             reparto_abierto = self._reparto_abierto(movil.id)
-            movement.reparto_id = reparto_abierto.id if reparto_abierto is not None else None
-            movement.estado_registro = RecordState.CONFIRMADO
-            conversation.movimiento_borrador_id = None
-            conversation.estado = ConversationState.ESPERANDO_COMPROBANTE
+            if reparto_abierto is not None:
+                self._asociar_operador(reparto_abierto, operator)
+                movement.movil_id = movil.id
+                movement.reparto_id = reparto_abierto.id
+                movement.estado_registro = RecordState.CONFIRMADO
+                conversation.movimiento_borrador_id = None
+                conversation.estado = ConversationState.ESPERANDO_COMPROBANTE
+                self.session.commit()
+                numero_abierto = reparto_abierto.numero_reparto if reparto_abierto.numero_reparto is not None else "sin numero"
+                return f"Comprobante registrado correctamente. Reparto Nº {numero_abierto} en el movil {movil.numero}."
+
+            conversation.estado = ConversationState.ESPERANDO_CONFIRMACION_CREAR_REPARTO
+            conversation.movil_pendiente_numero = movil.numero
             self.session.commit()
-            return "Comprobante registrado correctamente."
+            return (
+                f"No hay ningun reparto abierto en el movil {movil.numero}. ¿Queres iniciar uno? "
+                "Respondé SI o NO."
+            )
+
+        if conversation.estado == ConversationState.ESPERANDO_CONFIRMACION_CREAR_REPARTO:
+            if normalized in {"si", "sí", "ok", "confirmo"}:
+                return self._crear_reparto_y_confirmar_comprobante(operator, conversation)
+            if normalized in {"no", "cancelar", "cancelo"}:
+                conversation.movil_pendiente_numero = None
+                conversation.estado = ConversationState.ESPERANDO_MOVIL
+                self.session.commit()
+                return "Entendido, no inicio un reparto nuevo ahi. ¿En que movil estas?"
+            return "Respondé SI para iniciar un reparto nuevo en ese movil o NO para indicar otro movil."
 
         if conversation.estado == ConversationState.ESPERANDO_CONFIRMACION_DATOS:
             if normalized in {"si", "sí", "ok", "confirmo", "correcto"}:
@@ -205,13 +237,13 @@ class ConversationService:
                     conversation.estado = ConversationState.ESPERANDO_COMPROBANTE
                     self.session.commit()
                     return "La sesion vencio. Reenvia el comprobante, por favor."
-                if operator.movil_id is None:
+                reparto_propio = self._reparto_abierto_de_operador(operator.id)
+                if reparto_propio is None:
                     conversation.estado = ConversationState.ESPERANDO_MOVIL
                     self.session.commit()
                     return "¿En que movil estas? Respondé con el numero del movil."
-                movement.movil_id = operator.movil_id
-                reparto_abierto = self._reparto_abierto(operator.movil_id)
-                movement.reparto_id = reparto_abierto.id if reparto_abierto is not None else None
+                movement.movil_id = reparto_propio.movil_id
+                movement.reparto_id = reparto_propio.id
                 movement.estado_registro = RecordState.CONFIRMADO
                 conversation.movimiento_borrador_id = None
                 conversation.estado = ConversationState.ESPERANDO_COMPROBANTE
@@ -233,6 +265,8 @@ class ConversationService:
         return conversation is not None and conversation.estado in {
             ConversationState.ESPERANDO_CONFIRMACION_DATOS,
             ConversationState.ESPERANDO_CONFIRMACION_FINAL,
+            ConversationState.ESPERANDO_CONFIRMACION_INICIO_REPARTO,
+            ConversationState.ESPERANDO_CONFIRMACION_CREAR_REPARTO,
         }
 
     def needs_tipo_keyboard(self, number: str) -> bool:
@@ -258,6 +292,18 @@ class ConversationService:
 
         if conversation.estado == ConversationState.ESPERANDO_DATOS_INICIO_REPARTO:
             return self._prompt_dato_faltante_inicio_reparto(conversation)
+
+        if conversation.estado == ConversationState.ESPERANDO_CONFIRMACION_INICIO_REPARTO:
+            return (
+                f"Vas a iniciar el Reparto Nº {conversation.numero_reparto_pendiente} en el movil "
+                f"{conversation.movil_pendiente_numero}. Respondé SI para confirmar o NO para cancelar."
+            )
+
+        if conversation.estado == ConversationState.ESPERANDO_CONFIRMACION_CREAR_REPARTO:
+            return (
+                f"No hay ningun reparto abierto en el movil {conversation.movil_pendiente_numero}. "
+                "¿Queres iniciar uno? Respondé SI o NO."
+            )
 
         movement = conversation.movimiento_borrador
         if movement is None:
@@ -320,6 +366,49 @@ class ConversationService:
     def _reparto_abierto(self, movil_id: int) -> Reparto | None:
         return self.session.scalar(select(Reparto).where(Reparto.movil_id == movil_id, Reparto.hora_fin.is_(None)))
 
+    def _reparto_abierto_de_operador(self, operador_id: int) -> Reparto | None:
+        """El reparto abierto (de cualquier movil) al que este operador esta
+        asociado ahora mismo. Un operador solo puede estar asociado a un reparto
+        abierto a la vez (se valida al asociar, no lo impide el modelo)."""
+        return self.session.scalar(
+            select(Reparto)
+            .join(RepartoOperador, RepartoOperador.reparto_id == Reparto.id)
+            .where(RepartoOperador.operador_id == operador_id, Reparto.hora_fin.is_(None))
+        )
+
+    def _asociar_operador(self, reparto: Reparto, operator: Operator) -> None:
+        """Suma al operador como participante del reparto (chofer, ayudante, o el
+        que entra en un cambio de turno) si todavia no estaba. movil_id del
+        operador se actualiza como referencia -- no es la fuente de verdad para
+        nada, solo un dato de conveniencia de "en que movil arranco el dia"."""
+        ya_asociado = self.session.scalar(
+            select(RepartoOperador).where(
+                RepartoOperador.reparto_id == reparto.id, RepartoOperador.operador_id == operator.id
+            )
+        )
+        if ya_asociado is None:
+            self.session.add(RepartoOperador(reparto_id=reparto.id, operador_id=operator.id))
+        operator.movil_id = reparto.movil_id
+
+    def _buscar_movil_activo(self, texto: str | None) -> Movil | None:
+        """Busca un movil activo por numero, tolerando que el operador escriba con
+        o sin el prefijo 'M-' -- 'M-01', 'm01', '01' y '1' matchean el mismo movil
+        si sus digitos coinciden. Primero intenta match exacto (por si el numero
+        del movil no es puramente numerico, ej. "Camion Rojo")."""
+        if texto is None:
+            return None
+        texto = texto.strip()
+        movil = self.session.scalar(select(Movil).where(Movil.numero == texto, Movil.activo.is_(True)))
+        if movil is not None:
+            return movil
+        digitos = re.sub(r"\D", "", texto).lstrip("0")
+        if not digitos:
+            return None
+        for candidato in self.session.scalars(select(Movil).where(Movil.activo.is_(True))):
+            if re.sub(r"\D", "", candidato.numero).lstrip("0") == digitos:
+                return candidato
+        return None
+
     @staticmethod
     def _limpiar_decision_reparto(conversation: WhatsAppConversation) -> None:
         conversation.estado = ConversationState.ESPERANDO_COMPROBANTE
@@ -334,6 +423,19 @@ class ConversationService:
     ) -> str:
         if isinstance(comando, IniciarRepartoComando):
             if comando.movil_numero is None or comando.numero_reparto is None:
+                reparto_propio = self._reparto_abierto_de_operador(operator.id)
+                if reparto_propio is not None:
+                    # Con el comando incompleto no sabemos si el operador quiere seguir
+                    # con el reparto que ya tiene abierto o arrancar uno distinto -- se lo
+                    # avisamos en vez de pedirle datos para un reparto que capaz ni queria.
+                    numero_abierto = (
+                        reparto_propio.numero_reparto if reparto_propio.numero_reparto is not None else "sin numero"
+                    )
+                    return (
+                        f"Ya tenes el Reparto Nº {numero_abierto} iniciado en el movil {reparto_propio.movil.numero}. "
+                        f"Si queres cerrarlo, mandá 'cerrar reparto nro {numero_abierto}'. Si queres arrancar uno "
+                        "distinto, mandá el comando completo con el movil y el numero de reparto nuevo."
+                    )
                 return self._recopilar_datos_inicio_reparto(conversation, comando)
             return self._iniciar_reparto(operator, comando)
         return self._cerrar_reparto(operator, comando)
@@ -354,75 +456,144 @@ class ConversationService:
         return "¿Que numero de reparto es? Respondé solo con el numero."
 
     def _iniciar_reparto(self, operator: Operator, comando: IniciarRepartoComando) -> str:
-        movil = self.session.scalar(
-            select(Movil).where(Movil.numero == comando.movil_numero, Movil.activo.is_(True))
-        )
+        movil = self._buscar_movil_activo(comando.movil_numero)
         if movil is None:
             return f"No encontramos un movil activo con el numero {comando.movil_numero}."
 
-        # El operador puede tener solo un reparto abierto a la vez -- se chequea
-        # contra su movil ACTUAL (antes de sobrescribirlo), no contra el movil X
-        # recien pedido, para no permitir dos repartos abiertos en simultaneo si
-        # el operador cambia de movil sin cerrar el anterior.
-        reparto_abierto = self._reparto_abierto(operator.movil_id) if operator.movil_id else None
-        if reparto_abierto is not None:
+        # Un operador solo puede estar asociado a un reparto abierto a la vez -- se
+        # chequea contra SU reparto propio actual (no contra el movil X recien
+        # pedido), para no permitir que quede sumado a dos turnos en simultaneo.
+        reparto_propio = self._reparto_abierto_de_operador(operator.id)
+        if reparto_propio is not None:
+            if reparto_propio.movil_id == movil.id:
+                numero_abierto = (
+                    reparto_propio.numero_reparto if reparto_propio.numero_reparto is not None else "sin numero"
+                )
+                return f"Ya estas asociado al Reparto Nº {numero_abierto} en el movil {movil.numero}."
             conversation = self.session.get(WhatsAppConversation, operator.whatsapp_numero)
             if conversation is None:
                 conversation = WhatsAppConversation(numero=operator.whatsapp_numero)
                 self.session.add(conversation)
             conversation.estado = ConversationState.ESPERANDO_DECISION_REPARTO_ABIERTO
-            conversation.movil_pendiente_numero = comando.movil_numero
+            conversation.movil_pendiente_numero = movil.numero
             conversation.numero_reparto_pendiente = comando.numero_reparto
             self.session.commit()
-            numero_abierto = reparto_abierto.numero_reparto if reparto_abierto.numero_reparto is not None else "sin numero"
+            numero_abierto = reparto_propio.numero_reparto if reparto_propio.numero_reparto is not None else "sin numero"
             return (
                 f"Ya tenes un reparto abierto (Nº {numero_abierto}). Responde 'cerrar' para cerrarlo y arrancar "
                 "el nuevo, o 'continuar' para seguir con el que ya esta abierto."
             )
 
-        operator.movil_id = movil.id
-        self.session.add(
-            Reparto(movil_id=movil.id, fecha=date.today(), hora_inicio=datetime.utcnow(), numero_reparto=comando.numero_reparto)
-        )
+        # El movil pedido puede ya tener un reparto abierto con otro operador (o con
+        # este mismo bajo otra circunstancia) -- en ese caso no se crea uno nuevo,
+        # el operador se suma al que ya esta en curso, sin pedir confirmacion.
+        reparto_movil = self._reparto_abierto(movil.id)
+        if reparto_movil is not None:
+            self._asociar_operador(reparto_movil, operator)
+            self.session.commit()
+            numero_abierto = reparto_movil.numero_reparto if reparto_movil.numero_reparto is not None else "sin numero"
+            return f"Te asociaste al Reparto Nº {numero_abierto} en el movil {movil.numero}."
+
+        conversation = self.session.get(WhatsAppConversation, operator.whatsapp_numero)
+        if conversation is None:
+            conversation = WhatsAppConversation(numero=operator.whatsapp_numero)
+            self.session.add(conversation)
+        conversation.estado = ConversationState.ESPERANDO_CONFIRMACION_INICIO_REPARTO
+        conversation.movil_pendiente_numero = movil.numero
+        conversation.numero_reparto_pendiente = comando.numero_reparto
         self.session.commit()
-        return f"Reparto Nº {comando.numero_reparto} iniciado en el movil {movil.numero}."
+        return (
+            f"Vas a iniciar el Reparto Nº {comando.numero_reparto} en el movil {movil.numero}. "
+            "Respondé SI para confirmar o NO para cancelar."
+        )
+
+    def _confirmar_inicio_reparto(self, operator: Operator, conversation: WhatsAppConversation) -> str:
+        movil = self._buscar_movil_activo(conversation.movil_pendiente_numero)
+        numero_reparto = conversation.numero_reparto_pendiente
+        self._limpiar_decision_reparto(conversation)
+        if movil is None:
+            self.session.commit()
+            return "El movil ya no esta disponible. Volve a mandar el comando de inicio."
+
+        reparto = Reparto(movil_id=movil.id, fecha=date.today(), hora_inicio=datetime.utcnow(), numero_reparto=numero_reparto)
+        self.session.add(reparto)
+        self.session.flush()
+        self._asociar_operador(reparto, operator)
+        self.session.commit()
+        return f"Reparto Nº {numero_reparto} iniciado en el movil {movil.numero}."
 
     def _cerrar_y_arrancar_reparto_pendiente(self, operator: Operator, conversation: WhatsAppConversation) -> str:
-        reparto_abierto = self._reparto_abierto(operator.movil_id) if operator.movil_id else None
-        if reparto_abierto is not None:
-            reparto_abierto.hora_fin = datetime.utcnow()
+        reparto_propio = self._reparto_abierto_de_operador(operator.id)
+        if reparto_propio is not None:
+            reparto_propio.hora_fin = datetime.utcnow()
 
-        movil = self.session.scalar(
-            select(Movil).where(Movil.numero == conversation.movil_pendiente_numero, Movil.activo.is_(True))
-        )
+        movil = self._buscar_movil_activo(conversation.movil_pendiente_numero)
         numero_reparto_nuevo = conversation.numero_reparto_pendiente
         if movil is None:
             self._limpiar_decision_reparto(conversation)
             self.session.commit()
             return "El movil que habias indicado ya no esta disponible. Volve a mandar el comando de inicio."
 
-        operator.movil_id = movil.id
-        self.session.add(
-            Reparto(movil_id=movil.id, fecha=date.today(), hora_inicio=datetime.utcnow(), numero_reparto=numero_reparto_nuevo)
+        reparto_movil = self._reparto_abierto(movil.id)
+        if reparto_movil is not None:
+            self._asociar_operador(reparto_movil, operator)
+            self._limpiar_decision_reparto(conversation)
+            self.session.commit()
+            numero_abierto = reparto_movil.numero_reparto if reparto_movil.numero_reparto is not None else "sin numero"
+            return f"Reparto anterior cerrado. Te asociaste al Reparto Nº {numero_abierto} en el movil {movil.numero}."
+
+        reparto_nuevo = Reparto(
+            movil_id=movil.id, fecha=date.today(), hora_inicio=datetime.utcnow(), numero_reparto=numero_reparto_nuevo
         )
+        self.session.add(reparto_nuevo)
+        self.session.flush()
+        self._asociar_operador(reparto_nuevo, operator)
         self._limpiar_decision_reparto(conversation)
         self.session.commit()
         return f"Reparto anterior cerrado. Reparto Nº {numero_reparto_nuevo} iniciado en el movil {movil.numero}."
 
     def _cerrar_reparto(self, operator: Operator, comando: CerrarRepartoComando) -> str:
-        if operator.movil_id is None:
-            return "No tenes ningun movil asignado, asi que no hay ningun reparto para cerrar."
-        reparto_abierto = self._reparto_abierto(operator.movil_id)
+        reparto_abierto = self._reparto_abierto_de_operador(operator.id)
         if reparto_abierto is None:
-            return "No hay ningun reparto abierto para cerrar."
+            return "No tenes ningun reparto abierto para cerrar."
         if reparto_abierto.numero_reparto is not None and reparto_abierto.numero_reparto != comando.numero_reparto:
             return (
                 f"El reparto abierto es el Nº {reparto_abierto.numero_reparto}, no el {comando.numero_reparto}. "
                 "Reenvia el comando con el numero correcto."
             )
+        # Cierra para todos los operadores asociados, no solo para quien manda el comando.
         reparto_abierto.hora_fin = datetime.utcnow()
         self.session.commit()
         return f"Reparto Nº {comando.numero_reparto} cerrado."
+
+    def _crear_reparto_y_confirmar_comprobante(self, operator: Operator, conversation: WhatsAppConversation) -> str:
+        movement = conversation.movimiento_borrador
+        if movement is None:
+            conversation.estado = ConversationState.ESPERANDO_COMPROBANTE
+            conversation.movil_pendiente_numero = None
+            self.session.commit()
+            return "La sesion vencio. Reenvia el comprobante, por favor."
+
+        movil = self._buscar_movil_activo(conversation.movil_pendiente_numero)
+        if movil is None:
+            conversation.estado = ConversationState.ESPERANDO_MOVIL
+            conversation.movil_pendiente_numero = None
+            self.session.commit()
+            return "Ese movil ya no esta disponible. ¿En que movil estas?"
+
+        reparto = Reparto(movil_id=movil.id, fecha=date.today(), hora_inicio=datetime.utcnow(), numero_reparto=None)
+        self.session.add(reparto)
+        self.session.flush()
+        self._asociar_operador(reparto, operator)
+
+        movement.movil_id = movil.id
+        movement.reparto_id = reparto.id
+        movement.estado_registro = RecordState.CONFIRMADO
+        conversation.movimiento_borrador_id = None
+        conversation.movil_pendiente_numero = None
+        conversation.estado = ConversationState.ESPERANDO_COMPROBANTE
+        self.session.commit()
+        return f"Comprobante registrado correctamente. Se inicio un reparto nuevo en el movil {movil.numero}."
 
     @staticmethod
     def _summary(movement: Movement) -> str:

@@ -17,6 +17,8 @@ class ConversationState(StrEnum):
     ESPERANDO_MOVIL = "esperando_movil"
     ESPERANDO_DECISION_REPARTO_ABIERTO = "esperando_decision_reparto_abierto"
     ESPERANDO_DATOS_INICIO_REPARTO = "esperando_datos_inicio_reparto"
+    ESPERANDO_CONFIRMACION_INICIO_REPARTO = "esperando_confirmacion_inicio_reparto"
+    ESPERANDO_CONFIRMACION_CREAR_REPARTO = "esperando_confirmacion_crear_reparto"
 
 
 class TipoIdentificador(StrEnum):
@@ -128,8 +130,10 @@ class Movil(Base):
 class Reparto(Base):
     """Turno de reparto de un movil en un dia -- un movil puede tener varios en
     el mismo dia (turno manana/tarde), pero nunca dos abiertos (hora_fin nula) a
-    la vez. No tiene columna de operador: se resuelve via el movil vigente del
-    operador (operadores.movil_id)."""
+    la vez. Puede tener varios operadores asociados en simultaneo (ver
+    RepartoOperador, ej. chofer + ayudante, o un cambio de turno donde el que
+    entra se suma antes de que el que sale cierre); cualquiera de los asociados
+    puede cerrarlo, y al cerrarse queda cerrado para todos."""
 
     __tablename__ = "repartos"
     __table_args__ = (Index("ix_repartos_movil_fecha", "movil_id", "fecha"),)
@@ -140,9 +144,30 @@ class Reparto(Base):
     hora_inicio: Mapped[datetime] = mapped_column(DateTime)
     hora_fin: Mapped[datetime | None] = mapped_column(DateTime)
     numero_reparto: Mapped[int | None] = mapped_column(Integer)
+    comentarios: Mapped[str | None] = mapped_column(String(500))
     creado_en: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     movil: Mapped[Movil] = relationship()
+
+
+class RepartoOperador(Base):
+    """Asociacion entre un reparto y cada operador que trabajo en el (puede haber
+    mas de uno: chofer + ayudante, o un cambio de turno). Un operador solo puede
+    estar asociado a un reparto ABIERTO a la vez -- eso se valida en
+    ConversationService, no aca (esta tabla no lo impide por si sola, dos filas
+    con reparto_id distintos y el mismo operador son validas si uno de esos
+    repartos ya esta cerrado)."""
+
+    __tablename__ = "reparto_operadores"
+    __table_args__ = (UniqueConstraint("reparto_id", "operador_id", name="uq_reparto_operador"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    reparto_id: Mapped[int] = mapped_column(ForeignKey("repartos.id"), index=True)
+    operador_id: Mapped[int] = mapped_column(ForeignKey("operadores.id"), index=True)
+    asociado_en: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    reparto: Mapped[Reparto] = relationship()
+    operador: Mapped[Operator] = relationship()
 
 
 class ComprobanteArchivo(Base):
