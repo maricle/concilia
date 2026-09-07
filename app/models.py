@@ -16,6 +16,7 @@ class ConversationState(StrEnum):
     ESPERANDO_CONFIRMACION_FINAL = "esperando_confirmacion_final"
     ESPERANDO_MOVIL = "esperando_movil"
     ESPERANDO_DECISION_REPARTO_ABIERTO = "esperando_decision_reparto_abierto"
+    ESPERANDO_DATOS_INICIO_REPARTO = "esperando_datos_inicio_reparto"
 
 
 class TipoIdentificador(StrEnum):

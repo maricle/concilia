@@ -107,11 +107,32 @@ class ConversationService:
             if conversation.estado not in (
                 ConversationState.ESPERANDO_COMPROBANTE,
                 ConversationState.ESPERANDO_DECISION_REPARTO_ABIERTO,
+                ConversationState.ESPERANDO_DATOS_INICIO_REPARTO,
             ):
                 return "Todavia tenes un comprobante pendiente de confirmar. Termina o cancela esa carga antes de iniciar/cerrar un reparto."
-            return self._handle_comando_reparto(operator, comando)
+            return self._handle_comando_reparto(operator, conversation, comando)
 
         normalized = text.strip().lower()
+
+        if conversation.estado == ConversationState.ESPERANDO_DATOS_INICIO_REPARTO:
+            if conversation.movil_pendiente_numero is None:
+                conversation.movil_pendiente_numero = text.strip()
+            else:
+                numero_texto = text.strip()
+                if not numero_texto.isdigit():
+                    return "Ese no es un numero de reparto valido. Respondé solo con el numero."
+                conversation.numero_reparto_pendiente = int(numero_texto)
+
+            if conversation.movil_pendiente_numero is None or conversation.numero_reparto_pendiente is None:
+                self.session.commit()
+                return self._prompt_dato_faltante_inicio_reparto(conversation)
+
+            comando_completo = IniciarRepartoComando(
+                movil_numero=conversation.movil_pendiente_numero,
+                numero_reparto=conversation.numero_reparto_pendiente,
+            )
+            self._limpiar_decision_reparto(conversation)
+            return self._iniciar_reparto(operator, comando_completo)
 
         if conversation.estado == ConversationState.ESPERANDO_DECISION_REPARTO_ABIERTO:
             if normalized == "cerrar":
@@ -235,6 +256,9 @@ class ConversationService:
         if conversation.estado == ConversationState.ESPERANDO_DECISION_REPARTO_ABIERTO:
             return "Todavia estoy esperando que respondas 'cerrar' o 'continuar' sobre el reparto que ya tenes abierto."
 
+        if conversation.estado == ConversationState.ESPERANDO_DATOS_INICIO_REPARTO:
+            return self._prompt_dato_faltante_inicio_reparto(conversation)
+
         movement = conversation.movimiento_borrador
         if movement is None:
             conversation.estado = ConversationState.ESPERANDO_COMPROBANTE
@@ -303,11 +327,31 @@ class ConversationService:
         conversation.numero_reparto_pendiente = None
 
     def _handle_comando_reparto(
-        self, operator: Operator, comando: IniciarRepartoComando | CerrarRepartoComando
+        self,
+        operator: Operator,
+        conversation: WhatsAppConversation,
+        comando: IniciarRepartoComando | CerrarRepartoComando,
     ) -> str:
         if isinstance(comando, IniciarRepartoComando):
+            if comando.movil_numero is None or comando.numero_reparto is None:
+                return self._recopilar_datos_inicio_reparto(conversation, comando)
             return self._iniciar_reparto(operator, comando)
         return self._cerrar_reparto(operator, comando)
+
+    def _recopilar_datos_inicio_reparto(
+        self, conversation: WhatsAppConversation, comando: IniciarRepartoComando
+    ) -> str:
+        conversation.estado = ConversationState.ESPERANDO_DATOS_INICIO_REPARTO
+        conversation.movil_pendiente_numero = comando.movil_numero
+        conversation.numero_reparto_pendiente = comando.numero_reparto
+        self.session.commit()
+        return self._prompt_dato_faltante_inicio_reparto(conversation)
+
+    @staticmethod
+    def _prompt_dato_faltante_inicio_reparto(conversation: WhatsAppConversation) -> str:
+        if conversation.movil_pendiente_numero is None:
+            return "¿En que movil vas a iniciar el reparto? Respondé con el numero del movil."
+        return "¿Que numero de reparto es? Respondé solo con el numero."
 
     def _iniciar_reparto(self, operator: Operator, comando: IniciarRepartoComando) -> str:
         movil = self.session.scalar(

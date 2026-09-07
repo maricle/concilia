@@ -253,6 +253,106 @@ def test_iniciar_reparto_con_movil_inexistente():
     assert db.query(Reparto).count() == 0
 
 
+def test_iniciar_reparto_solo_palabra_clave_pide_movil_y_luego_numero():
+    db = session()
+    db.add(Operator(nombre="Ana", whatsapp_numero="5491112345678"))
+    db.commit()
+    db.add(Movil(numero="M-01", nombre="Camion 1", responsable_operador_id=1))
+    db.commit()
+    service = ConversationService(db)
+
+    respuesta = service.handle_text("5491112345678", "inicio")
+    assert "En que movil" in respuesta
+
+    respuesta = service.handle_text("5491112345678", "M-01")
+    assert "numero de reparto" in respuesta
+
+    respuesta = service.handle_text("5491112345678", "5")
+    assert "Reparto Nº 5 iniciado" in respuesta
+    reparto = db.query(Reparto).one()
+    assert reparto.movil_id == 1
+    assert reparto.numero_reparto == 5
+
+
+def test_iniciar_reparto_con_iniciar_solo_falta_numero_de_reparto():
+    db = session()
+    db.add(Operator(nombre="Ana", whatsapp_numero="5491112345678"))
+    db.commit()
+    db.add(Movil(numero="M-01", nombre="Camion 1", responsable_operador_id=1))
+    db.commit()
+    service = ConversationService(db)
+
+    respuesta = service.handle_text("5491112345678", "iniciar movil M-01")
+    assert "numero de reparto" in respuesta
+
+    respuesta = service.handle_text("5491112345678", "7")
+    assert "Reparto Nº 7 iniciado" in respuesta
+    assert db.query(Reparto).one().numero_reparto == 7
+
+
+def test_iniciar_reparto_solo_falta_movil():
+    db = session()
+    db.add(Operator(nombre="Ana", whatsapp_numero="5491112345678"))
+    db.commit()
+    db.add(Movil(numero="M-01", nombre="Camion 1", responsable_operador_id=1))
+    db.commit()
+    service = ConversationService(db)
+
+    respuesta = service.handle_text("5491112345678", "inicio reparto nro 3")
+    assert "En que movil" in respuesta
+
+    respuesta = service.handle_text("5491112345678", "M-01")
+    assert "Reparto Nº 3 iniciado" in respuesta
+    assert db.query(Reparto).one().numero_reparto == 3
+
+
+def test_iniciar_reparto_orden_invertido_movil_y_reparto():
+    db = session()
+    db.add(Operator(nombre="Ana", whatsapp_numero="5491112345678"))
+    db.commit()
+    db.add(Movil(numero="M-01", nombre="Camion 1", responsable_operador_id=1))
+    db.commit()
+    service = ConversationService(db)
+
+    respuesta = service.handle_text("5491112345678", "iniciar reparto nro 4 movil M-01")
+
+    assert "Reparto Nº 4 iniciado" in respuesta
+    assert db.query(Reparto).one().numero_reparto == 4
+
+
+def test_iniciar_reparto_numero_de_reparto_invalido_vuelve_a_pedir():
+    db = session()
+    db.add(Operator(nombre="Ana", whatsapp_numero="5491112345678"))
+    db.commit()
+    db.add(Movil(numero="M-01", nombre="Camion 1", responsable_operador_id=1))
+    db.commit()
+    service = ConversationService(db)
+    service.handle_text("5491112345678", "inicio movil M-01")
+
+    respuesta = service.handle_text("5491112345678", "cinco")
+
+    assert "no es un numero de reparto valido" in respuesta
+    assert db.query(Reparto).count() == 0
+
+    respuesta_ok = service.handle_text("5491112345678", "5")
+    assert "Reparto Nº 5 iniciado" in respuesta_ok
+
+
+def test_pending_prompt_reshows_dato_faltante_inicio_reparto():
+    db = session()
+    db.add(Operator(nombre="Ana", whatsapp_numero="5491112345678"))
+    db.commit()
+    db.add(Movil(numero="M-01", nombre="Camion 1", responsable_operador_id=1))
+    db.commit()
+    service = ConversationService(db)
+    service.handle_text("5491112345678", "inicio")
+
+    prompt = service.pending_prompt("5491112345678")
+
+    assert prompt is not None
+    assert "En que movil" in prompt
+
+
 def test_iniciar_reparto_con_reparto_abierto_pregunta_y_cierra():
     db = session()
     db.add(Operator(nombre="Ana", whatsapp_numero="5491112345678"))
