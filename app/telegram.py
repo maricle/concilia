@@ -70,6 +70,25 @@ async def send_telegram_message(chat_id: str, text: str, reply_markup: dict | No
     response.raise_for_status()
 
 
+def _resolver_chat_ids(session: Session, notificaciones: list[tuple[str, str]]) -> list[tuple[str, str]]:
+    """Traduce (whatsapp_numero, mensaje) a (chat_id, mensaje), descartando a los
+    operadores que todavia no vincularon su Telegram (no hay adonde mandarles)."""
+    destinos: list[tuple[str, str]] = []
+    for numero, mensaje in notificaciones:
+        operador = session.scalar(select(Operator).where(Operator.whatsapp_numero == numero))
+        if operador is not None and operador.telegram_chat_id:
+            destinos.append((operador.telegram_chat_id, mensaje))
+    return destinos
+
+
+async def _enviar_notificaciones(destinos: list[tuple[str, str]]) -> None:
+    for chat_id_destino, mensaje in destinos:
+        try:
+            await send_telegram_message(chat_id_destino, mensaje)
+        except httpx.HTTPError:
+            logging.exception("No se pudo enviar notificacion a chat_id=%s", chat_id_destino)
+
+
 async def _answer_callback_query(callback_query_id: str) -> None:
     """Le avisa a Telegram que se recibio el click (apaga el spinner del boton).
     Es solo cosmetico -- si Telegram la rechaza (ej. "query is too old"), no debe
@@ -178,7 +197,9 @@ async def receive_telegram_update(
             service = ConversationService(session)
             reply = service.handle_text(numero, callback_query.get("data", ""))
             markup = _reply_markup(service, numero)
+            destinos = _resolver_chat_ids(session, service.pop_notificaciones())
         await send_telegram_message(chat_id, reply, reply_markup=markup)
+        await _enviar_notificaciones(destinos)
         return {"status": "accepted"}
 
     message = update.get("message")
@@ -196,7 +217,9 @@ async def receive_telegram_update(
             service = ConversationService(session)
             reply = service.handle_text(numero, message["text"])
             markup = _reply_markup(service, numero)
+            destinos = _resolver_chat_ids(session, service.pop_notificaciones())
         await send_telegram_message(chat_id, reply, reply_markup=markup)
+        await _enviar_notificaciones(destinos)
         return {"status": "accepted"}
 
     with SessionLocal() as session:

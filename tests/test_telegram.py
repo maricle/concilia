@@ -10,7 +10,7 @@ from app.config import Settings
 from app.conversation import ConversationService, ExtractedTransfer
 from app.db import Base, SessionLocal, engine
 from app.main import app
-from app.models import BankAccount, Movement, Operator
+from app.models import BankAccount, Movement, Movil, Operator, Reparto, RepartoOperador, WhatsAppConversation
 
 client = TestClient(app)
 
@@ -26,6 +26,17 @@ def _clean_movement(numero_operacion: str) -> None:
         session.commit()
 
 
+def _clean_conversation(numero: str) -> None:
+    """Los tests dejan la conversacion a mitad de flujo (nunca llegan a
+    ESPERANDO_COMPROBANTE) -- sin este cleanup, una corrida deja el estado
+    contaminado para la proxima vez que se reusa el mismo numero/chat_id."""
+    with SessionLocal() as session:
+        conversation = session.get(WhatsAppConversation, numero)
+        if conversation is not None:
+            session.delete(conversation)
+            session.commit()
+
+
 def _clean_operator(*, whatsapp_numero: str | None = None, telegram_chat_id: str | None = None) -> None:
     with SessionLocal() as session:
         query = select(Operator)
@@ -38,8 +49,21 @@ def _clean_operator(*, whatsapp_numero: str | None = None, telegram_chat_id: str
         session.commit()
 
 
+def _clean_movil(numero: str) -> None:
+    with SessionLocal() as session:
+        movil = session.scalar(select(Movil).where(Movil.numero == numero))
+        if movil is not None:
+            session.query(RepartoOperador).where(
+                RepartoOperador.reparto_id.in_(select(Reparto.id).where(Reparto.movil_id == movil.id))
+            ).delete(synchronize_session=False)
+            session.query(Reparto).where(Reparto.movil_id == movil.id).delete(synchronize_session=False)
+            session.delete(movil)
+            session.commit()
+
+
 def _register_operator(whatsapp_numero: str, telegram_chat_id: str | None = None) -> None:
     _clean_operator(whatsapp_numero=whatsapp_numero)
+    _clean_conversation(whatsapp_numero)
     with SessionLocal() as session:
         session.add(Operator(nombre="Test", whatsapp_numero=whatsapp_numero, telegram_chat_id=telegram_chat_id))
         session.commit()
@@ -116,7 +140,7 @@ def test_photo_message_is_extracted_and_saved_to_test_store(monkeypatch):
         (
             "222",
             "Monto: $100.00\nFecha: 2026-08-24\nCuenta receptora: empresa.mp\nOperacion: OP-999\n"
-            "Factura/cuenta: pendiente\n\nResponde SI para confirmar o NO para descartar.",
+            "Factura/cuenta: pendiente\n\n¿El dato que vas a cargar es un numero de factura o un numero de cuenta del cliente?",
         )
     ]
 
@@ -157,8 +181,7 @@ def test_second_photo_while_a_draft_is_pending_does_not_orphan_the_first(monkeyp
     assert len(extract_calls) == 1  # el segundo mensaje no debe llegar a extraer nada
     assert sent[-1] == (
         "888",
-        "Monto: $100.00\nFecha: 2026-08-24\nCuenta receptora: empresa.mp\nOperacion: OP-PRIMERO\n"
-        "Factura/cuenta: pendiente\n\nResponde SI para confirmar o NO para descartar.",
+        "Todavia estoy esperando que indiques si el dato que vas a cargar es un numero de factura o de cuenta.",
     )
 
     with SessionLocal() as session:
@@ -264,7 +287,7 @@ def test_sharing_contact_with_unmatched_phone_is_rejected(monkeypatch):
     assert sent == [("555", telegram.NUMERO_NO_HABILITADO_TEXTO, telegram.CONTACT_REQUEST_MARKUP)]
 
 
-def test_callback_query_confirms_pending_draft_like_typing_si(monkeypatch):
+def test_callback_query_confirms_tipo_like_typing_factura(monkeypatch):
     _register_operator("999", telegram_chat_id="999")
     _clean_movement("OP-BOTON")
     with SessionLocal() as session:
@@ -295,7 +318,7 @@ def test_callback_query_confirms_pending_draft_like_typing_si(monkeypatch):
         json={
             "callback_query": {
                 "id": "cbq1",
-                "data": "si",
+                "data": "factura",
                 "message": {"chat": {"id": 999}},
             }
         },
@@ -303,13 +326,7 @@ def test_callback_query_confirms_pending_draft_like_typing_si(monkeypatch):
 
     assert response.status_code == 200
     assert answered == ["cbq1"]
-    assert sent == [
-        (
-            "999",
-            "¿El dato que vas a cargar es un numero de factura o un numero de cuenta del cliente?",
-            {"inline_keyboard": [[{"text": "Factura", "callback_data": "factura"}, {"text": "Cuenta", "callback_data": "cuenta"}]]},
-        )
-    ]
+    assert sent == [("999", "Indica el numero de factura del cliente asociado a este pago.", None)]
 
 
 def test_already_linked_chat_skips_phone_request(monkeypatch):
@@ -326,3 +343,34 @@ def test_already_linked_chat_skips_phone_request(monkeypatch):
 
     assert response.status_code == 200
     assert sent == [("666", "Envia una imagen o PDF del comprobante de transferencia.")]
+
+
+def test_cerrar_reparto_notifica_al_otro_operador_asociado(monkeypatch):
+    _register_operator("777001", telegram_chat_id="777001")
+    _register_operator("777002", telegram_chat_id="777002")
+    _clean_movil("M-TEST-CIERRE")
+
+    with SessionLocal() as session:
+        session.add(Movil(numero="M-TEST-CIERRE", nombre="Camion Test", responsable_operador_id=None))
+        session.commit()
+        service = ConversationService(session)
+        service.handle_text("777001", "inicio movil M-TEST-CIERRE reparto nro 42")
+        service.handle_text("777001", "SI")
+        service.handle_text("777002", "inicio movil M-TEST-CIERRE reparto nro 42")
+
+    sent: list[tuple[str, str]] = []
+
+    async def fake_send(chat_id: str, text: str, reply_markup: dict | None = None) -> None:
+        sent.append((chat_id, text))
+
+    monkeypatch.setattr(telegram, "send_telegram_message", fake_send)
+
+    response = client.post("/telegram/webhook", json={"message": {"chat": {"id": 777002}, "text": "cerrar"}})
+
+    assert response.status_code == 200
+    assert ("777002", "Reparto Nº 42 cerrado.") in sent
+    assert ("777001", "El Reparto Nº 42 en el movil M-TEST-CIERRE fue cerrado por Test.") in sent
+
+    _clean_movil("M-TEST-CIERRE")
+    _clean_operator(whatsapp_numero="777001")
+    _clean_operator(whatsapp_numero="777002")

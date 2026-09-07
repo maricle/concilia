@@ -91,6 +91,16 @@ def _find_cuenta_bancaria(session: Session, cuenta_receptora: str | None) -> Ban
 class ConversationService:
     def __init__(self, session: Session):
         self.session = session
+        # (numero_whatsapp, mensaje) para operadores DISTINTOS al que disparo la
+        # accion -- ej. el resto de los asociados a un reparto que se cierra. El
+        # canal (telegram.py) los consume con pop_notificaciones() despues de
+        # cada handle_text() y les manda el mensaje aparte.
+        self._notificaciones: list[tuple[str, str]] = []
+
+    def pop_notificaciones(self) -> list[tuple[str, str]]:
+        notificaciones = self._notificaciones
+        self._notificaciones = []
+        return notificaciones
 
     def handle_text(self, number: str, text: str) -> str:
         operator = self.session.scalar(select(Operator).where(Operator.whatsapp_numero == number, Operator.activo.is_(True)))
@@ -103,6 +113,22 @@ class ConversationService:
             self.session.add(conversation)
             self.session.flush()
 
+        normalized = text.strip().lower()
+
+        # 'cerrar'/'continuar' tienen un significado especifico en este estado (que
+        # se resuelve aca abajo) -- se chequean antes de parsear como comando
+        # general para que "cerrar" no se interprete como un cierre de reparto
+        # cualquiera y se pierda el reparto nuevo que estaba pendiente de arrancar.
+        if conversation.estado == ConversationState.ESPERANDO_DECISION_REPARTO_ABIERTO and normalized in (
+            "cerrar",
+            "continuar",
+        ):
+            if normalized == "cerrar":
+                return self._cerrar_y_arrancar_reparto_pendiente(operator, conversation)
+            self._limpiar_decision_reparto(conversation)
+            self.session.commit()
+            return "Seguis con el reparto que ya estaba abierto."
+
         comando = parse_comando_reparto(text)
         if comando is not None:
             if conversation.estado not in (
@@ -113,8 +139,6 @@ class ConversationService:
             ):
                 return "Todavia tenes un comprobante pendiente de confirmar. Termina o cancela esa carga antes de iniciar/cerrar un reparto."
             return self._handle_comando_reparto(operator, conversation, comando)
-
-        normalized = text.strip().lower()
 
         if conversation.estado == ConversationState.ESPERANDO_DATOS_INICIO_REPARTO:
             if conversation.movil_pendiente_numero is None:
@@ -146,12 +170,8 @@ class ConversationService:
             return "Respondé SI para confirmar el inicio del reparto o NO para cancelarlo."
 
         if conversation.estado == ConversationState.ESPERANDO_DECISION_REPARTO_ABIERTO:
-            if normalized == "cerrar":
-                return self._cerrar_y_arrancar_reparto_pendiente(operator, conversation)
-            if normalized == "continuar":
-                self._limpiar_decision_reparto(conversation)
-                self.session.commit()
-                return "Seguis con el reparto que ya estaba abierto."
+            # 'cerrar'/'continuar' ya se resolvieron arriba, antes del parseo de
+            # comando -- si llegamos aca es que mando otra cosa.
             return "Responde 'cerrar' para cerrar el reparto abierto y arrancar el nuevo, o 'continuar' para seguir con el que ya esta abierto."
 
         if conversation.estado == ConversationState.ESPERANDO_MOVIL:
@@ -211,6 +231,10 @@ class ConversationService:
                 conversation.estado = ConversationState.ESPERANDO_COMPROBANTE
                 self.session.commit()
                 return "La sesion vencio. Reenvia el comprobante, por favor."
+            if normalized in {"no", "cancelar", "cancelo"}:
+                self._discard(conversation)
+                self.session.commit()
+                return "Registro descartado. Puedes reenviar el comprobante."
             tipo = _parse_tipo_identificador(normalized)
             if tipo is None:
                 return "Respondé 'factura' o 'cuenta' para indicar que numero vas a cargar."
@@ -352,10 +376,17 @@ class ConversationService:
         self.session.add(movement)
         self.session.flush()
         conversation.movimiento_borrador_id = movement.id
-        conversation.estado = ConversationState.ESPERANDO_CONFIRMACION_DATOS
+        # Se salta directo al paso de factura/cuenta -- mostrar el resumen y pedir
+        # una confirmacion aparte antes de esto era una revision redundante, ya que
+        # el resumen se vuelve a mostrar completo (con factura/cuenta ya cargada)
+        # en la confirmacion final antes de registrar.
+        conversation.estado = ConversationState.ESPERANDO_TIPO_FACTURA_CUENTA
         self.session.add(conversation)
         self.session.commit()
-        return self._summary(movement) + "\n\nResponde SI para confirmar o NO para descartar."
+        return (
+            self._summary(movement)
+            + "\n\n¿El dato que vas a cargar es un numero de factura o un numero de cuenta del cliente?"
+        )
 
     def _discard(self, conversation: WhatsAppConversation) -> None:
         if conversation.movimiento_borrador is not None:
@@ -526,6 +557,7 @@ class ConversationService:
         reparto_propio = self._reparto_abierto_de_operador(operator.id)
         if reparto_propio is not None:
             reparto_propio.hora_fin = datetime.utcnow()
+            self._notificar_cierre_reparto(reparto_propio, operator)
 
         movil = self._buscar_movil_activo(conversation.movil_pendiente_numero)
         numero_reparto_nuevo = conversation.numero_reparto_pendiente
@@ -552,19 +584,37 @@ class ConversationService:
         self.session.commit()
         return f"Reparto anterior cerrado. Reparto Nº {numero_reparto_nuevo} iniciado en el movil {movil.numero}."
 
+    def _notificar_cierre_reparto(self, reparto: Reparto, quien_cierra: Operator) -> None:
+        """Encola un aviso para cada operador asociado al reparto DISTINTO de quien
+        lo cerro -- el canal (telegram.py) los envia despues via pop_notificaciones()."""
+        numero = reparto.numero_reparto if reparto.numero_reparto is not None else "sin numero"
+        mensaje = f"El Reparto Nº {numero} en el movil {reparto.movil.numero} fue cerrado por {quien_cierra.nombre}."
+        asociados = self.session.scalars(
+            select(RepartoOperador).where(RepartoOperador.reparto_id == reparto.id)
+        ).all()
+        for asociado in asociados:
+            if asociado.operador_id == quien_cierra.id:
+                continue
+            operador = self.session.get(Operator, asociado.operador_id)
+            if operador is not None:
+                self._notificaciones.append((operador.whatsapp_numero, mensaje))
+
     def _cerrar_reparto(self, operator: Operator, comando: CerrarRepartoComando) -> str:
         reparto_abierto = self._reparto_abierto_de_operador(operator.id)
         if reparto_abierto is None:
             return "No tenes ningun reparto abierto para cerrar."
-        if reparto_abierto.numero_reparto is not None and reparto_abierto.numero_reparto != comando.numero_reparto:
+        numero_real = reparto_abierto.numero_reparto
+        if comando.numero_reparto is not None and numero_real is not None and numero_real != comando.numero_reparto:
             return (
-                f"El reparto abierto es el Nº {reparto_abierto.numero_reparto}, no el {comando.numero_reparto}. "
+                f"El reparto abierto es el Nº {numero_real}, no el {comando.numero_reparto}. "
                 "Reenvia el comando con el numero correcto."
             )
         # Cierra para todos los operadores asociados, no solo para quien manda el comando.
         reparto_abierto.hora_fin = datetime.utcnow()
+        self._notificar_cierre_reparto(reparto_abierto, operator)
         self.session.commit()
-        return f"Reparto Nº {comando.numero_reparto} cerrado."
+        etiqueta_numero = numero_real if numero_real is not None else "sin numero"
+        return f"Reparto Nº {etiqueta_numero} cerrado."
 
     def _crear_reparto_y_confirmar_comprobante(self, operator: Operator, conversation: WhatsAppConversation) -> str:
         movement = conversation.movimiento_borrador

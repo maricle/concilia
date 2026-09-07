@@ -54,8 +54,7 @@ def test_registered_operator_can_confirm_and_register_transfer():
 
     transfer = ExtractedTransfer(Decimal("1250.50"), datetime(2026, 8, 21), "OP-1", cuenta_receptora="empresa.mp")
     response = service.start_transfer("5491112345678", transfer)
-    assert "Responde SI" in response
-    service.handle_text("5491112345678", "SI")
+    assert "factura o un numero de cuenta" in response
     assert "Indica el numero" in service.handle_text("5491112345678", "factura")
     final = service.handle_text("5491112345678", "FAC-9")
     assert "Factura: FAC-9" in final
@@ -91,14 +90,14 @@ def test_missing_numero_operacion_does_not_collide_between_movements():
 
     sin_numero = ExtractedTransfer(Decimal("10"), datetime.now(), None, cuenta_receptora="empresa.mp")
     primera = service.start_transfer("5491112345678", sin_numero)
-    assert "Responde SI" in primera
-    service.handle_text("5491112345678", "SI")
+    assert "factura o un numero de cuenta" in primera
+    service.handle_text("5491112345678", "factura")
     service.handle_text("5491112345678", "FAC-1")
     service.handle_text("5491112345678", "OK")
 
     segunda = service.start_transfer("5491112345678", sin_numero)
     assert "Ya existe" not in segunda
-    assert "Responde SI" in segunda
+    assert "factura o un numero de cuenta" in segunda
 
     assert db.query(Movement).count() == 2
 
@@ -116,7 +115,6 @@ def test_transfer_with_unreadable_monto_is_registered_anyway():
     transfer = ExtractedTransfer(None, datetime(2026, 8, 21), "OP-1", cuenta_receptora="empresa.mp")
     response = service.start_transfer("5491112345678", transfer)
     assert "Monto: no detectado" in response
-    assert service.handle_text("5491112345678", "SI")
     service.handle_text("5491112345678", "factura")
     service.handle_text("5491112345678", "FAC-9")
     assert service.handle_text("5491112345678", "OK") == "Comprobante registrado correctamente."
@@ -151,7 +149,7 @@ def test_transfer_matches_cuenta_receptora_by_numero_cuenta_digits():
     )
     response = service.start_transfer("5491112345678", transfer)
 
-    assert "Responde SI" in response
+    assert "factura o un numero de cuenta" in response
     assert db.query(Movement).one().cuenta_bancaria_id == 1
 
 
@@ -171,9 +169,6 @@ def test_needs_confirmation_keyboard_tracks_si_no_steps():
 
     transfer = ExtractedTransfer(Decimal("500"), datetime(2026, 8, 21), "OP-1", cuenta_receptora="empresa.mp")
     service.start_transfer(numero, transfer)
-    assert service.needs_confirmation_keyboard(numero) is True
-
-    service.handle_text(numero, "SI")
     assert service.needs_confirmation_keyboard(numero) is False  # esperando eleccion factura/cuenta
     assert service.needs_tipo_keyboard(numero) is True
 
@@ -195,21 +190,6 @@ def test_pending_prompt_is_none_when_no_draft_in_progress():
     assert ConversationService(db).pending_prompt("5491112345678") is None
 
 
-def test_pending_prompt_reshows_confirmacion_datos():
-    db = session()
-    db.add(Operator(nombre="Ana", whatsapp_numero="5491112345678"))
-    _con_cuenta_registrada(db)
-    service = ConversationService(db)
-    transfer = ExtractedTransfer(Decimal("500"), datetime(2026, 8, 21), "OP-1", cuenta_receptora="empresa.mp")
-    service.start_transfer("5491112345678", transfer)
-
-    prompt = service.pending_prompt("5491112345678")
-
-    assert prompt is not None
-    assert "Responde SI" in prompt
-    assert db.query(Movement).count() == 1
-
-
 def test_pending_prompt_reshows_cuenta_factura_step():
     db = session()
     db.add(Operator(nombre="Ana", whatsapp_numero="5491112345678"))
@@ -217,12 +197,12 @@ def test_pending_prompt_reshows_cuenta_factura_step():
     service = ConversationService(db)
     transfer = ExtractedTransfer(Decimal("500"), datetime(2026, 8, 21), "OP-1", cuenta_receptora="empresa.mp")
     service.start_transfer("5491112345678", transfer)
-    service.handle_text("5491112345678", "SI")
 
     prompt = service.pending_prompt("5491112345678")
 
     assert prompt is not None
     assert "factura o de cuenta" in prompt
+    assert db.query(Movement).count() == 1
 
 
 def test_pending_prompt_reshows_confirmacion_final():
@@ -232,7 +212,6 @@ def test_pending_prompt_reshows_confirmacion_final():
     service = ConversationService(db)
     transfer = ExtractedTransfer(Decimal("500"), datetime(2026, 8, 21), "OP-1", cuenta_receptora="empresa.mp")
     service.start_transfer("5491112345678", transfer)
-    service.handle_text("5491112345678", "SI")
     service.handle_text("5491112345678", "factura")
     service.handle_text("5491112345678", "FAC-9")
 
@@ -663,7 +642,76 @@ def test_cerrar_reparto_con_numero_incorrecto_no_cierra():
 
     assert "no el 9" in respuesta
     assert "Nº 7" in respuesta
-    assert db.query(Reparto).one().hora_fin is None
+
+
+def test_cerrar_reparto_acepta_palabra_sola_sin_numero():
+    db = session()
+    db.add(Operator(nombre="Ana", whatsapp_numero="5491112345678"))
+    db.commit()
+    db.add(Movil(numero="M-01", nombre="Camion 1", responsable_operador_id=1))
+    db.commit()
+    service = ConversationService(db)
+    service.handle_text("5491112345678", "inicio movil M-01 reparto nro 7")
+    service.handle_text("5491112345678", "SI")
+
+    respuesta = service.handle_text("5491112345678", "cerrar")
+
+    assert "Reparto Nº 7 cerrado" in respuesta
+    assert db.query(Reparto).one().hora_fin is not None
+
+
+def test_cerrar_reparto_acepta_fin():
+    db = session()
+    db.add(Operator(nombre="Ana", whatsapp_numero="5491112345678"))
+    db.commit()
+    db.add(Movil(numero="M-01", nombre="Camion 1", responsable_operador_id=1))
+    db.commit()
+    service = ConversationService(db)
+    service.handle_text("5491112345678", "inicio movil M-01 reparto nro 7")
+    service.handle_text("5491112345678", "SI")
+
+    respuesta = service.handle_text("5491112345678", "fin de reparto")
+
+    assert "Reparto Nº 7 cerrado" in respuesta
+    assert db.query(Reparto).one().hora_fin is not None
+
+
+def test_cerrar_reparto_notifica_a_los_demas_operadores_asociados():
+    db = session()
+    db.add_all(
+        [
+            Operator(nombre="Ana", whatsapp_numero="5491112345678", telegram_chat_id="111"),
+            Operator(nombre="Beto", whatsapp_numero="5491100000000", telegram_chat_id="222"),
+        ]
+    )
+    db.commit()
+    db.add(Movil(numero="M-01", nombre="Camion 1", responsable_operador_id=1))
+    db.commit()
+    service = ConversationService(db)
+    service.handle_text("5491112345678", "inicio movil M-01 reparto nro 7")
+    service.handle_text("5491112345678", "SI")
+    service.handle_text("5491100000000", "inicio movil M-01 reparto nro 7")  # Beto se asocia
+
+    service.handle_text("5491100000000", "cerrar")
+
+    notificaciones = service.pop_notificaciones()
+    assert notificaciones == [("5491112345678", "El Reparto Nº 7 en el movil M-01 fue cerrado por Beto.")]
+
+
+def test_cerrar_reparto_sin_otros_asociados_no_genera_notificaciones():
+    db = session()
+    db.add(Operator(nombre="Ana", whatsapp_numero="5491112345678"))
+    db.commit()
+    db.add(Movil(numero="M-01", nombre="Camion 1", responsable_operador_id=1))
+    db.commit()
+    service = ConversationService(db)
+    service.handle_text("5491112345678", "inicio movil M-01 reparto nro 7")
+    service.handle_text("5491112345678", "SI")
+
+    service.handle_text("5491112345678", "cerrar")
+
+    assert service.pop_notificaciones() == []
+    assert db.query(Reparto).one().hora_fin is not None
 
 
 def test_cerrar_reparto_sin_reparto_abierto():

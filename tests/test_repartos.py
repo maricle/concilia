@@ -35,13 +35,24 @@ def test_parse_comando_reparto_devuelve_none_para_texto_random():
     assert parse_comando_reparto("hola, como estas?") is None
 
 
-def test_parse_comando_reparto_devuelve_none_si_falta_numero_de_cerrar():
-    assert parse_comando_reparto("cerrar reparto nro") is None
+def test_parse_cerrar_sin_numero_queda_pendiente():
+    # "cerrar"/"fin" solos (o sin un numero reconocible) cierran el reparto abierto
+    # del operador sin que tenga que acordarse del numero.
+    assert parse_comando_reparto("cerrar reparto nro") == CerrarRepartoComando(numero_reparto=None)
+    assert parse_comando_reparto("cerrar") == CerrarRepartoComando(numero_reparto=None)
+    assert parse_comando_reparto("fin") == CerrarRepartoComando(numero_reparto=None)
+    assert parse_comando_reparto("fin de reparto") == CerrarRepartoComando(numero_reparto=None)
+    assert parse_comando_reparto("cerrar reparto") == CerrarRepartoComando(numero_reparto=None)
+
+
+def test_parse_cerrar_toma_el_primer_numero_sin_exigir_la_palabra_reparto():
+    assert parse_comando_reparto("cerrar 234") == CerrarRepartoComando(numero_reparto=234)
+    assert parse_comando_reparto("fin reparto nro 7") == CerrarRepartoComando(numero_reparto=7)
 
 
 def test_parse_comando_reparto_devuelve_none_para_keyword_incorrecta():
     assert parse_comando_reparto("empezar movil M-01 reparto nro 1") is None
-    assert parse_comando_reparto("cerrar movil M-01") is None
+    assert parse_comando_reparto("terminar reparto nro 1") is None
 
 
 def test_parse_inicio_reparto_orden_invertido():
