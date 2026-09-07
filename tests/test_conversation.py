@@ -124,7 +124,19 @@ def test_transfer_with_unreadable_monto_is_registered_anyway():
     assert movement.monto is None
 
 
-def test_transfer_without_matching_cuenta_receptora_is_rejected():
+def test_transfer_without_matching_cuenta_receptora_is_rejected_if_none_registered():
+    db = session()
+    db.add(Operator(nombre="Ana", whatsapp_numero="5491112345678"))
+    service = ConversationService(db)
+
+    transfer = ExtractedTransfer(Decimal("500"), datetime(2026, 8, 21), "OP-1", cuenta_receptora="no.coincide")
+    response = service.start_transfer("5491112345678", transfer)
+
+    assert response == NO_CUENTA_RECEPTORA_TEXTO
+    assert db.query(Movement).count() == 0
+
+
+def test_transfer_without_matching_cuenta_receptora_ofrece_elegir():
     db = session()
     db.add(Operator(nombre="Ana", whatsapp_numero="5491112345678"))
     _con_cuenta_registrada(db, alias="otra.cuenta")
@@ -133,7 +145,42 @@ def test_transfer_without_matching_cuenta_receptora_is_rejected():
     transfer = ExtractedTransfer(Decimal("500"), datetime(2026, 8, 21), "OP-1", cuenta_receptora="no.coincide")
     response = service.start_transfer("5491112345678", transfer)
 
-    assert response == NO_CUENTA_RECEPTORA_TEXTO
+    assert "No pudimos identificar a que cuenta corresponde este pago" in response
+    assert "otra.cuenta" in response
+    movement = db.query(Movement).one()
+    assert movement.cuenta_bancaria_id is None
+
+    respuesta_final = service.handle_text("5491112345678", "otra.cuenta")
+
+    assert "factura o un numero de cuenta" in respuesta_final
+    assert db.query(Movement).one().cuenta_bancaria_id == 1
+
+
+def test_eleccion_de_cuenta_bancaria_invalida_vuelve_a_pedir():
+    db = session()
+    db.add(Operator(nombre="Ana", whatsapp_numero="5491112345678"))
+    _con_cuenta_registrada(db, alias="otra.cuenta")
+    service = ConversationService(db)
+    transfer = ExtractedTransfer(Decimal("500"), datetime(2026, 8, 21), "OP-1", cuenta_receptora="no.coincide")
+    service.start_transfer("5491112345678", transfer)
+
+    respuesta = service.handle_text("5491112345678", "cuenta que no existe")
+
+    assert "Esa no es una de las opciones" in respuesta
+    assert db.query(Movement).one().cuenta_bancaria_id is None
+
+
+def test_eleccion_de_cuenta_bancaria_se_puede_cancelar():
+    db = session()
+    db.add(Operator(nombre="Ana", whatsapp_numero="5491112345678"))
+    _con_cuenta_registrada(db, alias="otra.cuenta")
+    service = ConversationService(db)
+    transfer = ExtractedTransfer(Decimal("500"), datetime(2026, 8, 21), "OP-1", cuenta_receptora="no.coincide")
+    service.start_transfer("5491112345678", transfer)
+
+    respuesta = service.handle_text("5491112345678", "cancelar")
+
+    assert "Registro descartado" in respuesta
     assert db.query(Movement).count() == 0
 
 

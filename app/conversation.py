@@ -26,6 +26,8 @@ NO_CUENTA_RECEPTORA_TEXTO = (
     "Reenvia el comprobante, o si el problema persiste contacta al administrador para cargarlo manualmente."
 )
 
+_CANCELAR_TEXTO = {"no", "cancelar", "cancelo"}
+
 _TIPO_POR_TEXTO = {
     "factura": TipoIdentificador.FACTURA,
     "nro factura": TipoIdentificador.FACTURA,
@@ -163,7 +165,7 @@ class ConversationService:
         if conversation.estado == ConversationState.ESPERANDO_CONFIRMACION_INICIO_REPARTO:
             if normalized in {"si", "sí", "ok", "confirmo"}:
                 return self._confirmar_inicio_reparto(operator, conversation)
-            if normalized in {"no", "cancelar", "cancelo"}:
+            if normalized in _CANCELAR_TEXTO:
                 self._limpiar_decision_reparto(conversation)
                 self.session.commit()
                 return "Inicio de reparto cancelado."
@@ -173,6 +175,25 @@ class ConversationService:
             # 'cerrar'/'continuar' ya se resolvieron arriba, antes del parseo de
             # comando -- si llegamos aca es que mando otra cosa.
             return "Responde 'cerrar' para cerrar el reparto abierto y arrancar el nuevo, o 'continuar' para seguir con el que ya esta abierto."
+
+        if conversation.estado == ConversationState.ESPERANDO_CUENTA_BANCARIA:
+            movement = conversation.movimiento_borrador
+            if movement is None:
+                conversation.estado = ConversationState.ESPERANDO_COMPROBANTE
+                self.session.commit()
+                return "La sesion vencio. Reenvia el comprobante, por favor."
+            if normalized in _CANCELAR_TEXTO:
+                self._discard(conversation)
+                self.session.commit()
+                return "Registro descartado. Puedes reenviar el comprobante."
+            elegido = text.strip().lower()
+            cuenta = next(
+                (c for c in self.session.scalars(select(BankAccount)) if c.alias.strip().lower() == elegido), None
+            )
+            if cuenta is None:
+                return "Esa no es una de las opciones. " + self._prompt_elegir_cuenta_bancaria()
+            movement.cuenta_bancaria_id = cuenta.id
+            return self._avanzar_a_tipo_factura_cuenta(conversation, movement)
 
         if conversation.estado == ConversationState.ESPERANDO_MOVIL:
             movement = conversation.movimiento_borrador
@@ -207,7 +228,7 @@ class ConversationService:
         if conversation.estado == ConversationState.ESPERANDO_CONFIRMACION_CREAR_REPARTO:
             if normalized in {"si", "sí", "ok", "confirmo"}:
                 return self._crear_reparto_y_confirmar_comprobante(operator, conversation)
-            if normalized in {"no", "cancelar", "cancelo"}:
+            if normalized in _CANCELAR_TEXTO:
                 conversation.movil_pendiente_numero = None
                 conversation.estado = ConversationState.ESPERANDO_MOVIL
                 self.session.commit()
@@ -219,7 +240,7 @@ class ConversationService:
                 conversation.estado = ConversationState.ESPERANDO_TIPO_FACTURA_CUENTA
                 self.session.commit()
                 return "¿El dato que vas a cargar es un numero de factura o un numero de cuenta del cliente?"
-            if normalized in {"no", "cancelar", "cancelo"}:
+            if normalized in _CANCELAR_TEXTO:
                 self._discard(conversation)
                 self.session.commit()
                 return "Registro descartado. Puedes reenviar el comprobante."
@@ -231,7 +252,7 @@ class ConversationService:
                 conversation.estado = ConversationState.ESPERANDO_COMPROBANTE
                 self.session.commit()
                 return "La sesion vencio. Reenvia el comprobante, por favor."
-            if normalized in {"no", "cancelar", "cancelo"}:
+            if normalized in _CANCELAR_TEXTO:
                 self._discard(conversation)
                 self.session.commit()
                 return "Registro descartado. Puedes reenviar el comprobante."
@@ -273,7 +294,7 @@ class ConversationService:
                 conversation.estado = ConversationState.ESPERANDO_COMPROBANTE
                 self.session.commit()
                 return "Comprobante registrado correctamente."
-            if normalized in {"no", "cancelar", "cancelo"}:
+            if normalized in _CANCELAR_TEXTO:
                 self._discard(conversation)
                 self.session.commit()
                 return "Registro descartado. Puedes reenviar el comprobante."
@@ -298,6 +319,13 @@ class ConversationService:
         canal le muestre botones en vez de pedirle que escriba la respuesta."""
         conversation = self.session.get(WhatsAppConversation, number)
         return conversation is not None and conversation.estado == ConversationState.ESPERANDO_TIPO_FACTURA_CUENTA
+
+    def needs_cuenta_keyboard(self, number: str) -> bool:
+        """True si el operador tiene que elegir a mano la cuenta bancaria del pago
+        (no se pudo identificar sola), para que el canal le muestre un boton por
+        cada cuenta cargada en vez de pedirle que la escriba."""
+        conversation = self.session.get(WhatsAppConversation, number)
+        return conversation is not None and conversation.estado == ConversationState.ESPERANDO_CUENTA_BANCARIA
 
     def pending_prompt(self, number: str) -> str | None:
         """Si el operador ya tiene un comprobante sin cerrar, devuelve el mensaje que
@@ -329,6 +357,9 @@ class ConversationService:
                 "¿Queres iniciar uno? Respondé SI o NO."
             )
 
+        if conversation.estado == ConversationState.ESPERANDO_CUENTA_BANCARIA:
+            return self._prompt_elegir_cuenta_bancaria()
+
         movement = conversation.movimiento_borrador
         if movement is None:
             conversation.estado = ConversationState.ESPERANDO_COMPROBANTE
@@ -358,8 +389,11 @@ class ConversationService:
             )
             if duplicate is not None:
                 return "Ya existe un comprobante con ese numero de operacion."
+        cuentas = self.session.scalars(select(BankAccount)).all()
         cuenta_bancaria = _find_cuenta_bancaria(self.session, transfer.cuenta_receptora)
-        if cuenta_bancaria is None:
+        if cuenta_bancaria is None and not cuentas:
+            # Sin ninguna cuenta cargada en /config/cuentas no hay nada para
+            # ofrecerle a elegir -- ahi si hace falta un administrador.
             return NO_CUENTA_RECEPTORA_TEXTO
         conversation = self.session.get(WhatsAppConversation, number) or WhatsAppConversation(numero=number)
         movement = Movement(
@@ -371,17 +405,37 @@ class ConversationService:
             cuenta_receptora_extraida=transfer.cuenta_receptora,
             titular=transfer.titular,
             archivo_id=archivo_id,
-            cuenta_bancaria_id=cuenta_bancaria.id,
+            cuenta_bancaria_id=cuenta_bancaria.id if cuenta_bancaria is not None else None,
         )
         self.session.add(movement)
         self.session.flush()
         conversation.movimiento_borrador_id = movement.id
+        self.session.add(conversation)
+
+        if cuenta_bancaria is None:
+            # No se pudo identificar la cuenta sola -- se le pide al operador que
+            # elija entre las cargadas, en vez de rechazar el comprobante entero.
+            conversation.estado = ConversationState.ESPERANDO_CUENTA_BANCARIA
+            self.session.commit()
+            return self._prompt_elegir_cuenta_bancaria()
+
         # Se salta directo al paso de factura/cuenta -- mostrar el resumen y pedir
         # una confirmacion aparte antes de esto era una revision redundante, ya que
         # el resumen se vuelve a mostrar completo (con factura/cuenta ya cargada)
         # en la confirmacion final antes de registrar.
+        return self._avanzar_a_tipo_factura_cuenta(conversation, movement)
+
+    def _prompt_elegir_cuenta_bancaria(self) -> str:
+        aliases = [c.alias for c in self.session.scalars(select(BankAccount)).all()]
+        listado = "\n".join(f"- {alias}" for alias in aliases)
+        return (
+            "No pudimos identificar a que cuenta corresponde este pago. ¿A cual de estas pertenece?\n\n"
+            f"{listado}\n\n"
+            "Respondé con el nombre de la cuenta, o 'cancelar' si no lo sabés."
+        )
+
+    def _avanzar_a_tipo_factura_cuenta(self, conversation: WhatsAppConversation, movement: Movement) -> str:
         conversation.estado = ConversationState.ESPERANDO_TIPO_FACTURA_CUENTA
-        self.session.add(conversation)
         self.session.commit()
         return (
             self._summary(movement)

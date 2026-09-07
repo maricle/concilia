@@ -19,6 +19,7 @@ class ConversationState(StrEnum):
     ESPERANDO_DATOS_INICIO_REPARTO = "esperando_datos_inicio_reparto"
     ESPERANDO_CONFIRMACION_INICIO_REPARTO = "esperando_confirmacion_inicio_reparto"
     ESPERANDO_CONFIRMACION_CREAR_REPARTO = "esperando_confirmacion_crear_reparto"
+    ESPERANDO_CUENTA_BANCARIA = "esperando_cuenta_bancaria"
 
 
 class TipoIdentificador(StrEnum):

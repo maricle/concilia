@@ -34,35 +34,24 @@ _FEW_SHOT_EXAMPLES = [
     },
 ]
 
-def _build_tool(cuentas_validas: list[tuple[str, str]]) -> dict:
-    """Arma el schema de la herramienta de extraccion. Si se pasan cuentas_validas
-    (alias, numero_cuenta) de las cuentas bancarias de la empresa, cuenta_receptora
-    queda restringido a elegir uno de esos alias exactos (o null) en vez de
-    transcribir libremente un CBU/CVU: es mucho mas confiable que Claude compare
-    contra una lista corta a que transcriba 22 digitos sin error y que despues
-    nosotros lo matcheemos, y evita que confunda la cuenta de origen con la de
-    destino."""
-    if cuentas_validas:
-        listado = "; ".join(f"'{alias}' (numero de cuenta {numero})" for alias, numero in cuentas_validas)
-        cuenta_receptora_schema = {
-            "type": ["string", "null"],
-            "enum": [alias for alias, _ in cuentas_validas] + [None],
-            "description": (
-                "Cual de las cuentas bancarias de la empresa RECIBE el dinero en este comprobante (la seccion "
-                "'Para'/'Destino' -- nunca la de quien envia, 'De'/'Origen'). Las cuentas posibles son: "
-                f"{listado}. Devolve exactamente el alias tal como esta escrito si el comprobante corresponde "
-                "a una de esas cuentas, o null si no corresponde a ninguna."
-            ),
-        }
-    else:
-        cuenta_receptora_schema = {
-            "type": ["string", "null"],
-            "description": (
-                "Identificador de la cuenta que RECIBE el dinero (el destinatario, la seccion 'Para' o "
-                "'Destino' del comprobante) -- nunca la cuenta de quien envia ('De'/'Origen'). Puede ser "
-                "CBU, CVU o alias, el que figure."
-            ),
-        }
+def _build_tool() -> dict:
+    """Arma el schema de la herramienta de extraccion. cuenta_receptora siempre se
+    transcribe en texto libre (CBU, CVU o alias, tal como figura en el comprobante)
+    -- el matching contra las cuentas bancarias registradas (_find_cuenta_bancaria
+    en conversation.py) se hace despues en Python por texto/digitos, no le pedimos
+    a Claude que elija entre una lista de aliases comparando CBUs de 22 digitos a
+    ojo, porque en la practica falla seguido (confirmado con comprobantes reales
+    que no matcheaban ninguna cuenta ya cargada)."""
+    cuenta_receptora_schema = {
+        "type": ["string", "null"],
+        "description": (
+            "Identificador de la cuenta que RECIBE el dinero (el destinatario, la seccion 'Para' o "
+            "'Destino' del comprobante) -- nunca la cuenta de quien envia ('De'/'Origen'). Transcribi el "
+            "CBU, CVU o alias exactamente como figura en el comprobante (todos los digitos, sin espacios "
+            "ni separadores propios); no intentes adivinar a que cuenta registrada corresponde, eso se "
+            "resuelve despues por otro lado."
+        ),
+    }
     return {
         "name": "registrar_transferencia",
         "description": "Estructura los datos de una transferencia bancaria a partir de un comprobante.",
@@ -249,15 +238,14 @@ def _parse_fecha_o_actual(valor: object) -> datetime:
     return datetime.utcnow()
 
 
-def extract_transfer(
-    content_type: str, data: bytes, cuentas_validas: list[tuple[str, str]] | None = None
-) -> ExtractedTransfer | None:
+def extract_transfer(content_type: str, data: bytes) -> ExtractedTransfer | None:
     """Interpreta un comprobante con Claude. Devuelve None si no se pudo leer el monto
-    con confianza (el unico dato que bloquea el registro). cuentas_validas es la lista
-    de (alias, numero_cuenta) de las cuentas bancarias de la empresa, para que Claude
-    elija cual de ellas recibio el pago en vez de transcribir un CBU/CVU a mano."""
+    con confianza (el unico dato que bloquea el registro). cuenta_receptora se
+    transcribe en texto libre (CBU/CVU/alias); el matching contra las cuentas
+    bancarias registradas se hace en Python (ver _find_cuenta_bancaria en
+    conversation.py)."""
     client = Anthropic(api_key=get_settings().anthropic_api_key)
-    tool = _build_tool(cuentas_validas or [])
+    tool = _build_tool()
 
     result = _call_model(client, HAIKU_MODEL, content_type, data, tool)
     if not _has_minimum_fields(result):

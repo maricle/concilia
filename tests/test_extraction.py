@@ -27,15 +27,13 @@ def test_es_numero_operacion_valido(valor, esperado):
     assert _es_numero_operacion_valido(valor) is esperado
 
 
-def test_build_tool_without_cuentas_leaves_cuenta_receptora_freeform():
-    tool = _build_tool([])
+def test_build_tool_leaves_cuenta_receptora_freeform():
+    # cuenta_receptora siempre se transcribe en texto libre -- restringirla a un
+    # enum de aliases registrados hacia que Claude tuviera que comparar CBUs de 22
+    # digitos a ojo contra esa lista, y en la practica fallaba con comprobantes
+    # reales. El matching se resuelve despues en Python (_find_cuenta_bancaria).
+    tool = _build_tool()
     assert "enum" not in tool["input_schema"]["properties"]["cuenta_receptora"]
-
-
-def test_build_tool_with_cuentas_constrains_cuenta_receptora_to_aliases():
-    tool = _build_tool([("empresa.mp", "123"), ("empresa.galicia", "456")])
-    schema = tool["input_schema"]["properties"]["cuenta_receptora"]
-    assert schema["enum"] == ["empresa.mp", "empresa.galicia", None]
 
 
 @pytest.mark.parametrize(
@@ -158,20 +156,19 @@ def test_extract_transfer_registers_with_missing_fecha_and_numero_operacion(monk
     assert antes - timedelta(seconds=5) <= transfer.fecha_transaccion <= despues + timedelta(seconds=5)
 
 
-def test_extract_transfer_passes_cuentas_validas_as_enum_to_the_model(monkeypatch):
-    resultado = {"monto": 500, "fecha_transaccion": "2026-08-24", "numero_operacion": "OP-1", "cuenta_receptora": "empresa.mp"}
+def test_extract_transfer_returns_cuenta_receptora_verbatim(monkeypatch):
+    resultado = {
+        "monto": 500,
+        "fecha_transaccion": "2026-08-24",
+        "numero_operacion": "OP-1",
+        "cuenta_receptora": "0000003100051586023938",
+    }
     fake_client = _FakeAnthropic([resultado])
     monkeypatch.setattr(extraction, "Anthropic", lambda api_key: fake_client)
 
-    transfer = extract_transfer("image/jpeg", b"fake-bytes", [("empresa.mp", "123"), ("empresa.galicia", "456")])
+    transfer = extract_transfer("image/jpeg", b"fake-bytes")
 
-    assert transfer.cuenta_receptora == "empresa.mp"
-    tool_usado = fake_client.messages.calls[0]["tools"][0]
-    assert tool_usado["input_schema"]["properties"]["cuenta_receptora"]["enum"] == [
-        "empresa.mp",
-        "empresa.galicia",
-        None,
-    ]
+    assert transfer.cuenta_receptora == "0000003100051586023938"
 
 
 def test_extract_transfer_treats_placeholder_numero_operacion_as_missing(monkeypatch):

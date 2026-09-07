@@ -115,7 +115,7 @@ def test_photo_message_is_extracted_and_saved_to_test_store(monkeypatch):
     async def fake_download(file_id: str) -> tuple[bytes, str]:
         return b"fake-photo-bytes", "photos/file.jpg"
 
-    def fake_extract(content_type: str, data: bytes, cuentas_validas=None) -> ExtractedTransfer:
+    def fake_extract(content_type: str, data: bytes) -> ExtractedTransfer:
         return ExtractedTransfer(Decimal("100.00"), datetime(2026, 8, 24), "OP-999", cuenta_receptora="empresa.mp")
 
     saved: list[bytes] = []
@@ -164,7 +164,7 @@ def test_second_photo_while_a_draft_is_pending_does_not_orphan_the_first(monkeyp
 
     extract_calls = []
 
-    def fake_extract(content_type: str, data: bytes, cuentas_validas=None) -> ExtractedTransfer:
+    def fake_extract(content_type: str, data: bytes) -> ExtractedTransfer:
         extract_calls.append(1)
         return ExtractedTransfer(Decimal("100.00"), datetime(2026, 8, 24), "OP-PRIMERO", cuenta_receptora="empresa.mp")
 
@@ -202,7 +202,7 @@ def test_photo_message_with_unreadable_receipt_asks_to_resend(monkeypatch):
 
     monkeypatch.setattr(telegram, "send_telegram_message", fake_send)
     monkeypatch.setattr(telegram, "_download_telegram_file", fake_download)
-    monkeypatch.setattr(telegram, "extract_transfer", lambda content_type, data, cuentas_validas=None: None)
+    monkeypatch.setattr(telegram, "extract_transfer", lambda content_type, data: None)
 
     response = client.post(
         "/telegram/webhook",
@@ -374,3 +374,45 @@ def test_cerrar_reparto_notifica_al_otro_operador_asociado(monkeypatch):
     _clean_movil("M-TEST-CIERRE")
     _clean_operator(whatsapp_numero="777001")
     _clean_operator(whatsapp_numero="777002")
+
+
+def test_cuenta_no_identificada_ofrece_botones_por_cada_cuenta_cargada(monkeypatch):
+    _register_operator("333999")
+    _clean_movement("OP-CUENTA-DESCONOCIDA")
+    with SessionLocal() as session:
+        if session.scalar(select(BankAccount).where(BankAccount.alias == "empresa.mp")) is None:
+            session.add(BankAccount(banco="Mercado Pago", numero_cuenta="1", alias="empresa.mp"))
+            session.commit()
+
+    sent: list[tuple[str, str, dict | None]] = []
+
+    async def fake_send(chat_id: str, text: str, reply_markup: dict | None = None) -> None:
+        sent.append((chat_id, text, reply_markup))
+
+    async def fake_download(file_id: str) -> tuple[bytes, str]:
+        return b"fake-photo-bytes", "photos/file.jpg"
+
+    def fake_extract(content_type: str, data: bytes) -> ExtractedTransfer:
+        return ExtractedTransfer(
+            Decimal("100.00"), datetime(2026, 8, 24), "OP-CUENTA-DESCONOCIDA", cuenta_receptora="0000000000"
+        )
+
+    monkeypatch.setattr(telegram, "send_telegram_message", fake_send)
+    monkeypatch.setattr(telegram, "_download_telegram_file", fake_download)
+    monkeypatch.setattr(telegram, "extract_transfer", fake_extract)
+    monkeypatch.setattr(telegram, "save_comprobante_archivo", lambda **kwargs: 1)
+
+    response = client.post(
+        "/telegram/webhook",
+        json={"message": {"chat": {"id": 333999}, "photo": [{"file_id": "abc", "file_size": 100}]}},
+    )
+
+    assert response.status_code == 200
+    chat_id, text, reply_markup = sent[-1]
+    assert chat_id == "333999"
+    assert "No pudimos identificar a que cuenta corresponde este pago" in text
+    botones = [boton for fila in reply_markup["inline_keyboard"] for boton in fila]
+    assert {"text": "empresa.mp", "callback_data": "empresa.mp"} in botones
+    assert reply_markup["inline_keyboard"][-1] == [{"text": "Cancelar", "callback_data": "cancelar"}]
+
+    _clean_movement("OP-CUENTA-DESCONOCIDA")

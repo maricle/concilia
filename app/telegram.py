@@ -38,11 +38,23 @@ NUMERO_NO_HABILITADO_TEXTO = "Tu numero no esta habilitado. Contacta al administ
 NUMERO_VINCULADO_TEXTO = "Numero vinculado correctamente. Ya podes enviar tus comprobantes."
 
 
+def _cuenta_bancaria_markup(session: Session) -> dict:
+    """Un boton por cada cuenta cargada en /config/cuentas, mas uno de Cancelar --
+    se arma dinamico porque a diferencia de SI/NO o Factura/Cuenta la cantidad de
+    opciones depende de cuantas cuentas tenga la empresa."""
+    cuentas = session.scalars(select(BankAccount)).all()
+    filas = [[{"text": cuenta.alias, "callback_data": cuenta.alias}] for cuenta in cuentas]
+    filas.append([{"text": "Cancelar", "callback_data": "cancelar"}])
+    return {"inline_keyboard": filas}
+
+
 def _reply_markup(service: ConversationService, numero: str) -> dict | None:
     if service.needs_confirmation_keyboard(numero):
         return SI_NO_MARKUP
     if service.needs_tipo_keyboard(numero):
         return TIPO_FACTURA_CUENTA_MARKUP
+    if service.needs_cuenta_keyboard(numero):
+        return _cuenta_bancaria_markup(service.session)
     return None
 
 
@@ -248,13 +260,11 @@ async def receive_telegram_update(
         return {"status": "ignored"}
 
     contenido, _ = await _download_telegram_file(file_id)
-    with SessionLocal() as session:
-        cuentas_validas = [(c.alias, c.numero_cuenta) for c in session.scalars(select(BankAccount)).all()]
     # extract_transfer llama a la API de Claude de forma sincrona (varios segundos,
     # mas si hace fallback a Sonnet); correrla directo en el handler async bloquearia
     # el unico event loop del proceso y congelaria a todos los demas operadores
     # mientras tanto, asi que se delega a un thread del pool.
-    transfer = await run_in_threadpool(extract_transfer, content_type, contenido, cuentas_validas)
+    transfer = await run_in_threadpool(extract_transfer, content_type, contenido)
     if transfer is None:
         await send_telegram_message(
             chat_id,
