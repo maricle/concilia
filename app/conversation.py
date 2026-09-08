@@ -225,13 +225,26 @@ class ConversationService:
 
         if conversation.estado == ConversationState.ESPERANDO_CONFIRMACION_CREAR_REPARTO:
             if normalized in {"si", "sí", "ok", "confirmo"}:
-                return self._crear_reparto_y_confirmar_comprobante(operator, conversation)
+                conversation.estado = ConversationState.ESPERANDO_NUMERO_REPARTO_NUEVO
+                self.session.commit()
+                return "¿Que numero de reparto es? Respondé solo con el numero."
             if normalized in _CANCELAR_TEXTO:
                 conversation.movil_pendiente_numero = None
                 conversation.estado = ConversationState.ESPERANDO_MOVIL
                 self.session.commit()
                 return "Entendido, no inicio un reparto nuevo ahi. ¿En que movil estas?"
             return "Respondé SI para iniciar un reparto nuevo en ese movil o NO para indicar otro movil."
+
+        if conversation.estado == ConversationState.ESPERANDO_NUMERO_REPARTO_NUEVO:
+            if normalized in _CANCELAR_TEXTO:
+                self._discard(conversation)
+                conversation.movil_pendiente_numero = None
+                self.session.commit()
+                return "Registro descartado. Puedes reenviar el comprobante."
+            numero_texto = text.strip()
+            if not numero_texto.isdigit():
+                return "Ese no es un numero de reparto valido. Respondé solo con el numero."
+            return self._crear_reparto_y_confirmar_comprobante(operator, conversation, int(numero_texto))
 
         if conversation.estado == ConversationState.ESPERANDO_CONFIRMACION_DATOS:
             if normalized in {"si", "sí", "ok", "confirmo", "correcto"}:
@@ -354,6 +367,9 @@ class ConversationService:
                 f"No hay ningun reparto abierto en el movil {conversation.movil_pendiente_numero}. "
                 "¿Queres iniciar uno? Respondé SI o NO."
             )
+
+        if conversation.estado == ConversationState.ESPERANDO_NUMERO_REPARTO_NUEVO:
+            return "¿Que numero de reparto es? Respondé solo con el numero."
 
         if conversation.estado == ConversationState.ESPERANDO_CUENTA_BANCARIA:
             return self._prompt_elegir_cuenta_bancaria()
@@ -683,7 +699,9 @@ class ConversationService:
         etiqueta_numero = numero_real if numero_real is not None else "sin numero"
         return f"Reparto Nº {etiqueta_numero} cerrado."
 
-    def _crear_reparto_y_confirmar_comprobante(self, operator: Operator, conversation: WhatsAppConversation) -> str:
+    def _crear_reparto_y_confirmar_comprobante(
+        self, operator: Operator, conversation: WhatsAppConversation, numero_reparto: int
+    ) -> str:
         movement = conversation.movimiento_borrador
         if movement is None:
             conversation.estado = ConversationState.ESPERANDO_COMPROBANTE
@@ -698,7 +716,9 @@ class ConversationService:
             self.session.commit()
             return "Ese movil ya no esta disponible. ¿En que movil estas?"
 
-        reparto = Reparto(movil_id=movil.id, fecha=hoy_argentina(), hora_inicio=ahora_argentina(), numero_reparto=None)
+        reparto = Reparto(
+            movil_id=movil.id, fecha=hoy_argentina(), hora_inicio=ahora_argentina(), numero_reparto=numero_reparto
+        )
         self.session.add(reparto)
         self.session.flush()
         self._asociar_operador(reparto, operator)
@@ -710,7 +730,10 @@ class ConversationService:
         conversation.movil_pendiente_numero = None
         conversation.estado = ConversationState.ESPERANDO_COMPROBANTE
         self.session.commit()
-        return f"Comprobante registrado correctamente. Se inicio un reparto nuevo en el movil {movil.numero}."
+        return (
+            f"Comprobante registrado correctamente. Se inicio el Reparto Nº {numero_reparto} en el movil "
+            f"{movil.numero}."
+        )
 
     @staticmethod
     def _summary(movement: Movement) -> str:

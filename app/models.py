@@ -21,6 +21,7 @@ class ConversationState(StrEnum):
     ESPERANDO_CONFIRMACION_INICIO_REPARTO = "esperando_confirmacion_inicio_reparto"
     ESPERANDO_CONFIRMACION_CREAR_REPARTO = "esperando_confirmacion_crear_reparto"
     ESPERANDO_CUENTA_BANCARIA = "esperando_cuenta_bancaria"
+    ESPERANDO_NUMERO_REPARTO_NUEVO = "esperando_numero_reparto_nuevo"
 
 
 class TipoIdentificador(StrEnum):
@@ -145,7 +146,7 @@ class Reparto(Base):
     fecha: Mapped[date] = mapped_column(Date)
     hora_inicio: Mapped[datetime] = mapped_column(DateTime)
     hora_fin: Mapped[datetime | None] = mapped_column(DateTime)
-    numero_reparto: Mapped[int | None] = mapped_column(Integer)
+    numero_reparto: Mapped[int] = mapped_column(Integer)
     comentarios: Mapped[str | None] = mapped_column(String(500))
     creado_en: Mapped[datetime] = mapped_column(DateTime, default=ahora_argentina)
 

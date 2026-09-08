@@ -861,13 +861,63 @@ def test_confirmacion_pide_movil_si_operador_no_tiene_asignado():
     assert "No hay ningun reparto abierto en el movil M-01" in respuesta_movil
     assert db.query(Movement).one().estado_registro == RecordState.PENDIENTE_CONFIRMACION
 
-    respuesta_final = service.handle_text("5491112345678", "SI")
+    respuesta_numero = service.handle_text("5491112345678", "SI")
+    assert "Que numero de reparto es" in respuesta_numero
 
-    assert respuesta_final == "Comprobante registrado correctamente. Se inicio un reparto nuevo en el movil M-01."
+    respuesta_final = service.handle_text("5491112345678", "8")
+
+    assert respuesta_final == "Comprobante registrado correctamente. Se inicio el Reparto Nº 8 en el movil M-01."
     movement = db.query(Movement).one()
     assert movement.estado_registro == RecordState.CONFIRMADO
     assert movement.movil_id == 1
     assert db.get(Operator, 1).movil_id == 1
+    assert db.query(Reparto).one().numero_reparto == 8
+
+
+def test_numero_de_reparto_nuevo_invalido_vuelve_a_pedir():
+    db = session()
+    db.add(Operator(nombre="Ana", whatsapp_numero="5491112345678"))
+    _con_cuenta_registrada(db)
+    db.add(Movil(numero="M-01", nombre="Camion 1", responsable_operador_id=1))
+    db.commit()
+    service = ConversationService(db)
+    transfer = ExtractedTransfer(Decimal("500"), datetime(2026, 8, 21), "OP-1", cuenta_receptora="empresa.mp")
+    service.start_transfer("5491112345678", transfer)
+    service.handle_text("5491112345678", "factura")
+    service.handle_text("5491112345678", "FAC-9")
+    service.handle_text("5491112345678", "OK")
+    service.handle_text("5491112345678", "M-01")
+    service.handle_text("5491112345678", "SI")
+
+    respuesta = service.handle_text("5491112345678", "ocho")
+
+    assert "no es un numero de reparto valido" in respuesta
+    assert db.query(Reparto).count() == 0
+
+    respuesta_ok = service.handle_text("5491112345678", "8")
+    assert respuesta_ok == "Comprobante registrado correctamente. Se inicio el Reparto Nº 8 en el movil M-01."
+
+
+def test_numero_de_reparto_nuevo_se_puede_cancelar():
+    db = session()
+    db.add(Operator(nombre="Ana", whatsapp_numero="5491112345678"))
+    _con_cuenta_registrada(db)
+    db.add(Movil(numero="M-01", nombre="Camion 1", responsable_operador_id=1))
+    db.commit()
+    service = ConversationService(db)
+    transfer = ExtractedTransfer(Decimal("500"), datetime(2026, 8, 21), "OP-1", cuenta_receptora="empresa.mp")
+    service.start_transfer("5491112345678", transfer)
+    service.handle_text("5491112345678", "factura")
+    service.handle_text("5491112345678", "FAC-9")
+    service.handle_text("5491112345678", "OK")
+    service.handle_text("5491112345678", "M-01")
+    service.handle_text("5491112345678", "SI")
+
+    respuesta = service.handle_text("5491112345678", "cancelar")
+
+    assert "Registro descartado" in respuesta
+    assert db.query(Reparto).count() == 0
+    assert db.query(Movement).count() == 0
 
 
 def test_confirmacion_no_iniciar_reparto_nuevo_vuelve_a_pedir_movil():
