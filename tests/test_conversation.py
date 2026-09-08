@@ -796,6 +796,32 @@ def test_cerrar_reparto_notifica_a_los_demas_operadores_asociados():
     assert notificaciones == [("5491112345678", "La Salida Nº 7 en el movil M-01 fue cerrada por Beto.")]
 
 
+def test_cerrar_reparto_encola_pdf_de_resumen_para_cada_asociado():
+    db = session()
+    db.add_all(
+        [
+            Operator(nombre="Ana", whatsapp_numero="5491112345678", telegram_chat_id="111"),
+            Operator(nombre="Beto", whatsapp_numero="5491100000000", telegram_chat_id="222"),
+        ]
+    )
+    db.commit()
+    db.add(Movil(numero="M-01", nombre="Camion 1", responsable_operador_id=1))
+    db.commit()
+    service = ConversationService(db)
+    service.handle_text("5491112345678", "inicio movil M-01 reparto nro 7")
+    service.handle_text("5491112345678", "SI")
+    service.handle_text("5491100000000", "inicio movil M-01 reparto nro 7")  # Beto se asocia
+
+    service.handle_text("5491100000000", "cerrar")
+
+    documentos = service.pop_documentos()
+    numeros = {numero for numero, _, _ in documentos}
+    assert numeros == {"5491112345678", "5491100000000"}
+    for _, nombre_archivo, contenido in documentos:
+        assert nombre_archivo == "salida_7_M-01.pdf"
+        assert contenido[:4] == b"%PDF"
+
+
 def test_cerrar_reparto_sin_otros_asociados_no_genera_notificaciones():
     db = session()
     db.add(Operator(nombre="Ana", whatsapp_numero="5491112345678"))

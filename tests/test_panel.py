@@ -721,6 +721,79 @@ def test_repartos_listado_y_filtro_por_movil():
     assert "M-01" not in filas_filtradas
 
 
+def test_repartos_solo_muestra_boton_pdf_en_cerradas():
+    client, test_session = _client_with_admin()
+    with test_session() as session:
+        session.add(Operator(nombre="Ana", whatsapp_numero="111"))
+        session.commit()
+        session.add(Movil(numero="M-01", nombre="Camion 1", responsable_operador_id=1))
+        session.commit()
+        session.add_all(
+            [
+                Reparto(movil_id=1, fecha=date(2026, 8, 24), hora_inicio=datetime(2026, 8, 24, 8, 0), numero_reparto=1),
+                Reparto(
+                    movil_id=1,
+                    fecha=date(2026, 8, 24),
+                    hora_inicio=datetime(2026, 8, 24, 14, 0),
+                    hora_fin=datetime(2026, 8, 24, 18, 0),
+                    numero_reparto=2,
+                ),
+            ]
+        )
+        session.commit()
+
+    client.post("/login", data={"email": "admin@concilia.test", "password": "secreta123"})
+    response = client.get("/repartos")
+
+    assert response.status_code == 200
+    assert '/repartos/1/pdf' not in response.text  # abierta: sin boton
+    assert '/repartos/2/pdf' in response.text  # cerrada: con boton
+
+
+def test_descargar_resumen_reparto_devuelve_pdf_solo_si_esta_cerrado():
+    client, test_session = _client_with_admin()
+    with test_session() as session:
+        session.add(Operator(nombre="Ana", whatsapp_numero="111"))
+        session.commit()
+        session.add(Movil(numero="M-01", nombre="Camion 1", responsable_operador_id=1))
+        session.commit()
+        session.add_all(
+            [
+                Reparto(movil_id=1, fecha=date(2026, 8, 24), hora_inicio=datetime(2026, 8, 24, 8, 0), numero_reparto=1),
+                Reparto(
+                    movil_id=1,
+                    fecha=date(2026, 8, 24),
+                    hora_inicio=datetime(2026, 8, 24, 14, 0),
+                    hora_fin=datetime(2026, 8, 24, 18, 0),
+                    numero_reparto=2,
+                ),
+            ]
+        )
+        session.commit()
+        session.add(
+            Movement(
+                operador_id=1,
+                monto=Decimal("500"),
+                fecha_transaccion=datetime(2026, 8, 24),
+                numero_operacion="OP-1",
+                estado_registro=RecordState.CONFIRMADO,
+                movil_id=1,
+                reparto_id=2,
+            )
+        )
+        session.commit()
+
+    client.post("/login", data={"email": "admin@concilia.test", "password": "secreta123"})
+
+    abierta = client.get("/repartos/1/pdf", follow_redirects=False)
+    assert abierta.status_code == 303  # no se puede descargar una salida abierta
+
+    cerrada = client.get("/repartos/2/pdf")
+    assert cerrada.status_code == 200
+    assert cerrada.headers["content-type"] == "application/pdf"
+    assert cerrada.content[:4] == b"%PDF"
+
+
 def test_repartos_muestra_cantidad_de_comprobantes():
     client, test_session = _client_with_admin()
     with test_session() as session:

@@ -20,6 +20,7 @@ from .models import (
     WhatsAppConversation,
 )
 from .repartos import CerrarRepartoComando, IniciarRepartoComando, parse_comando_reparto
+from .reportes import generar_resumen_salida_pdf
 from .zona_horaria import ahora_argentina, hoy_argentina
 
 NO_CUENTA_RECEPTORA_TEXTO = (
@@ -99,11 +100,20 @@ class ConversationService:
         # canal (telegram.py) los consume con pop_notificaciones() despues de
         # cada handle_text() y les manda el mensaje aparte.
         self._notificaciones: list[tuple[str, str]] = []
+        # (numero_whatsapp, nombre_archivo, contenido_pdf) con el resumen de una
+        # salida recien cerrada, para cada operador asociado. Mismo patron que
+        # _notificaciones pero para el envio de un documento en vez de texto.
+        self._documentos: list[tuple[str, str, bytes]] = []
 
     def pop_notificaciones(self) -> list[tuple[str, str]]:
         notificaciones = self._notificaciones
         self._notificaciones = []
         return notificaciones
+
+    def pop_documentos(self) -> list[tuple[str, str, bytes]]:
+        documentos = self._documentos
+        self._documentos = []
+        return documentos
 
     def handle_text(self, number: str, text: str) -> str:
         operator = self.session.scalar(select(Operator).where(Operator.whatsapp_numero == number, Operator.activo.is_(True)))
@@ -682,6 +692,23 @@ class ConversationService:
             if operador is not None:
                 self._notificaciones.append((operador.whatsapp_numero, mensaje))
 
+    def _encolar_resumen_pdf(self, reparto: Reparto) -> None:
+        """Genera el PDF de resumen de la salida cerrada y lo encola para cada
+        operador asociado -- mismo canal de consumo que _notificaciones."""
+        movimientos = self.session.scalars(
+            select(Movement).where(Movement.reparto_id == reparto.id).order_by(Movement.fecha_transaccion)
+        ).all()
+        asociados = self.session.scalars(
+            select(RepartoOperador).where(RepartoOperador.reparto_id == reparto.id)
+        ).all()
+        operadores = [self.session.get(Operator, asociado.operador_id) for asociado in asociados]
+        operadores = [operador for operador in operadores if operador is not None]
+        pdf_bytes = generar_resumen_salida_pdf(reparto, movimientos, operadores)
+        numero = reparto.numero_reparto if reparto.numero_reparto is not None else "sin_numero"
+        nombre_archivo = f"salida_{numero}_{reparto.movil.numero}.pdf"
+        for operador in operadores:
+            self._documentos.append((operador.whatsapp_numero, nombre_archivo, pdf_bytes))
+
     def _cerrar_reparto(self, operator: Operator, comando: CerrarRepartoComando) -> str:
         reparto_abierto = self._reparto_abierto_de_operador(operator.id)
         if reparto_abierto is None:
@@ -695,9 +722,10 @@ class ConversationService:
         # Cierra para todos los operadores asociados, no solo para quien manda el comando.
         reparto_abierto.hora_fin = ahora_argentina()
         self._notificar_cierre_reparto(reparto_abierto, operator)
+        self._encolar_resumen_pdf(reparto_abierto)
         self.session.commit()
         etiqueta_numero = numero_real if numero_real is not None else "sin numero"
-        return f"Salida Nº {etiqueta_numero} cerrada."
+        return f"Salida Nº {etiqueta_numero} cerrada. Te mando el resumen en PDF."
 
     def _crear_reparto_y_confirmar_comprobante(
         self, operator: Operator, conversation: WhatsAppConversation, numero_reparto: int

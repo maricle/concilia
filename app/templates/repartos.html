@@ -50,6 +50,7 @@
             <th>Hora fin</th>
             <th>Estado</th>
             <th class="num">Comprobantes</th>
+            <th></th>
           </tr>
         </thead>
         <tbody>
@@ -68,9 +69,14 @@
               {% endif %}
             </td>
             <td class="num">{{ conteos_comprobantes.get(reparto.id, 0) }}</td>
+            <td>
+              {% if reparto.hora_fin %}
+              <a href="/repartos/{{ reparto.id }}/pdf" class="btn btn-sm btn-outline-secondary" title="Descargar resumen PDF"><i class="fas fa-file-pdf"></i></a>
+              {% endif %}
+            </td>
           </tr>
           {% else %}
-          <tr><td colspan="7">Todavia no hay salidas registradas.</td></tr>
+          <tr><td colspan="8">Todavia no hay salidas registradas.</td></tr>
           {% endfor %}
         </tbody>
       </table>

@@ -359,17 +359,24 @@ def test_cerrar_reparto_notifica_al_otro_operador_asociado(monkeypatch):
         service.handle_text("777002", "inicio movil M-TEST-CIERRE reparto nro 42")
 
     sent: list[tuple[str, str]] = []
+    sent_documentos: list[tuple[str, str]] = []
 
     async def fake_send(chat_id: str, text: str, reply_markup: dict | None = None) -> None:
         sent.append((chat_id, text))
 
+    async def fake_send_document(chat_id: str, filename: str, contenido: bytes) -> None:
+        sent_documentos.append((chat_id, filename))
+
     monkeypatch.setattr(telegram, "send_telegram_message", fake_send)
+    monkeypatch.setattr(telegram, "send_telegram_document", fake_send_document)
 
     response = client.post("/telegram/webhook", json={"message": {"chat": {"id": 777002}, "text": "cerrar"}})
 
     assert response.status_code == 200
-    assert ("777002", "Salida Nº 42 cerrada.") in sent
+    assert ("777002", "Salida Nº 42 cerrada. Te mando el resumen en PDF.") in sent
     assert ("777001", "La Salida Nº 42 en el movil M-TEST-CIERRE fue cerrada por Test.") in sent
+    assert ("777001", "salida_42_M-TEST-CIERRE.pdf") in sent_documentos
+    assert ("777002", "salida_42_M-TEST-CIERRE.pdf") in sent_documentos
 
     _clean_movil("M-TEST-CIERRE")
     _clean_operator(whatsapp_numero="777001")

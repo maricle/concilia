@@ -24,11 +24,13 @@ from .models import (
     ReconciliationState,
     RecordState,
     Reparto,
+    RepartoOperador,
     StatementLine,
     StatementLineState,
     TipoIdentificador,
 )
 from .reconciliation import StatementParseError, match_statement, parse_statement_file
+from .reportes import generar_resumen_salida_pdf
 from .storage import get_comprobante_archivo
 from .zona_horaria import hoy_argentina
 
@@ -960,6 +962,36 @@ def list_repartos(
             "fecha_desde": fecha_desde,
             "fecha_hasta": fecha_hasta,
         },
+    )
+
+
+@router.get("/repartos/{reparto_id}/pdf")
+def descargar_resumen_reparto(
+    reparto_id: int, request: Request, db: Session = Depends(get_db), user: PanelUser = Depends(require_user)
+):
+    reparto = db.get(Reparto, reparto_id)
+    if reparto is None or reparto.hora_fin is None:
+        return RedirectResponse("/repartos", status_code=303)
+
+    movimientos = db.scalars(
+        select(Movement)
+        .where(Movement.reparto_id == reparto_id)
+        .options(selectinload(Movement.cuenta_bancaria), selectinload(Movement.operador))
+        .order_by(Movement.fecha_transaccion)
+    ).all()
+    operadores = db.scalars(
+        select(Operator)
+        .join(RepartoOperador, RepartoOperador.operador_id == Operator.id)
+        .where(RepartoOperador.reparto_id == reparto_id)
+    ).all()
+
+    pdf_bytes = generar_resumen_salida_pdf(reparto, movimientos, operadores)
+    numero = reparto.numero_reparto if reparto.numero_reparto is not None else "sin_numero"
+    nombre_archivo = f"salida_{numero}_{reparto.movil.numero}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{nombre_archivo}"'},
     )
 
 
