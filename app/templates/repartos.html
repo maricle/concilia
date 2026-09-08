@@ -39,48 +39,64 @@
     <h6 class="m-0 font-weight-bold text-primary">Salidas por dia</h6>
   </div>
   <div class="card-body">
-    <div class="table-responsive">
-      <table class="table table-bordered table-sm small mb-0" width="100%" cellspacing="0">
-        <thead>
-          <tr>
-            <th>Fecha</th>
-            <th>Movil</th>
-            <th>Nro. Salida</th>
-            <th>Hora inicio</th>
-            <th>Hora fin</th>
-            <th>Estado</th>
-            <th class="num">Comprobantes</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for reparto in repartos %}
-          <tr>
-            <td>{{ reparto.fecha.strftime("%Y-%m-%d") }}</td>
-            <td>{{ reparto.movil.numero }} - {{ reparto.movil.nombre }}</td>
-            <td>{{ reparto.numero_reparto if reparto.numero_reparto is not none else "-" }}</td>
-            <td>{{ reparto.hora_inicio.strftime("%H:%M") }}</td>
-            <td>{{ reparto.hora_fin.strftime("%H:%M") if reparto.hora_fin else "-" }}</td>
-            <td>
-              {% if reparto.hora_fin %}
-              <span class="badge-pill-estado badge-pill-conciliado">Cerrada</span>
-              {% else %}
-              <span class="badge-pill-estado badge-pill-pendiente">Abierta</span>
-              {% endif %}
-            </td>
-            <td class="num">{{ conteos_comprobantes.get(reparto.id, 0) }}</td>
-            <td>
-              {% if reparto.hora_fin %}
-              <a href="/repartos/{{ reparto.id }}/pdf" class="btn btn-sm btn-outline-secondary" title="Descargar resumen PDF"><i class="fas fa-file-pdf"></i></a>
-              {% endif %}
-            </td>
-          </tr>
-          {% else %}
-          <tr><td colspan="8">Todavia no hay salidas registradas.</td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
+    <form method="post" action="/repartos/pdf">
+      <div class="table-responsive">
+        <table class="table table-bordered table-sm small mb-0" width="100%" cellspacing="0">
+          <thead>
+            <tr>
+              <th><input type="checkbox" id="marcar-todas" title="Marcar todas las cerradas"></th>
+              <th>Fecha</th>
+              <th>Movil</th>
+              <th>Nro. Salida</th>
+              <th>Hora inicio</th>
+              <th>Hora fin</th>
+              <th>Estado</th>
+              <th class="num">Comprobantes</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for reparto in repartos %}
+            <tr>
+              <td>
+                {% if reparto.hora_fin %}
+                <input type="checkbox" name="reparto_ids" value="{{ reparto.id }}" class="chk-salida-cerrada">
+                {% endif %}
+              </td>
+              <td>{{ reparto.fecha.strftime("%Y-%m-%d") }}</td>
+              <td>{{ reparto.movil.numero }} - {{ reparto.movil.nombre }}</td>
+              <td>{{ reparto.numero_reparto if reparto.numero_reparto is not none else "-" }}</td>
+              <td>{{ reparto.hora_inicio.strftime("%H:%M") }}</td>
+              <td>{{ reparto.hora_fin.strftime("%H:%M") if reparto.hora_fin else "-" }}</td>
+              <td>
+                {% if reparto.hora_fin %}
+                <span class="badge-pill-estado badge-pill-conciliado">Cerrada</span>
+                {% else %}
+                <span class="badge-pill-estado badge-pill-pendiente">Abierta</span>
+                {% endif %}
+              </td>
+              <td class="num">{{ conteos_comprobantes.get(reparto.id, 0) }}</td>
+              <td>
+                {% if reparto.hora_fin %}
+                <a href="/repartos/{{ reparto.id }}/pdf" class="btn btn-sm btn-outline-secondary" title="Descargar resumen PDF"><i class="fas fa-file-pdf"></i></a>
+                {% endif %}
+              </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="9">Todavia no hay salidas registradas.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <button type="submit" class="btn btn-outline-secondary mt-3"><i class="fas fa-file-pdf mr-1"></i>Descargar resumenes seleccionados</button>
+    </form>
   </div>
 </div>
+<script>
+  document.getElementById("marcar-todas").addEventListener("change", function () {
+    document.querySelectorAll(".chk-salida-cerrada").forEach(function (chk) {
+      chk.checked = this.checked;
+    }, this);
+  });
+</script>
 {% endblock %}

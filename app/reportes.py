@@ -6,9 +6,14 @@ from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import cm
-from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 from .models import Movement, Operator, Reparto
+
+_styles = getSampleStyleSheet()
+_TITULO_STYLE = ParagraphStyle("TituloSalida", parent=_styles["Heading1"], fontSize=16, spaceAfter=6)
+_SUBTITULO_STYLE = ParagraphStyle("SubtituloSalida", parent=_styles["Heading2"], fontSize=12, spaceAfter=6)
+_NORMAL_STYLE = _styles["Normal"]
 
 
 def _formato_monto(monto: Decimal | None) -> str:
@@ -21,38 +26,22 @@ def _formato_fecha_hora(valor) -> str:
     return valor.strftime("%Y-%m-%d %H:%M") if valor else "-"
 
 
-def generar_resumen_salida_pdf(reparto: Reparto, movimientos: list[Movement], operadores: list[Operator]) -> bytes:
-    """Arma un PDF con los datos de la salida, el detalle de comprobantes
-    registrados durante ella y un desglose de totales por cuenta bancaria."""
-    buffer = io.BytesIO()
-    doc = SimpleDocTemplate(
-        buffer,
-        pagesize=A4,
-        topMargin=1.5 * cm,
-        bottomMargin=1.5 * cm,
-        leftMargin=1.5 * cm,
-        rightMargin=1.5 * cm,
-    )
-    styles = getSampleStyleSheet()
-    titulo_style = ParagraphStyle("TituloSalida", parent=styles["Heading1"], fontSize=16, spaceAfter=6)
-    subtitulo_style = ParagraphStyle("SubtituloSalida", parent=styles["Heading2"], fontSize=12, spaceAfter=6)
-    normal_style = styles["Normal"]
-
+def _elementos_resumen_salida(reparto: Reparto, movimientos: list[Movement], operadores: list[Operator]) -> list:
     numero = reparto.numero_reparto if reparto.numero_reparto is not None else "sin numero"
     elementos = [
-        Paragraph(f"Resumen de Salida Nº {numero}", titulo_style),
-        Paragraph(f"Movil: {reparto.movil.numero} - {reparto.movil.nombre}", normal_style),
-        Paragraph(f"Fecha: {reparto.fecha.strftime('%Y-%m-%d')}", normal_style),
-        Paragraph(f"Hora inicio: {_formato_fecha_hora(reparto.hora_inicio)}", normal_style),
-        Paragraph(f"Hora fin: {_formato_fecha_hora(reparto.hora_fin)}", normal_style),
+        Paragraph(f"Resumen de Salida Nº {numero}", _TITULO_STYLE),
+        Paragraph(f"Movil: {reparto.movil.numero} - {reparto.movil.nombre}", _NORMAL_STYLE),
+        Paragraph(f"Fecha: {reparto.fecha.strftime('%Y-%m-%d')}", _NORMAL_STYLE),
+        Paragraph(f"Hora inicio: {_formato_fecha_hora(reparto.hora_inicio)}", _NORMAL_STYLE),
+        Paragraph(f"Hora fin: {_formato_fecha_hora(reparto.hora_fin)}", _NORMAL_STYLE),
         Paragraph(
             "Operadores: " + (", ".join(operador.nombre for operador in operadores) or "-"),
-            normal_style,
+            _NORMAL_STYLE,
         ),
         Spacer(1, 0.5 * cm),
     ]
 
-    elementos.append(Paragraph("Comprobantes registrados", subtitulo_style))
+    elementos.append(Paragraph("Comprobantes registrados", _SUBTITULO_STYLE))
     encabezado = ["Fecha transaccion", "Banco", "Factura/Cuenta", "N. operacion", "Vendedor", "Monto"]
     filas = [encabezado]
     total_general = Decimal("0")
@@ -87,10 +76,10 @@ def generar_resumen_salida_pdf(reparto: Reparto, movimientos: list[Movement], op
     )
     elementos.append(tabla)
     elementos.append(Spacer(1, 0.3 * cm))
-    elementos.append(Paragraph(f"Total general: {_formato_monto(total_general)}", subtitulo_style))
+    elementos.append(Paragraph(f"Total general: {_formato_monto(total_general)}", _SUBTITULO_STYLE))
     elementos.append(Spacer(1, 0.5 * cm))
 
-    elementos.append(Paragraph("Desglose por cuenta bancaria", subtitulo_style))
+    elementos.append(Paragraph("Desglose por cuenta bancaria", _SUBTITULO_STYLE))
     subtotales: dict[str, Decimal] = defaultdict(Decimal)
     for movimiento in movimientos:
         banco = movimiento.cuenta_bancaria.banco if movimiento.cuenta_bancaria else "Sin banco"
@@ -113,6 +102,38 @@ def generar_resumen_salida_pdf(reparto: Reparto, movimientos: list[Movement], op
         )
     )
     elementos.append(tabla_bancos)
+    return elementos
 
+
+def _construir_pdf(elementos: list) -> bytes:
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        topMargin=1.5 * cm,
+        bottomMargin=1.5 * cm,
+        leftMargin=1.5 * cm,
+        rightMargin=1.5 * cm,
+    )
     doc.build(elementos)
     return buffer.getvalue()
+
+
+def generar_resumen_salida_pdf(reparto: Reparto, movimientos: list[Movement], operadores: list[Operator]) -> bytes:
+    """Arma un PDF con los datos de la salida, el detalle de comprobantes
+    registrados durante ella y un desglose de totales por cuenta bancaria."""
+    return _construir_pdf(_elementos_resumen_salida(reparto, movimientos, operadores))
+
+
+def generar_resumen_salidas_pdf(
+    items: list[tuple[Reparto, list[Movement], list[Operator]]],
+) -> bytes:
+    """Igual que generar_resumen_salida_pdf pero para varias salidas juntas en un
+    solo PDF -- una salida por pagina, para descargar el resumen de varias de
+    una sola vez desde el listado de /repartos."""
+    elementos: list = []
+    for indice, (reparto, movimientos, operadores) in enumerate(items):
+        if indice > 0:
+            elementos.append(PageBreak())
+        elementos.extend(_elementos_resumen_salida(reparto, movimientos, operadores))
+    return _construir_pdf(elementos)

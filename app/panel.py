@@ -30,7 +30,7 @@ from .models import (
     TipoIdentificador,
 )
 from .reconciliation import StatementParseError, match_statement, parse_statement_file
-from .reportes import generar_resumen_salida_pdf
+from .reportes import generar_resumen_salida_pdf, generar_resumen_salidas_pdf
 from .storage import get_comprobante_archivo
 from .zona_horaria import hoy_argentina
 
@@ -965,14 +965,7 @@ def list_repartos(
     )
 
 
-@router.get("/repartos/{reparto_id}/pdf")
-def descargar_resumen_reparto(
-    reparto_id: int, request: Request, db: Session = Depends(get_db), user: PanelUser = Depends(require_user)
-):
-    reparto = db.get(Reparto, reparto_id)
-    if reparto is None or reparto.hora_fin is None:
-        return RedirectResponse("/repartos", status_code=303)
-
+def _movimientos_y_operadores_de_reparto(db: Session, reparto_id: int) -> tuple[list[Movement], list[Operator]]:
     movimientos = db.scalars(
         select(Movement)
         .where(Movement.reparto_id == reparto_id)
@@ -984,6 +977,18 @@ def descargar_resumen_reparto(
         .join(RepartoOperador, RepartoOperador.operador_id == Operator.id)
         .where(RepartoOperador.reparto_id == reparto_id)
     ).all()
+    return movimientos, operadores
+
+
+@router.get("/repartos/{reparto_id}/pdf")
+def descargar_resumen_reparto(
+    reparto_id: int, request: Request, db: Session = Depends(get_db), user: PanelUser = Depends(require_user)
+):
+    reparto = db.get(Reparto, reparto_id)
+    if reparto is None or reparto.hora_fin is None:
+        return RedirectResponse("/repartos", status_code=303)
+
+    movimientos, operadores = _movimientos_y_operadores_de_reparto(db, reparto_id)
 
     pdf_bytes = generar_resumen_salida_pdf(reparto, movimientos, operadores)
     numero = reparto.numero_reparto if reparto.numero_reparto is not None else "sin_numero"
@@ -992,6 +997,35 @@ def descargar_resumen_reparto(
         content=pdf_bytes,
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{nombre_archivo}"'},
+    )
+
+
+@router.post("/repartos/pdf")
+def descargar_resumen_repartos(
+    request: Request,
+    reparto_ids: list[int] = Form(default=[]),
+    db: Session = Depends(get_db),
+    user: PanelUser = Depends(require_user),
+):
+    if not reparto_ids:
+        return RedirectResponse("/repartos", status_code=303)
+
+    repartos = db.scalars(
+        select(Reparto)
+        .where(Reparto.id.in_(reparto_ids), Reparto.hora_fin.isnot(None))
+        .options(selectinload(Reparto.movil))
+        .order_by(Reparto.fecha, Reparto.movil_id, Reparto.hora_inicio)
+    ).all()
+    if not repartos:
+        return RedirectResponse("/repartos", status_code=303)
+
+    items = [(reparto, *_movimientos_y_operadores_de_reparto(db, reparto.id)) for reparto in repartos]
+
+    pdf_bytes = generar_resumen_salidas_pdf(items)
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": 'attachment; filename="resumen_salidas.pdf"'},
     )
 
 

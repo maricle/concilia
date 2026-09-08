@@ -794,6 +794,55 @@ def test_descargar_resumen_reparto_devuelve_pdf_solo_si_esta_cerrado():
     assert cerrada.content[:4] == b"%PDF"
 
 
+def test_descargar_resumen_de_varios_repartos_seleccionados():
+    client, test_session = _client_with_admin()
+    with test_session() as session:
+        session.add(Operator(nombre="Ana", whatsapp_numero="111"))
+        session.commit()
+        session.add(Movil(numero="M-01", nombre="Camion 1", responsable_operador_id=1))
+        session.commit()
+        session.add_all(
+            [
+                Reparto(movil_id=1, fecha=date(2026, 8, 24), hora_inicio=datetime(2026, 8, 24, 8, 0), numero_reparto=1),
+                Reparto(
+                    movil_id=1,
+                    fecha=date(2026, 8, 24),
+                    hora_inicio=datetime(2026, 8, 24, 14, 0),
+                    hora_fin=datetime(2026, 8, 24, 18, 0),
+                    numero_reparto=2,
+                ),
+                Reparto(
+                    movil_id=1,
+                    fecha=date(2026, 8, 25),
+                    hora_inicio=datetime(2026, 8, 25, 8, 0),
+                    hora_fin=datetime(2026, 8, 25, 18, 0),
+                    numero_reparto=3,
+                ),
+            ]
+        )
+        session.commit()
+
+    client.post("/login", data={"email": "admin@concilia.test", "password": "secreta123"})
+
+    listado = client.get("/repartos")
+    assert 'name="reparto_ids" value="1"' not in listado.text  # abierta: sin checkbox
+    assert 'name="reparto_ids" value="2"' in listado.text
+    assert 'name="reparto_ids" value="3"' in listado.text
+
+    respuesta = client.post("/repartos/pdf", data={"reparto_ids": ["2", "3"]})
+    assert respuesta.status_code == 200
+    assert respuesta.headers["content-type"] == "application/pdf"
+    assert respuesta.content[:4] == b"%PDF"
+
+
+def test_descargar_resumen_de_repartos_sin_seleccion_redirige():
+    client, _ = _client_with_admin()
+    client.post("/login", data={"email": "admin@concilia.test", "password": "secreta123"})
+
+    respuesta = client.post("/repartos/pdf", data={}, follow_redirects=False)
+    assert respuesta.status_code == 303
+
+
 def test_repartos_muestra_cantidad_de_comprobantes():
     client, test_session = _client_with_admin()
     with test_session() as session:
