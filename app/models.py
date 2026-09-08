@@ -6,6 +6,7 @@ from sqlalchemy import Date, DateTime, ForeignKey, Index, Integer, LargeBinary, 
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .db import Base
+from .zona_horaria import ahora_argentina
 
 
 class ConversationState(StrEnum):
@@ -54,7 +55,7 @@ class Operator(Base):
     telegram_chat_id: Mapped[str | None] = mapped_column(String(30), unique=True, index=True)
     tipo: Mapped[str] = mapped_column(String(50), default="Reparto")
     activo: Mapped[bool] = mapped_column(default=True)
-    fecha_alta: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    fecha_alta: Mapped[datetime] = mapped_column(DateTime, default=ahora_argentina)
     # use_alter rompe el FK circular operadores<->moviles al crear las tablas desde
     # cero (create_all() sobre una base nueva, como en los tests); en produccion no
     # afecta nada porque operadores ya existe y create_all() no la vuelve a tocar.
@@ -85,7 +86,7 @@ class Movement(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     operador_id: Mapped[int] = mapped_column(ForeignKey("operadores.id"))
     fecha_transaccion: Mapped[datetime | None] = mapped_column(DateTime)
-    fecha_subida: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    fecha_subida: Mapped[datetime] = mapped_column(DateTime, default=ahora_argentina)
     monto: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
     banco_emisor: Mapped[str | None] = mapped_column(String(120))
     cuenta_receptora_extraida: Mapped[str | None] = mapped_column(String(150))
@@ -123,7 +124,7 @@ class Movil(Base):
     descripcion: Mapped[str | None] = mapped_column(String(255))
     responsable_operador_id: Mapped[int | None] = mapped_column(ForeignKey("operadores.id"), index=True)
     activo: Mapped[bool] = mapped_column(default=True)
-    fecha_alta: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    fecha_alta: Mapped[datetime] = mapped_column(DateTime, default=ahora_argentina)
 
     responsable: Mapped["Operator | None"] = relationship(foreign_keys=[responsable_operador_id])
 
@@ -146,7 +147,7 @@ class Reparto(Base):
     hora_fin: Mapped[datetime | None] = mapped_column(DateTime)
     numero_reparto: Mapped[int | None] = mapped_column(Integer)
     comentarios: Mapped[str | None] = mapped_column(String(500))
-    creado_en: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    creado_en: Mapped[datetime] = mapped_column(DateTime, default=ahora_argentina)
 
     movil: Mapped[Movil] = relationship()
 
@@ -165,7 +166,7 @@ class RepartoOperador(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     reparto_id: Mapped[int] = mapped_column(ForeignKey("repartos.id"), index=True)
     operador_id: Mapped[int] = mapped_column(ForeignKey("operadores.id"), index=True)
-    asociado_en: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    asociado_en: Mapped[datetime] = mapped_column(DateTime, default=ahora_argentina)
 
     reparto: Mapped[Reparto] = relationship()
     operador: Mapped[Operator] = relationship()
@@ -182,7 +183,7 @@ class ComprobanteArchivo(Base):
     nombre_archivo: Mapped[str] = mapped_column(String(255))
     content_type: Mapped[str] = mapped_column(String(100))
     contenido: Mapped[bytes] = mapped_column(LargeBinary)
-    creado_en: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    creado_en: Mapped[datetime] = mapped_column(DateTime, default=ahora_argentina)
 
 
 class ImportedStatement(Base):
@@ -194,7 +195,7 @@ class ImportedStatement(Base):
     archivo_nombre: Mapped[str] = mapped_column(String(255))
     formato: Mapped[str] = mapped_column(String(10))
     usuario_id: Mapped[int] = mapped_column(ForeignKey("usuarios_panel.id"))
-    fecha_importacion: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    fecha_importacion: Mapped[datetime] = mapped_column(DateTime, default=ahora_argentina)
 
     cuenta_bancaria: Mapped[BankAccount] = relationship()
 
@@ -232,7 +233,7 @@ class WhatsAppConversation(Base):
     numero: Mapped[str] = mapped_column(String(30), primary_key=True)
     estado: Mapped[ConversationState] = mapped_column(default=ConversationState.ESPERANDO_COMPROBANTE)
     movimiento_borrador_id: Mapped[int | None] = mapped_column(ForeignKey("movimientos.id"))
-    actualizado_en: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    actualizado_en: Mapped[datetime] = mapped_column(DateTime, default=ahora_argentina, onupdate=ahora_argentina)
     # datos transitorios del comando "inicio movil X reparto nro Y" mientras se
     # espera la decision cerrar/continuar sobre un reparto ya abierto distinto.
     movil_pendiente_numero: Mapped[str | None] = mapped_column(String(30))

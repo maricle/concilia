@@ -6,6 +6,7 @@ import pytest
 
 from app import extraction
 from app.extraction import _build_tool, _es_numero_operacion_valido, _es_valor_valido, _has_minimum_fields, extract_transfer
+from app.zona_horaria import ahora_argentina
 
 
 @pytest.mark.parametrize(
@@ -146,9 +147,9 @@ def test_extract_transfer_registers_with_missing_fecha_and_numero_operacion(monk
     fake_client = _FakeAnthropic([resultado])  # una sola respuesta: no debe reintentar, ya tiene monto
     monkeypatch.setattr(extraction, "Anthropic", lambda api_key: fake_client)
 
-    antes = datetime.utcnow()
+    antes = ahora_argentina()
     transfer = extract_transfer("image/jpeg", b"fake-bytes")
-    despues = datetime.utcnow()
+    despues = ahora_argentina()
 
     assert transfer is not None
     assert transfer.monto == Decimal("500")

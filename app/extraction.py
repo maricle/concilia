@@ -9,6 +9,7 @@ from anthropic import Anthropic
 from .config import get_settings
 from .conversation import ExtractedTransfer
 from .numeros import parse_monto_ar
+from .zona_horaria import ahora_argentina
 
 HAIKU_MODEL = "claude-haiku-4-5-20251001"
 SONNET_MODEL = "claude-sonnet-5"
@@ -235,7 +236,7 @@ def _parse_fecha_o_actual(valor: object) -> datetime:
                 return datetime.strptime(valor.strip(), formato)
             except ValueError:
                 continue
-    return datetime.utcnow()
+    return ahora_argentina()
 
 
 def extract_transfer(content_type: str, data: bytes) -> ExtractedTransfer | None:

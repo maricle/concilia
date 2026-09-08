@@ -30,6 +30,7 @@ from .models import (
 )
 from .reconciliation import StatementParseError, match_statement, parse_statement_file
 from .storage import get_comprobante_archivo
+from .zona_horaria import hoy_argentina
 
 router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
@@ -594,7 +595,7 @@ def _actividad_ultimos_dias(db: Session, dias: int = 14) -> list[dict]:
     """Cantidad de comprobantes confirmados por dia (segun fecha_transaccion), para
     el sparkline de actividad. Es independiente de los filtros del formulario --
     siempre muestra el pulso general de los ultimos N dias, no el resultado filtrado."""
-    hoy = datetime.utcnow().date()
+    hoy = hoy_argentina()
     desde = hoy - timedelta(days=dias - 1)
     movimientos = db.scalars(
         select(Movement).where(
@@ -661,7 +662,7 @@ def resumen(
         # Sin filtro de fecha explicito, el Resumen arranca mostrando el mes en
         # curso (no todo el historico) -- fecha_hasta queda abierta para que
         # incluya lo que se cargue el resto del mes sin tener que recalcularla.
-        fecha_desde = datetime.utcnow().date().replace(day=1).strftime("%Y-%m-%d")
+        fecha_desde = hoy_argentina().replace(day=1).strftime("%Y-%m-%d")
 
     cuenta_id = int(cuenta_bancaria_id) if cuenta_bancaria_id else None
     movimientos = db.scalars(_resumen_query(vendedor, fecha_desde, fecha_hasta, cuenta_id)).all()

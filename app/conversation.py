@@ -1,7 +1,7 @@
 import logging
 import re
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import datetime
 from decimal import Decimal
 
 from sqlalchemy import select
@@ -20,6 +20,7 @@ from .models import (
     WhatsAppConversation,
 )
 from .repartos import CerrarRepartoComando, IniciarRepartoComando, parse_comando_reparto
+from .zona_horaria import ahora_argentina, hoy_argentina
 
 NO_CUENTA_RECEPTORA_TEXTO = (
     "No pudimos identificar a que cuenta bancaria de la empresa corresponde este pago. "
@@ -186,10 +187,7 @@ class ConversationService:
                 self._discard(conversation)
                 self.session.commit()
                 return "Registro descartado. Puedes reenviar el comprobante."
-            elegido = text.strip().lower()
-            cuenta = next(
-                (c for c in self.session.scalars(select(BankAccount)) if c.alias.strip().lower() == elegido), None
-            )
+            cuenta = self._buscar_cuenta_por_eleccion(text)
             if cuenta is None:
                 return "Esa no es una de las opciones. " + self._prompt_elegir_cuenta_bancaria()
             movement.cuenta_bancaria_id = cuenta.id
@@ -426,13 +424,28 @@ class ConversationService:
         return self._avanzar_a_tipo_factura_cuenta(conversation, movement)
 
     def _prompt_elegir_cuenta_bancaria(self) -> str:
-        aliases = [c.alias for c in self.session.scalars(select(BankAccount)).all()]
-        listado = "\n".join(f"- {alias}" for alias in aliases)
+        # Se lista el banco primero -- es lo que el operador reconoce del
+        # comprobante (Galicia, Mercado Pago, etc.), el alias interno a veces no
+        # tiene nada que ver con el banco (ej. "el.paquete.llega").
+        cuentas = self.session.scalars(select(BankAccount)).all()
+        listado = "\n".join(f"- {c.banco} ({c.alias})" for c in cuentas)
         return (
             "No pudimos identificar a que cuenta corresponde este pago. ¿A cual de estas pertenece?\n\n"
             f"{listado}\n\n"
-            "Respondé con el nombre de la cuenta, o 'cancelar' si no lo sabés."
+            "Respondé con el banco o el nombre de la cuenta, o 'cancelar' si no lo sabés."
         )
+
+    def _buscar_cuenta_por_eleccion(self, texto: str) -> BankAccount | None:
+        """Matchea la eleccion del operador contra el alias (valor estable que
+        manda el boton de Telegram) o, si tipeo texto libre, contra el nombre del
+        banco (lo que reconoce del comprobante, no el alias interno)."""
+        elegido = texto.strip().lower()
+        cuentas = self.session.scalars(select(BankAccount)).all()
+        for cuenta in cuentas:
+            if cuenta.alias.strip().lower() == elegido:
+                return cuenta
+        coincidencias = [c for c in cuentas if c.banco.strip().lower() == elegido]
+        return coincidencias[0] if len(coincidencias) == 1 else None
 
     def _avanzar_a_tipo_factura_cuenta(self, conversation: WhatsAppConversation, movement: Movement) -> str:
         conversation.estado = ConversationState.ESPERANDO_TIPO_FACTURA_CUENTA
@@ -600,7 +613,7 @@ class ConversationService:
             self.session.commit()
             return "El movil ya no esta disponible. Volve a mandar el comando de inicio."
 
-        reparto = Reparto(movil_id=movil.id, fecha=date.today(), hora_inicio=datetime.utcnow(), numero_reparto=numero_reparto)
+        reparto = Reparto(movil_id=movil.id, fecha=hoy_argentina(), hora_inicio=ahora_argentina(), numero_reparto=numero_reparto)
         self.session.add(reparto)
         self.session.flush()
         self._asociar_operador(reparto, operator)
@@ -610,7 +623,7 @@ class ConversationService:
     def _cerrar_y_arrancar_reparto_pendiente(self, operator: Operator, conversation: WhatsAppConversation) -> str:
         reparto_propio = self._reparto_abierto_de_operador(operator.id)
         if reparto_propio is not None:
-            reparto_propio.hora_fin = datetime.utcnow()
+            reparto_propio.hora_fin = ahora_argentina()
             self._notificar_cierre_reparto(reparto_propio, operator)
 
         movil = self._buscar_movil_activo(conversation.movil_pendiente_numero)
@@ -629,7 +642,7 @@ class ConversationService:
             return f"Reparto anterior cerrado. Te asociaste al Reparto Nº {numero_abierto} en el movil {movil.numero}."
 
         reparto_nuevo = Reparto(
-            movil_id=movil.id, fecha=date.today(), hora_inicio=datetime.utcnow(), numero_reparto=numero_reparto_nuevo
+            movil_id=movil.id, fecha=hoy_argentina(), hora_inicio=ahora_argentina(), numero_reparto=numero_reparto_nuevo
         )
         self.session.add(reparto_nuevo)
         self.session.flush()
@@ -664,7 +677,7 @@ class ConversationService:
                 "Reenvia el comando con el numero correcto."
             )
         # Cierra para todos los operadores asociados, no solo para quien manda el comando.
-        reparto_abierto.hora_fin = datetime.utcnow()
+        reparto_abierto.hora_fin = ahora_argentina()
         self._notificar_cierre_reparto(reparto_abierto, operator)
         self.session.commit()
         etiqueta_numero = numero_real if numero_real is not None else "sin numero"
@@ -685,7 +698,7 @@ class ConversationService:
             self.session.commit()
             return "Ese movil ya no esta disponible. ¿En que movil estas?"
 
-        reparto = Reparto(movil_id=movil.id, fecha=date.today(), hora_inicio=datetime.utcnow(), numero_reparto=None)
+        reparto = Reparto(movil_id=movil.id, fecha=hoy_argentina(), hora_inicio=ahora_argentina(), numero_reparto=None)
         self.session.add(reparto)
         self.session.flush()
         self._asociar_operador(reparto, operator)

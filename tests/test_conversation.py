@@ -156,6 +156,57 @@ def test_transfer_without_matching_cuenta_receptora_ofrece_elegir():
     assert db.query(Movement).one().cuenta_bancaria_id == 1
 
 
+def test_prompt_elegir_cuenta_bancaria_muestra_el_banco_no_solo_el_alias():
+    db = session()
+    db.add(Operator(nombre="Ana", whatsapp_numero="5491112345678"))
+    db.add(BankAccount(banco="Galicia", numero_cuenta="0070077120000014194391", alias="el.paquete.llega"))
+    db.commit()
+    service = ConversationService(db)
+
+    transfer = ExtractedTransfer(Decimal("500"), datetime(2026, 8, 21), "OP-1", cuenta_receptora="no.coincide")
+    response = service.start_transfer("5491112345678", transfer)
+
+    # el alias interno puede no decir nada del banco -- tiene que listarse el banco.
+    assert "Galicia (el.paquete.llega)" in response
+
+
+def test_eleccion_de_cuenta_bancaria_se_puede_elegir_por_nombre_del_banco():
+    db = session()
+    db.add(Operator(nombre="Ana", whatsapp_numero="5491112345678"))
+    db.add(BankAccount(banco="Galicia", numero_cuenta="0070077120000014194391", alias="el.paquete.llega"))
+    service = ConversationService(db)
+    transfer = ExtractedTransfer(Decimal("500"), datetime(2026, 8, 21), "OP-1", cuenta_receptora="no.coincide")
+    service.start_transfer("5491112345678", transfer)
+
+    respuesta = service.handle_text("5491112345678", "galicia")
+
+    assert "factura o un numero de cuenta" in respuesta
+    assert db.query(Movement).one().cuenta_bancaria_id == 1
+
+
+def test_eleccion_de_cuenta_bancaria_ambigua_por_banco_repetido_no_matchea():
+    db = session()
+    db.add(Operator(nombre="Ana", whatsapp_numero="5491112345678"))
+    db.add_all(
+        [
+            BankAccount(banco="Galicia", numero_cuenta="111", alias="galicia.pesos"),
+            BankAccount(banco="Galicia", numero_cuenta="222", alias="galicia.dolares"),
+        ]
+    )
+    service = ConversationService(db)
+    transfer = ExtractedTransfer(Decimal("500"), datetime(2026, 8, 21), "OP-1", cuenta_receptora="no.coincide")
+    service.start_transfer("5491112345678", transfer)
+
+    respuesta = service.handle_text("5491112345678", "galicia")
+
+    # hay dos cuentas de Galicia -- "galicia" solo no alcanza para elegir una.
+    assert "Esa no es una de las opciones" in respuesta
+    assert db.query(Movement).one().cuenta_bancaria_id is None
+
+    respuesta_ok = service.handle_text("5491112345678", "galicia.dolares")
+    assert "factura o un numero de cuenta" in respuesta_ok
+
+
 def test_eleccion_de_cuenta_bancaria_invalida_vuelve_a_pedir():
     db = session()
     db.add(Operator(nombre="Ana", whatsapp_numero="5491112345678"))

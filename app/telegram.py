@@ -41,9 +41,11 @@ NUMERO_VINCULADO_TEXTO = "Numero vinculado correctamente. Ya podes enviar tus co
 def _cuenta_bancaria_markup(session: Session) -> dict:
     """Un boton por cada cuenta cargada en /config/cuentas, mas uno de Cancelar --
     se arma dinamico porque a diferencia de SI/NO o Factura/Cuenta la cantidad de
-    opciones depende de cuantas cuentas tenga la empresa."""
+    opciones depende de cuantas cuentas tenga la empresa. El boton muestra el
+    banco (lo que el operador reconoce del comprobante), pero manda el alias como
+    callback_data porque es el valor estable que espera ConversationService."""
     cuentas = session.scalars(select(BankAccount)).all()
-    filas = [[{"text": cuenta.alias, "callback_data": cuenta.alias}] for cuenta in cuentas]
+    filas = [[{"text": cuenta.banco, "callback_data": cuenta.alias}] for cuenta in cuentas]
     filas.append([{"text": "Cancelar", "callback_data": "cancelar"}])
     return {"inline_keyboard": filas}
 

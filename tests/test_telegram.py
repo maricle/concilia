@@ -412,7 +412,7 @@ def test_cuenta_no_identificada_ofrece_botones_por_cada_cuenta_cargada(monkeypat
     assert chat_id == "333999"
     assert "No pudimos identificar a que cuenta corresponde este pago" in text
     botones = [boton for fila in reply_markup["inline_keyboard"] for boton in fila]
-    assert {"text": "empresa.mp", "callback_data": "empresa.mp"} in botones
+    assert {"text": "Mercado Pago", "callback_data": "empresa.mp"} in botones
     assert reply_markup["inline_keyboard"][-1] == [{"text": "Cancelar", "callback_data": "cancelar"}]
 
     _clean_movement("OP-CUENTA-DESCONOCIDA")
