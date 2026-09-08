@@ -658,13 +658,13 @@ def test_comprobantes_muestra_nro_de_reparto():
     response = client.get("/comprobantes")
 
     assert response.status_code == 200
-    assert "Nro. Reparto" in response.text
+    assert "Nro. Salida" in response.text
 
     export = client.get("/comprobantes/exportar")
     filas = list(csv.reader(export.content.decode("utf-8-sig").splitlines()))
     encabezado, fila = filas[0], filas[1]
-    assert encabezado[encabezado.index("Nro. Reparto")] == "Nro. Reparto"
-    assert fila[encabezado.index("Nro. Reparto")] == "5"
+    assert encabezado[encabezado.index("Nro. Salida")] == "Nro. Salida"
+    assert fila[encabezado.index("Nro. Salida")] == "5"
 
 
 def test_repartos_listado_y_filtro_por_movil():
@@ -711,8 +711,8 @@ def test_repartos_listado_y_filtro_por_movil():
 
     assert response.status_code == 200
     assert response.text.count("<tr>") - 1 == 3  # 3 filas de datos (sin contar el <tr> del thead)
-    assert "Abierto" in response.text
-    assert "Cerrado" in response.text
+    assert "Abierta" in response.text
+    assert "Cerrada" in response.text
 
     filtrado = client.get("/repartos", params={"movil_id": "2"})
     assert filtrado.status_code == 200

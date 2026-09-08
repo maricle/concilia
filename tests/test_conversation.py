@@ -329,12 +329,12 @@ def test_iniciar_reparto_asigna_movil_y_crea_reparto():
     service = ConversationService(db)
 
     respuesta = service.handle_text("5491112345678", "inicio movil M-01 reparto nro 5")
-    assert "Vas a iniciar el Reparto Nº 5 en el movil M-01" in respuesta
+    assert "Vas a iniciar la Salida Nº 5 en el movil M-01" in respuesta
     assert db.query(Reparto).count() == 0
 
     response = service.handle_text("5491112345678", "SI")
 
-    assert "Reparto Nº 5 iniciado" in response
+    assert "Salida Nº 5 iniciada" in response
     assert db.get(Operator, 1).movil_id == 1
     reparto = db.query(Reparto).one()
     assert reparto.movil_id == 1
@@ -361,7 +361,7 @@ def test_iniciar_reparto_se_asocia_directo_si_el_movil_ya_tiene_uno_abierto():
 
     # se asocia directo al reparto Nº 5 que ya estaba abierto, sin pedir confirmacion
     # y sin importar que Beto haya tipeado el numero 9.
-    assert respuesta == "Te asociaste al Reparto Nº 5 en el movil M-01."
+    assert respuesta == "Te asociaste a la Salida Nº 5 en el movil M-01."
     assert db.query(Reparto).count() == 1
     beto = db.scalar(select(Operator).where(Operator.whatsapp_numero == "5491100000000"))
     assert beto.movil_id == 1
@@ -382,7 +382,7 @@ def test_iniciar_reparto_ya_asociado_al_mismo_movil_solo_avisa():
 
     respuesta = service.handle_text("5491112345678", "inicio movil M-01 reparto nro 5")
 
-    assert respuesta == "Ya estas asociado al Reparto Nº 5 en el movil M-01."
+    assert respuesta == "Ya estas asociado a la Salida Nº 5 en el movil M-01."
     assert db.query(Reparto).count() == 1
 
 
@@ -404,7 +404,7 @@ def test_cerrar_reparto_lo_puede_cerrar_cualquier_operador_asociado():
 
     respuesta = service.handle_text("5491100000000", "cerrar reparto nro 5")
 
-    assert "Reparto Nº 5 cerrado" in respuesta
+    assert "Salida Nº 5 cerrada" in respuesta
     reparto = db.query(Reparto).one()
     assert reparto.hora_fin is not None
     # queda cerrado para los dos, no solo para quien lo cerro
@@ -425,7 +425,7 @@ def test_iniciar_reparto_confirmacion_no_cancela():
 
     respuesta = service.handle_text("5491112345678", "NO")
 
-    assert "Inicio de reparto cancelado" in respuesta
+    assert "Inicio de salida cancelado" in respuesta
     assert db.query(Reparto).count() == 0
     assert db.get(Operator, 1).movil_id is None
 
@@ -440,7 +440,7 @@ def test_iniciar_reparto_acepta_numero_de_movil_sin_prefijo_m():
 
     respuesta = service.handle_text("5491112345678", "inicio movil 1 reparto nro 5")
 
-    assert "Vas a iniciar el Reparto Nº 5 en el movil M-01" in respuesta
+    assert "Vas a iniciar la Salida Nº 5 en el movil M-01" in respuesta
     service.handle_text("5491112345678", "SI")
     assert db.query(Reparto).one().movil_id == 1
 
@@ -469,7 +469,7 @@ def test_iniciar_bare_con_reparto_ya_abierto_avisa_en_vez_de_pedir_datos():
 
     respuesta = service.handle_text("5491112345678", "iniciar")
 
-    assert "Ya tenes el Reparto Nº 5 iniciado en el movil M-01" in respuesta
+    assert "Ya tenes la Salida Nº 5 iniciada en el movil M-01" in respuesta
     # no debe haber entrado a pedir datos para un reparto nuevo
     assert db.get(WhatsAppConversation, "5491112345678").estado == ConversationState.ESPERANDO_COMPROBANTE
 
@@ -486,7 +486,7 @@ def test_iniciar_con_solo_movil_y_reparto_ya_abierto_avisa_en_vez_de_pedir_numer
 
     respuesta = service.handle_text("5491112345678", "iniciar movil M-01")
 
-    assert "Ya tenes el Reparto Nº 5 iniciado en el movil M-01" in respuesta
+    assert "Ya tenes la Salida Nº 5 iniciada en el movil M-01" in respuesta
 
 
 def test_iniciar_reparto_solo_palabra_clave_pide_movil_y_luego_numero():
@@ -501,14 +501,14 @@ def test_iniciar_reparto_solo_palabra_clave_pide_movil_y_luego_numero():
     assert "En que movil" in respuesta
 
     respuesta = service.handle_text("5491112345678", "M-01")
-    assert "numero de reparto" in respuesta
+    assert "numero de salida" in respuesta
 
     respuesta = service.handle_text("5491112345678", "5")
-    assert "Vas a iniciar el Reparto Nº 5 en el movil M-01" in respuesta
+    assert "Vas a iniciar la Salida Nº 5 en el movil M-01" in respuesta
     assert db.query(Reparto).count() == 0
 
     respuesta = service.handle_text("5491112345678", "SI")
-    assert "Reparto Nº 5 iniciado" in respuesta
+    assert "Salida Nº 5 iniciada" in respuesta
     reparto = db.query(Reparto).one()
     assert reparto.movil_id == 1
     assert reparto.numero_reparto == 5
@@ -523,13 +523,13 @@ def test_iniciar_reparto_con_iniciar_solo_falta_numero_de_reparto():
     service = ConversationService(db)
 
     respuesta = service.handle_text("5491112345678", "iniciar movil M-01")
-    assert "numero de reparto" in respuesta
+    assert "numero de salida" in respuesta
 
     respuesta = service.handle_text("5491112345678", "7")
-    assert "Vas a iniciar el Reparto Nº 7" in respuesta
+    assert "Vas a iniciar la Salida Nº 7" in respuesta
 
     respuesta = service.handle_text("5491112345678", "SI")
-    assert "Reparto Nº 7 iniciado" in respuesta
+    assert "Salida Nº 7 iniciada" in respuesta
     assert db.query(Reparto).one().numero_reparto == 7
 
 
@@ -545,10 +545,10 @@ def test_iniciar_reparto_solo_falta_movil():
     assert "En que movil" in respuesta
 
     respuesta = service.handle_text("5491112345678", "M-01")
-    assert "Vas a iniciar el Reparto Nº 3" in respuesta
+    assert "Vas a iniciar la Salida Nº 3" in respuesta
 
     respuesta = service.handle_text("5491112345678", "SI")
-    assert "Reparto Nº 3 iniciado" in respuesta
+    assert "Salida Nº 3 iniciada" in respuesta
     assert db.query(Reparto).one().numero_reparto == 3
 
 
@@ -561,10 +561,10 @@ def test_iniciar_reparto_orden_invertido_movil_y_reparto():
     service = ConversationService(db)
 
     respuesta = service.handle_text("5491112345678", "iniciar reparto nro 4 movil M-01")
-    assert "Vas a iniciar el Reparto Nº 4" in respuesta
+    assert "Vas a iniciar la Salida Nº 4" in respuesta
 
     respuesta = service.handle_text("5491112345678", "SI")
-    assert "Reparto Nº 4 iniciado" in respuesta
+    assert "Salida Nº 4 iniciada" in respuesta
     assert db.query(Reparto).one().numero_reparto == 4
 
 
@@ -579,14 +579,14 @@ def test_iniciar_reparto_numero_de_reparto_invalido_vuelve_a_pedir():
 
     respuesta = service.handle_text("5491112345678", "cinco")
 
-    assert "no es un numero de reparto valido" in respuesta
+    assert "no es un numero de salida valido" in respuesta
     assert db.query(Reparto).count() == 0
 
     respuesta_ok = service.handle_text("5491112345678", "5")
-    assert "Vas a iniciar el Reparto Nº 5" in respuesta_ok
+    assert "Vas a iniciar la Salida Nº 5" in respuesta_ok
 
     respuesta_final = service.handle_text("5491112345678", "SI")
-    assert "Reparto Nº 5 iniciado" in respuesta_final
+    assert "Salida Nº 5 iniciada" in respuesta_final
 
 
 def test_pending_prompt_reshows_dato_faltante_inicio_reparto():
@@ -616,7 +616,7 @@ def test_pending_prompt_reshows_confirmacion_inicio_reparto():
     prompt = service.pending_prompt("5491112345678")
 
     assert prompt is not None
-    assert "Vas a iniciar el Reparto Nº 5 en el movil M-01" in prompt
+    assert "Vas a iniciar la Salida Nº 5 en el movil M-01" in prompt
 
 
 def test_iniciar_reparto_con_reparto_abierto_pregunta_y_cierra():
@@ -636,13 +636,13 @@ def test_iniciar_reparto_con_reparto_abierto_pregunta_y_cierra():
     service.handle_text("5491112345678", "SI")
     respuesta = service.handle_text("5491112345678", "inicio movil M-02 reparto nro 2")
 
-    assert "Ya tenes un reparto abierto" in respuesta
+    assert "Ya tenes una salida abierta" in respuesta
     assert "Nº 1" in respuesta
     assert db.get(Operator, 1).movil_id == 1  # todavia no cambio
 
     respuesta_cerrar = service.handle_text("5491112345678", "cerrar")
 
-    assert "Reparto anterior cerrado" in respuesta_cerrar
+    assert "Salida anterior cerrada" in respuesta_cerrar
     assert "Nº 2" in respuesta_cerrar
     assert db.get(Operator, 1).movil_id == 2
     repartos = db.query(Reparto).order_by(Reparto.id).all()
@@ -679,7 +679,7 @@ def test_cerrar_y_arrancar_se_asocia_si_el_movil_nuevo_ya_tiene_reparto_abierto(
     service.handle_text("5491112345678", "inicio movil M-02 reparto nro 9")
     respuesta = service.handle_text("5491112345678", "cerrar")
 
-    assert respuesta == "Reparto anterior cerrado. Te asociaste al Reparto Nº 2 en el movil M-02."
+    assert respuesta == "Salida anterior cerrada. Te asociaste a la Salida Nº 2 en el movil M-02."
     assert db.query(Reparto).count() == 2  # no se creo un tercero
     reparto_m02 = db.query(Reparto).where(Reparto.movil_id == 2).one()
     asociados = db.scalars(select(RepartoOperador).where(RepartoOperador.reparto_id == reparto_m02.id)).all()
@@ -705,7 +705,7 @@ def test_iniciar_reparto_con_reparto_abierto_continuar_no_cambia_nada():
 
     respuesta = service.handle_text("5491112345678", "continuar")
 
-    assert "Seguis con el reparto" in respuesta
+    assert "Seguis con la salida" in respuesta
     assert db.get(Operator, 1).movil_id == 1
     assert db.query(Reparto).count() == 1
 
@@ -722,7 +722,7 @@ def test_cerrar_reparto_exitoso():
 
     respuesta = service.handle_text("5491112345678", "cerrar reparto nro 7")
 
-    assert "Reparto Nº 7 cerrado" in respuesta
+    assert "Salida Nº 7 cerrada" in respuesta
     assert db.query(Reparto).one().hora_fin is not None
 
 
@@ -738,7 +738,7 @@ def test_cerrar_reparto_con_numero_incorrecto_no_cierra():
 
     respuesta = service.handle_text("5491112345678", "cerrar reparto nro 9")
 
-    assert "no el 9" in respuesta
+    assert "no la 9" in respuesta
     assert "Nº 7" in respuesta
 
 
@@ -754,7 +754,7 @@ def test_cerrar_reparto_acepta_palabra_sola_sin_numero():
 
     respuesta = service.handle_text("5491112345678", "cerrar")
 
-    assert "Reparto Nº 7 cerrado" in respuesta
+    assert "Salida Nº 7 cerrada" in respuesta
     assert db.query(Reparto).one().hora_fin is not None
 
 
@@ -770,7 +770,7 @@ def test_cerrar_reparto_acepta_fin():
 
     respuesta = service.handle_text("5491112345678", "fin de reparto")
 
-    assert "Reparto Nº 7 cerrado" in respuesta
+    assert "Salida Nº 7 cerrada" in respuesta
     assert db.query(Reparto).one().hora_fin is not None
 
 
@@ -793,7 +793,7 @@ def test_cerrar_reparto_notifica_a_los_demas_operadores_asociados():
     service.handle_text("5491100000000", "cerrar")
 
     notificaciones = service.pop_notificaciones()
-    assert notificaciones == [("5491112345678", "El Reparto Nº 7 en el movil M-01 fue cerrado por Beto.")]
+    assert notificaciones == [("5491112345678", "La Salida Nº 7 en el movil M-01 fue cerrada por Beto.")]
 
 
 def test_cerrar_reparto_sin_otros_asociados_no_genera_notificaciones():
@@ -820,7 +820,7 @@ def test_cerrar_reparto_sin_reparto_abierto():
 
     respuesta = service.handle_text("5491112345678", "cerrar reparto nro 1")
 
-    assert "No tenes ningun reparto abierto" in respuesta
+    assert "No tenes ninguna salida abierta" in respuesta
 
 
 def test_comando_reparto_rechazado_durante_flujo_de_comprobante():
@@ -858,15 +858,15 @@ def test_confirmacion_pide_movil_si_operador_no_tiene_asignado():
     assert db.query(Movement).one().estado_registro == RecordState.PENDIENTE_CONFIRMACION
 
     respuesta_movil = service.handle_text("5491112345678", "M-01")
-    assert "No hay ningun reparto abierto en el movil M-01" in respuesta_movil
+    assert "No hay ninguna salida abierta en el movil M-01" in respuesta_movil
     assert db.query(Movement).one().estado_registro == RecordState.PENDIENTE_CONFIRMACION
 
     respuesta_numero = service.handle_text("5491112345678", "SI")
-    assert "Que numero de reparto es" in respuesta_numero
+    assert "Que numero de salida es" in respuesta_numero
 
     respuesta_final = service.handle_text("5491112345678", "8")
 
-    assert respuesta_final == "Comprobante registrado correctamente. Se inicio el Reparto Nº 8 en el movil M-01."
+    assert respuesta_final == "Comprobante registrado correctamente. Se inicio la Salida Nº 8 en el movil M-01."
     movement = db.query(Movement).one()
     assert movement.estado_registro == RecordState.CONFIRMADO
     assert movement.movil_id == 1
@@ -891,11 +891,11 @@ def test_numero_de_reparto_nuevo_invalido_vuelve_a_pedir():
 
     respuesta = service.handle_text("5491112345678", "ocho")
 
-    assert "no es un numero de reparto valido" in respuesta
+    assert "no es un numero de salida valido" in respuesta
     assert db.query(Reparto).count() == 0
 
     respuesta_ok = service.handle_text("5491112345678", "8")
-    assert respuesta_ok == "Comprobante registrado correctamente. Se inicio el Reparto Nº 8 en el movil M-01."
+    assert respuesta_ok == "Comprobante registrado correctamente. Se inicio la Salida Nº 8 en el movil M-01."
 
 
 def test_numero_de_reparto_nuevo_se_puede_cancelar():
@@ -969,7 +969,7 @@ def test_confirmacion_via_esperando_movil_se_asocia_a_reparto_abierto_de_otro_op
 
     respuesta_final = service.handle_text("5491100000000", "M-01")
 
-    assert respuesta_final == "Comprobante registrado correctamente. Reparto Nº 3 en el movil M-01."
+    assert respuesta_final == "Comprobante registrado correctamente. Salida Nº 3 en el movil M-01."
     movement = db.query(Movement).one()
     assert movement.reparto_id == reparto.id
     assert movement.movil_id == 1

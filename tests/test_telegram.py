@@ -368,8 +368,8 @@ def test_cerrar_reparto_notifica_al_otro_operador_asociado(monkeypatch):
     response = client.post("/telegram/webhook", json={"message": {"chat": {"id": 777002}, "text": "cerrar"}})
 
     assert response.status_code == 200
-    assert ("777002", "Reparto Nº 42 cerrado.") in sent
-    assert ("777001", "El Reparto Nº 42 en el movil M-TEST-CIERRE fue cerrado por Test.") in sent
+    assert ("777002", "Salida Nº 42 cerrada.") in sent
+    assert ("777001", "La Salida Nº 42 en el movil M-TEST-CIERRE fue cerrada por Test.") in sent
 
     _clean_movil("M-TEST-CIERRE")
     _clean_operator(whatsapp_numero="777001")

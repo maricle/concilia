@@ -887,7 +887,7 @@ def comprobantes_exportar(
     writer.writerow(
         [
             "Fecha transaccion", "Fecha subida", "Tipo", "Nro. factura/cuenta", "Cuenta banco", "Banco emisor",
-            "Titular/Emisor", "N. operacion", "Monto", "Vendedor", "Movil", "Nro. Reparto", "Conciliacion",
+            "Titular/Emisor", "N. operacion", "Monto", "Vendedor", "Movil", "Nro. Salida", "Conciliacion",
         ]
     )
     for movimiento in movimientos:

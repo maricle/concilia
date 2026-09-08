@@ -1,7 +1,7 @@
 {% extends "base.html" %}
-{% block title %}Repartos - Concilia{% endblock %}
+{% block title %}Salidas - Concilia{% endblock %}
 {% block content %}
-<h1 class="h3 mb-4 text-gray-800">Repartos</h1>
+<h1 class="h3 mb-4 text-gray-800">Salidas</h1>
 
 <div class="card shadow mb-4">
   <div class="card-header py-3">
@@ -36,7 +36,7 @@
 
 <div class="card shadow mb-4">
   <div class="card-header py-3">
-    <h6 class="m-0 font-weight-bold text-primary">Repartos por dia</h6>
+    <h6 class="m-0 font-weight-bold text-primary">Salidas por dia</h6>
   </div>
   <div class="card-body">
     <div class="table-responsive">
@@ -45,7 +45,7 @@
           <tr>
             <th>Fecha</th>
             <th>Movil</th>
-            <th>Nro. Reparto</th>
+            <th>Nro. Salida</th>
             <th>Hora inicio</th>
             <th>Hora fin</th>
             <th>Estado</th>
@@ -62,15 +62,15 @@
             <td>{{ reparto.hora_fin.strftime("%H:%M") if reparto.hora_fin else "-" }}</td>
             <td>
               {% if reparto.hora_fin %}
-              <span class="badge-pill-estado badge-pill-conciliado">Cerrado</span>
+              <span class="badge-pill-estado badge-pill-conciliado">Cerrada</span>
               {% else %}
-              <span class="badge-pill-estado badge-pill-pendiente">Abierto</span>
+              <span class="badge-pill-estado badge-pill-pendiente">Abierta</span>
               {% endif %}
             </td>
             <td class="num">{{ conteos_comprobantes.get(reparto.id, 0) }}</td>
           </tr>
           {% else %}
-          <tr><td colspan="7">Todavia no hay repartos registrados.</td></tr>
+          <tr><td colspan="7">Todavia no hay salidas registradas.</td></tr>
           {% endfor %}
         </tbody>
       </table>

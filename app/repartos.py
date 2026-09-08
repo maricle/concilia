@@ -3,7 +3,7 @@ from dataclasses import dataclass
 
 _PALABRA_INICIO = re.compile(r"^inici(?:o|ar)\b", re.IGNORECASE)
 _PATRON_MOVIL = re.compile(r"\bmovil\s+(\S+)", re.IGNORECASE)
-_PATRON_NUMERO_REPARTO = re.compile(r"\breparto\s+nro\.?\s*(\d+)", re.IGNORECASE)
+_PATRON_NUMERO_REPARTO = re.compile(r"\b(?:reparto|salida)\s+nro\.?\s*(\d+)", re.IGNORECASE)
 _PALABRA_CERRAR = re.compile(r"^(?:cerrar|fin)\b", re.IGNORECASE)
 _PATRON_NUMERO = re.compile(r"(\d+)")
 
