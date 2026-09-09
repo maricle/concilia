@@ -28,3 +28,11 @@ def parse_monto_ar(raw: object) -> Decimal:
         return Decimal(text)
     except InvalidOperation as exc:
         raise ValueError(f"No se pudo interpretar el monto '{raw}'.") from exc
+
+
+def formato_monto_ar(monto: Decimal | None) -> str:
+    """Inverso de parse_monto_ar: formatea un Decimal como '$1.234,56' (convencion
+    argentina), para mostrar montos en mensajes y reportes."""
+    if monto is None:
+        return "-"
+    return f"${monto:,.2f}".replace(",", "_").replace(".", ",").replace("_", ".")

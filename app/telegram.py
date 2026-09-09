@@ -84,12 +84,6 @@ async def send_telegram_message(chat_id: str, text: str, reply_markup: dict | No
     response.raise_for_status()
 
 
-async def send_telegram_document(chat_id: str, filename: str, contenido: bytes) -> None:
-    files = {"document": (filename, contenido, "application/pdf")}
-    response = await _get_http_client().post(_api_url("sendDocument"), data={"chat_id": chat_id}, files=files)
-    response.raise_for_status()
-
-
 def _resolver_chat_ids(session: Session, notificaciones: list[tuple[str, str]]) -> list[tuple[str, str]]:
     """Traduce (whatsapp_numero, mensaje) a (chat_id, mensaje), descartando a los
     operadores que todavia no vincularon su Telegram (no hay adonde mandarles)."""
@@ -109,23 +103,6 @@ async def _enviar_notificaciones(destinos: list[tuple[str, str]]) -> None:
             logging.exception("No se pudo enviar notificacion a chat_id=%s", chat_id_destino)
 
 
-def _resolver_chat_ids_documentos(
-    session: Session, documentos: list[tuple[str, str, bytes]]
-) -> list[tuple[str, str, bytes]]:
-    destinos: list[tuple[str, str, bytes]] = []
-    for numero, nombre_archivo, contenido in documentos:
-        operador = session.scalar(select(Operator).where(Operator.whatsapp_numero == numero))
-        if operador is not None and operador.telegram_chat_id:
-            destinos.append((operador.telegram_chat_id, nombre_archivo, contenido))
-    return destinos
-
-
-async def _enviar_documentos(destinos: list[tuple[str, str, bytes]]) -> None:
-    for chat_id_destino, nombre_archivo, contenido in destinos:
-        try:
-            await send_telegram_document(chat_id_destino, nombre_archivo, contenido)
-        except httpx.HTTPError:
-            logging.exception("No se pudo enviar documento a chat_id=%s", chat_id_destino)
 
 
 async def _answer_callback_query(callback_query_id: str) -> None:
@@ -237,10 +214,8 @@ async def receive_telegram_update(
             reply = service.handle_text(numero, callback_query.get("data", ""))
             markup = _reply_markup(service, numero)
             destinos = _resolver_chat_ids(session, service.pop_notificaciones())
-            destinos_documentos = _resolver_chat_ids_documentos(session, service.pop_documentos())
         await send_telegram_message(chat_id, reply, reply_markup=markup)
         await _enviar_notificaciones(destinos)
-        await _enviar_documentos(destinos_documentos)
         return {"status": "accepted"}
 
     message = update.get("message")
@@ -259,10 +234,8 @@ async def receive_telegram_update(
             reply = service.handle_text(numero, message["text"])
             markup = _reply_markup(service, numero)
             destinos = _resolver_chat_ids(session, service.pop_notificaciones())
-            destinos_documentos = _resolver_chat_ids_documentos(session, service.pop_documentos())
         await send_telegram_message(chat_id, reply, reply_markup=markup)
         await _enviar_notificaciones(destinos)
-        await _enviar_documentos(destinos_documentos)
         return {"status": "accepted"}
 
     with SessionLocal() as session:

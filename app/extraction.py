@@ -79,18 +79,17 @@ def _build_tool() -> dict:
                 "monto": {
                     "type": ["string", "null"],
                     "description": (
-                        "Monto de la transferencia, transcribido EXACTAMENTE como figura en el comprobante, con "
-                        "los mismos separadores de miles/decimales que muestra la imagen -- no lo conviertas a "
-                        "otro formato ni hagas la cuenta vos. Ejemplos: si el comprobante muestra '58.316,00' "
-                        "devolve '58.316,00'; si muestra '58.316' (sin coma) devolve '58.316' tal cual, no lo "
-                        "escribas como 58316 ni asumas que son decimales. "
-                        "OJO: muchos comprobantes (Mercado Pago sobre todo) muestran los centavos en un tamano "
-                        "mas chico y elevado (superindice), pegados al numero entero, SIN ninguna coma visible "
-                        "antes -- ej. '$ 36.396' con un '31' chico arriba a la derecha. Esos 1 o 2 digitos "
-                        "chicos y elevados son SIEMPRE los centavos, nunca parte del entero: transcribilos "
-                        "agregando la coma que falta, como si el comprobante mostrara '36.396,31'. NUNCA "
-                        "trates el punto de miles como si fuera el separador decimal ni descartes esos "
-                        "digitos elevados."
+                        "Monto de la transferencia. REGLA FIJA, sin excepciones: el punto SIEMPRE es separador "
+                        "de miles y la coma SIEMPRE es separador decimal (convencion argentina) -- el punto "
+                        "NUNCA es decimal, pase lo que pase. Los centavos pueden aparecer de dos formas: (a) "
+                        "despues de una coma, en el mismo tamano de letra (ej. '58.316,00'); o (b) sin coma "
+                        "visible, como 1 o 2 digitos en tamano mas chico y elevado (superindice) pegados "
+                        "directamente al numero entero -- comun en Mercado Pago, ej. '$ 36.396' con un '31' "
+                        "chico arriba a la derecha. En el caso (b) transcribi el monto agregando la coma que "
+                        "falta, como si el comprobante mostrara '36.396,31'; esos digitos elevados son siempre "
+                        "los centavos, nunca parte del entero. Si el comprobante no muestra centavos de ninguna "
+                        "de las dos formas, transcribi el entero tal cual con sus puntos de miles, ej. '58.316' "
+                        "(no lo escribas como 58316 ni le inventes decimales)."
                     ),
                 },
                 "fecha_transaccion": {

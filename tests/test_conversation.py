@@ -793,10 +793,16 @@ def test_cerrar_reparto_notifica_a_los_demas_operadores_asociados():
     service.handle_text("5491100000000", "cerrar")
 
     notificaciones = service.pop_notificaciones()
-    assert notificaciones == [("5491112345678", "La Salida Nº 7 en el movil M-01 fue cerrada por Beto.")]
+    assert notificaciones == [
+        (
+            "5491112345678",
+            "La Salida Nº 7 en el movil M-01 fue cerrada por Beto.\n\n"
+            "Cierre Salida Nº 7\nSin comprobantes registrados.",
+        )
+    ]
 
 
-def test_cerrar_reparto_encola_pdf_de_resumen_para_cada_asociado():
+def test_cerrar_reparto_envia_resumen_bancario_en_vez_de_pdf():
     db = session()
     db.add_all(
         [
@@ -807,19 +813,72 @@ def test_cerrar_reparto_encola_pdf_de_resumen_para_cada_asociado():
     db.commit()
     db.add(Movil(numero="M-01", nombre="Camion 1", responsable_operador_id=1))
     db.commit()
+    db.add_all(
+        [
+            BankAccount(banco="Mercado Pago", numero_cuenta="1", alias="mp"),
+            BankAccount(banco="Galicia", numero_cuenta="2", alias="gal"),
+        ]
+    )
+    db.commit()
     service = ConversationService(db)
     service.handle_text("5491112345678", "inicio movil M-01 reparto nro 7")
     service.handle_text("5491112345678", "SI")
     service.handle_text("5491100000000", "inicio movil M-01 reparto nro 7")  # Beto se asocia
 
-    service.handle_text("5491100000000", "cerrar")
+    reparto = db.query(Reparto).filter_by(numero_reparto=7).one()
+    db.add_all(
+        [
+            Movement(
+                operador_id=1,
+                monto=Decimal("1000"),
+                fecha_transaccion=datetime.now(),
+                numero_operacion="OP-1",
+                movil_id=1,
+                reparto_id=reparto.id,
+                cuenta_bancaria_id=1,
+            ),
+            Movement(
+                operador_id=1,
+                monto=Decimal("500"),
+                fecha_transaccion=datetime.now(),
+                numero_operacion="OP-2",
+                movil_id=1,
+                reparto_id=reparto.id,
+                cuenta_bancaria_id=2,
+            ),
+            Movement(
+                operador_id=1,
+                monto=Decimal("250"),
+                fecha_transaccion=datetime.now(),
+                numero_operacion="OP-3",
+                movil_id=1,
+                reparto_id=reparto.id,
+            ),
+        ]
+    )
+    db.commit()
 
-    documentos = service.pop_documentos()
-    numeros = {numero for numero, _, _ in documentos}
-    assert numeros == {"5491112345678", "5491100000000"}
-    for _, nombre_archivo, contenido in documentos:
-        assert nombre_archivo == "salida_7_M-01.pdf"
-        assert contenido[:4] == b"%PDF"
+    respuesta = service.handle_text("5491100000000", "cerrar")
+
+    assert respuesta == (
+        "Salida Nº 7 cerrada.\n\n"
+        "Cierre Salida Nº 7\n"
+        "Galicia: $500,00\n"
+        "Mercado Pago: $1.000,00\n"
+        "Sin banco identificado: $250,00"
+    )
+
+    notificaciones = service.pop_notificaciones()
+    assert len(notificaciones) == 1
+    numero, mensaje = notificaciones[0]
+    assert numero == "5491112345678"
+    assert mensaje == (
+        "La Salida Nº 7 en el movil M-01 fue cerrada por Beto.\n\n"
+        "Cierre Salida Nº 7\n"
+        "Galicia: $500,00\n"
+        "Mercado Pago: $1.000,00\n"
+        "Sin banco identificado: $250,00"
+    )
 
 
 def test_cerrar_reparto_sin_otros_asociados_no_genera_notificaciones():

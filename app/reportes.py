@@ -9,17 +9,12 @@ from reportlab.lib.units import cm
 from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 from .models import Movement, Operator, Reparto
+from .numeros import formato_monto_ar as _formato_monto
 
 _styles = getSampleStyleSheet()
 _TITULO_STYLE = ParagraphStyle("TituloSalida", parent=_styles["Heading1"], fontSize=16, spaceAfter=6)
 _SUBTITULO_STYLE = ParagraphStyle("SubtituloSalida", parent=_styles["Heading2"], fontSize=12, spaceAfter=6)
 _NORMAL_STYLE = _styles["Normal"]
-
-
-def _formato_monto(monto: Decimal | None) -> str:
-    if monto is None:
-        return "-"
-    return f"${monto:,.2f}".replace(",", "_").replace(".", ",").replace("_", ".")
 
 
 def _formato_fecha_hora(valor) -> str:
