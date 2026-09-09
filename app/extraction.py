@@ -33,6 +33,23 @@ _FEW_SHOT_EXAMPLES = [
             "titular": "Empresa Ejemplo Sociedad Anonima",
         },
     },
+    {
+        # Corrige un error real en produccion: Mercado Pago muestra los centavos
+        # en tamano chico y elevado, pegados al entero SIN coma visible (ej.
+        # "$ 36.396" con un "31" chico arriba a la derecha). Sin este ejemplo,
+        # el modelo interpreta el punto de miles como decimal y devuelve "36.40"
+        # o similar, perdiendo los centavos reales.
+        "archivo": "mercadopago_centavos_superindice.jpg",
+        "media_type": "image/jpeg",
+        "salida_esperada": {
+            "monto": "36.396,31",
+            "fecha_transaccion": "2026-09-09 12:39",
+            "numero_operacion": None,
+            "banco_emisor": "Mercado Pago",
+            "cuenta_receptora": None,
+            "titular": None,
+        },
+    },
 ]
 
 def _build_tool() -> dict:
@@ -66,7 +83,14 @@ def _build_tool() -> dict:
                         "los mismos separadores de miles/decimales que muestra la imagen -- no lo conviertas a "
                         "otro formato ni hagas la cuenta vos. Ejemplos: si el comprobante muestra '58.316,00' "
                         "devolve '58.316,00'; si muestra '58.316' (sin coma) devolve '58.316' tal cual, no lo "
-                        "escribas como 58316 ni asumas que son decimales."
+                        "escribas como 58316 ni asumas que son decimales. "
+                        "OJO: muchos comprobantes (Mercado Pago sobre todo) muestran los centavos en un tamano "
+                        "mas chico y elevado (superindice), pegados al numero entero, SIN ninguna coma visible "
+                        "antes -- ej. '$ 36.396' con un '31' chico arriba a la derecha. Esos 1 o 2 digitos "
+                        "chicos y elevados son SIEMPRE los centavos, nunca parte del entero: transcribilos "
+                        "agregando la coma que falta, como si el comprobante mostrara '36.396,31'. NUNCA "
+                        "trates el punto de miles como si fuera el separador decimal ni descartes esos "
+                        "digitos elevados."
                     ),
                 },
                 "fecha_transaccion": {

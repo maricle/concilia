@@ -80,6 +80,18 @@ def test_few_shot_example_image_exists_and_loads():
         assert len(contenido) > 0
 
 
+def test_few_shot_examples_montos_parsean_al_valor_correcto():
+    """Canario: si alguien edita _FEW_SHOT_EXAMPLES y tipea mal el monto esperado
+    (ej. se olvida la coma de centavos superindice), esto lo detecta sin tener
+    que llamar a la API real."""
+    esperados = {
+        "mercadopago_sin_numero_operacion.jpg": Decimal("8750"),
+        "mercadopago_centavos_superindice.jpg": Decimal("36396.31"),
+    }
+    for ejemplo in extraction._FEW_SHOT_EXAMPLES:
+        assert extraction._parse_monto(ejemplo["salida_esperada"]["monto"]) == esperados[ejemplo["archivo"]]
+
+
 def test_few_shot_messages_precede_the_real_question():
     mensajes = extraction._few_shot_messages("registrar_transferencia")
     # 3 mensajes por ejemplo: usuario+imagen, asistente+tool_use, usuario+tool_result.
