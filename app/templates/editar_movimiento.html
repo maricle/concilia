@@ -3,53 +3,76 @@
 {% block content %}
 <h1 class="h3 mb-4 text-gray-800">Editar comprobante</h1>
 
-<div class="card shadow mb-4" style="max-width: 600px;">
-  <div class="card-body">
-    {% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
-    <p class="text-muted small">Fecha de creacion: {{ movimiento.fecha_subida.strftime("%Y-%m-%d %H:%M") }}</p>
-    <form method="post" action="/comprobantes/{{ movimiento.id }}/editar">
-      <div class="form-row">
-        <div class="form-group col-md-6">
-          <label>Fecha y hora de transaccion</label>
-          <input type="datetime-local" class="form-control" name="fecha_transaccion" value="{{ movimiento.fecha_transaccion.strftime('%Y-%m-%dT%H:%M') if movimiento.fecha_transaccion else '' }}" required>
-        </div>
-        <div class="form-group col-md-6">
-          <label>Monto</label>
-          <input type="text" class="form-control" name="monto" value="{{ movimiento.monto if movimiento.monto is not none else '' }}">
-        </div>
+<div class="row">
+  <div class="col-lg-6 mb-4">
+    <div class="card shadow h-100">
+      <div class="card-body">
+        {% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
+        <p class="text-muted small">Fecha de creacion: {{ movimiento.fecha_subida.strftime("%Y-%m-%d %H:%M") }}</p>
+        <form method="post" action="/comprobantes/{{ movimiento.id }}/editar">
+          <div class="form-row">
+            <div class="form-group col-md-6">
+              <label>Fecha y hora de transaccion</label>
+              <input type="datetime-local" class="form-control" name="fecha_transaccion" value="{{ movimiento.fecha_transaccion.strftime('%Y-%m-%dT%H:%M') if movimiento.fecha_transaccion else '' }}" required>
+            </div>
+            <div class="form-group col-md-6">
+              <label>Monto</label>
+              <input type="text" class="form-control" name="monto" value="{{ movimiento.monto if movimiento.monto is not none else '' }}">
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Numero de operacion</label>
+            <input type="text" class="form-control" name="numero_operacion" value="{{ movimiento.numero_operacion or '' }}">
+          </div>
+          <div class="form-group">
+            <label>Banco emisor</label>
+            <input type="text" class="form-control" name="banco_emisor" value="{{ movimiento.banco_emisor or '' }}">
+          </div>
+          <div class="form-group">
+            <label>CBU / CVU / alias receptor</label>
+            <input type="text" class="form-control" name="cuenta_receptora_extraida" value="{{ movimiento.cuenta_receptora_extraida or '' }}">
+          </div>
+          <div class="form-group">
+            <label>Titular / Emisor</label>
+            <input type="text" class="form-control" name="titular" value="{{ movimiento.titular or '' }}">
+          </div>
+          <div class="form-row">
+            <div class="form-group col-md-4">
+              <label>Tipo</label>
+              <select class="form-control" name="factura_o_cuenta_tipo">
+                <option value="" {{ "selected" if not movimiento.factura_o_cuenta_tipo }}>-- Elegir --</option>
+                <option value="factura" {{ "selected" if movimiento.factura_o_cuenta_tipo and movimiento.factura_o_cuenta_tipo.value == "factura" }}>Factura</option>
+                <option value="cuenta" {{ "selected" if movimiento.factura_o_cuenta_tipo and movimiento.factura_o_cuenta_tipo.value == "cuenta" }}>Cuenta</option>
+              </select>
+            </div>
+            <div class="form-group col-md-8">
+              <label>Numero de factura o cuenta</label>
+              <input type="text" class="form-control" name="factura_o_cuenta_numero" value="{{ movimiento.factura_o_cuenta_numero or '' }}">
+            </div>
+          </div>
+          <button type="submit" class="btn btn-primary">Guardar cambios</button>
+        </form>
       </div>
-      <div class="form-group">
-        <label>Numero de operacion</label>
-        <input type="text" class="form-control" name="numero_operacion" value="{{ movimiento.numero_operacion or '' }}">
+    </div>
+  </div>
+  <div class="col-lg-6 mb-4">
+    <div class="card shadow h-100">
+      <div class="card-header py-3 d-flex justify-content-between align-items-center">
+        <h6 class="m-0 font-weight-bold text-primary">Comprobante</h6>
+        {% if movimiento.archivo_id %}
+        <a href="/comprobantes/{{ movimiento.id }}/archivo" target="_blank" class="small">Abrir en otra pestaña</a>
+        {% endif %}
       </div>
-      <div class="form-group">
-        <label>Banco emisor</label>
-        <input type="text" class="form-control" name="banco_emisor" value="{{ movimiento.banco_emisor or '' }}">
+      <div class="card-body text-center">
+        {% if not movimiento.archivo_id %}
+        <p class="text-muted">Este comprobante no tiene archivo adjunto.</p>
+        {% elif movimiento.archivo.content_type == "application/pdf" %}
+        <embed src="/comprobantes/{{ movimiento.id }}/archivo" type="application/pdf" width="100%" style="height: 70vh; border: 1px solid var(--border); border-radius: var(--radius);">
+        {% else %}
+        <img src="/comprobantes/{{ movimiento.id }}/archivo" alt="Comprobante" style="max-width: 100%; max-height: 75vh; border: 1px solid var(--border); border-radius: var(--radius);">
+        {% endif %}
       </div>
-      <div class="form-group">
-        <label>CBU / CVU / alias receptor</label>
-        <input type="text" class="form-control" name="cuenta_receptora_extraida" value="{{ movimiento.cuenta_receptora_extraida or '' }}">
-      </div>
-      <div class="form-group">
-        <label>Titular / Emisor</label>
-        <input type="text" class="form-control" name="titular" value="{{ movimiento.titular or '' }}">
-      </div>
-      <div class="form-row">
-        <div class="form-group col-md-4">
-          <label>Tipo</label>
-          <select class="form-control" name="factura_o_cuenta_tipo">
-            <option value="" {{ "selected" if not movimiento.factura_o_cuenta_tipo }}>-- Elegir --</option>
-            <option value="factura" {{ "selected" if movimiento.factura_o_cuenta_tipo and movimiento.factura_o_cuenta_tipo.value == "factura" }}>Factura</option>
-            <option value="cuenta" {{ "selected" if movimiento.factura_o_cuenta_tipo and movimiento.factura_o_cuenta_tipo.value == "cuenta" }}>Cuenta</option>
-          </select>
-        </div>
-        <div class="form-group col-md-8">
-          <label>Numero de factura o cuenta</label>
-          <input type="text" class="form-control" name="factura_o_cuenta_numero" value="{{ movimiento.factura_o_cuenta_numero or '' }}">
-        </div>
-      </div>
-      <button type="submit" class="btn btn-primary">Guardar cambios</button>
-    </form>
+    </div>
   </div>
 </div>
 {% endblock %}
