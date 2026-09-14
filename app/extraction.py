@@ -95,7 +95,12 @@ def _build_tool() -> dict:
             "arriba o se vea mas prominente. "
             "Transcribi el CBU, CVU o alias exactamente como figura en el comprobante (todos los digitos, "
             "sin espacios ni separadores propios); no intentes adivinar a que cuenta registrada "
-            "corresponde, eso se resuelve despues por otro lado."
+            "corresponde, eso se resuelve despues por otro lado. "
+            "Si es un CBU o CVU numerico (no un alias), en Argentina estos numeros tienen SIEMPRE "
+            "exactamente 22 digitos -- contalos antes de responder para asegurarte de no haber salteado "
+            "ni agregado ninguno. Es comun que se superpongan a una marca de agua o decoracion del "
+            "comprobante y se pierdan digitos al transcribirlos; si no podes leer los 22 con confianza, "
+            "mira la imagen de nuevo con mas atencion antes de responder."
         ),
     }
     return {
@@ -283,6 +288,22 @@ def _has_minimum_fields(result: dict | None) -> bool:
     return _parse_monto(result.get("monto")) is not None
 
 
+_LONGITUD_CBU_CVU = 22
+
+
+def _cuenta_receptora_parece_incompleta(valor: object) -> bool:
+    """Un CBU/CVU numerico argentino tiene siempre 22 digitos (ver tests). Si el
+    modelo devolvio una cadena de puros digitos con otra longitud, lo mas probable
+    es que haya salteado o duplicado digitos al transcribir un numero largo (visto
+    en produccion con CVUs que se superponen a la marca de agua del comprobante) --
+    no se puede saber cuales, asi que en vez de guardar un dato a medias vale la
+    pena reintentar con el modelo mas grande. No aplica a alias (no numericos)."""
+    if not _es_valor_valido(valor):
+        return False
+    normalizado = valor.strip()
+    return normalizado.isdigit() and len(normalizado) != _LONGITUD_CBU_CVU
+
+
 _FORMATOS_FECHA_TRANSACCION = ("%Y-%m-%d %H:%M", "%Y-%m-%dT%H:%M", "%Y-%m-%d")
 
 
@@ -306,7 +327,9 @@ def extract_transfer(content_type: str, data: bytes) -> ExtractedTransfer | None
     tool = _build_tool()
 
     result = _call_model(client, HAIKU_MODEL, content_type, data, tool)
-    if not _has_minimum_fields(result):
+    if not _has_minimum_fields(result) or _cuenta_receptora_parece_incompleta(
+        result.get("cuenta_receptora") if result else None
+    ):
         result = _call_model(client, SONNET_MODEL, content_type, data, tool)
     if not _has_minimum_fields(result):
         return None

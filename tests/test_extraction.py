@@ -5,7 +5,14 @@ from decimal import Decimal
 import pytest
 
 from app import extraction
-from app.extraction import _build_tool, _es_numero_operacion_valido, _es_valor_valido, _has_minimum_fields, extract_transfer
+from app.extraction import (
+    _build_tool,
+    _cuenta_receptora_parece_incompleta,
+    _es_numero_operacion_valido,
+    _es_valor_valido,
+    _has_minimum_fields,
+    extract_transfer,
+)
 from app.zona_horaria import ahora_argentina
 
 
@@ -230,3 +237,45 @@ def test_extract_transfer_treats_cvu_shaped_value_as_missing_numero_operacion(mo
 
     assert transfer is not None
     assert transfer.numero_operacion is None
+
+
+@pytest.mark.parametrize(
+    "valor,esperado",
+    [
+        ("0000003100051586023938", False),  # 22 digitos: CBU/CVU completo
+        ("00000031000515860239", True),  # 20 digitos: le faltan digitos (bug real visto en produccion)
+        ("00000031000515860239238", True),  # 23 digitos: de mas
+        ("juan.perez.mp", False),  # alias, no es numerico: no aplica la regla de longitud
+        (None, False),
+        ("<UNKNOWN>", False),
+    ],
+)
+def test_cuenta_receptora_parece_incompleta(valor, esperado):
+    assert _cuenta_receptora_parece_incompleta(valor) is esperado
+
+
+def test_extract_transfer_retries_with_sonnet_when_haiku_truncates_cuenta_receptora(monkeypatch):
+    """Canario del bug real: Haiku identifico bien la cuenta de DESTINO (segunda
+    entidad) pero le falto transcribir digitos de su CVU largo -- antes de este fix
+    el resultado incompleto se guardaba tal cual porque solo el monto disparaba el
+    reintento con Sonnet."""
+    truncado = {
+        "monto": 500,
+        "fecha_transaccion": "2026-08-24",
+        "numero_operacion": "OP-1",
+        "cuenta_receptora": "00000031000515860239",
+    }
+    completo = {
+        "monto": 500,
+        "fecha_transaccion": "2026-08-24",
+        "numero_operacion": "OP-1",
+        "cuenta_receptora": "0000003100051586023938",
+    }
+    fake_client = _FakeAnthropic([truncado, completo])
+    monkeypatch.setattr(extraction, "Anthropic", lambda api_key: fake_client)
+
+    transfer = extract_transfer("image/jpeg", b"fake-bytes")
+
+    assert transfer is not None
+    assert transfer.cuenta_receptora == "0000003100051586023938"
+    assert len(fake_client.messages.calls) == 2
