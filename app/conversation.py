@@ -145,13 +145,13 @@ class ConversationService:
             return self._handle_comando_reparto(operator, conversation, comando)
 
         if conversation.estado == ConversationState.ESPERANDO_DATOS_INICIO_REPARTO:
-            if conversation.movil_pendiente_numero is None:
-                conversation.movil_pendiente_numero = text.strip()
-            else:
+            if conversation.numero_reparto_pendiente is None:
                 numero_texto = text.strip()
                 if not numero_texto.isdigit():
                     return "Ese no es un numero de salida valido. Respondé solo con el numero."
                 conversation.numero_reparto_pendiente = int(numero_texto)
+            else:
+                conversation.movil_pendiente_numero = text.strip()
 
             if conversation.movil_pendiente_numero is None or conversation.numero_reparto_pendiente is None:
                 self.session.commit()
@@ -566,9 +566,9 @@ class ConversationService:
 
     @staticmethod
     def _prompt_dato_faltante_inicio_reparto(conversation: WhatsAppConversation) -> str:
-        if conversation.movil_pendiente_numero is None:
-            return "¿En que movil vas a iniciar la salida? Respondé con el numero del movil."
-        return "¿Que numero de salida es? Respondé solo con el numero."
+        if conversation.numero_reparto_pendiente is None:
+            return "¿Que numero de salida es? Respondé solo con el numero."
+        return "¿En que movil vas a iniciar la salida? Respondé con el numero del movil."
 
     def _iniciar_reparto(self, operator: Operator, comando: IniciarRepartoComando) -> str:
         movil = self._buscar_movil_activo(comando.movil_numero)

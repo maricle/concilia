@@ -489,7 +489,7 @@ def test_iniciar_con_solo_movil_y_reparto_ya_abierto_avisa_en_vez_de_pedir_numer
     assert "Ya tenes la Salida Nº 5 iniciada en el movil M-01" in respuesta
 
 
-def test_iniciar_reparto_solo_palabra_clave_pide_movil_y_luego_numero():
+def test_iniciar_reparto_solo_palabra_clave_pide_numero_y_luego_movil():
     db = session()
     db.add(Operator(nombre="Ana", whatsapp_numero="5491112345678"))
     db.commit()
@@ -498,12 +498,12 @@ def test_iniciar_reparto_solo_palabra_clave_pide_movil_y_luego_numero():
     service = ConversationService(db)
 
     respuesta = service.handle_text("5491112345678", "inicio")
-    assert "En que movil" in respuesta
-
-    respuesta = service.handle_text("5491112345678", "M-01")
     assert "numero de salida" in respuesta
 
     respuesta = service.handle_text("5491112345678", "5")
+    assert "En que movil" in respuesta
+
+    respuesta = service.handle_text("5491112345678", "M-01")
     assert "Vas a iniciar la Salida Nº 5 en el movil M-01" in respuesta
     assert db.query(Reparto).count() == 0
 
@@ -601,7 +601,7 @@ def test_pending_prompt_reshows_dato_faltante_inicio_reparto():
     prompt = service.pending_prompt("5491112345678")
 
     assert prompt is not None
-    assert "En que movil" in prompt
+    assert "numero de salida" in prompt
 
 
 def test_pending_prompt_reshows_confirmacion_inicio_reparto():
