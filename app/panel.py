@@ -1,7 +1,7 @@
-import csv
 import io
+import json
 from collections import Counter
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import TypeVar
 from urllib.parse import urlencode
@@ -9,13 +9,16 @@ from urllib.parse import urlencode
 from fastapi import APIRouter, Depends, Form, Request, UploadFile
 from fastapi.responses import RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import func, or_, select
+from openpyxl import Workbook
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.orm import DeclarativeBase, InstrumentedAttribute, Session, selectinload
 
 from .auth import hash_password, verify_password
+from .bancos import icono_banco
 from .db import SessionLocal
 from .models import (
     BankAccount,
+    CierreDiario,
     ImportedStatement,
     Movement,
     Movil,
@@ -29,6 +32,7 @@ from .models import (
     StatementLineState,
     TipoIdentificador,
 )
+from .numeros import parse_monto_ar
 from .reconciliation import StatementParseError, match_statement, parse_statement_file
 from .reportes import generar_resumen_salida_pdf, generar_resumen_salidas_pdf
 from .storage import get_comprobante_archivo
@@ -66,6 +70,24 @@ def _sort_url(request: Request, campo: str) -> str:
 
 
 templates.env.globals["sort_url"] = _sort_url
+
+
+def _xlsx_response(headers: list[str], filas: list[list], filename: str) -> Response:
+    """Arma un .xlsx descargable a partir de un encabezado y filas de valores --
+    usado por todos los botones "Exportar" del panel, en vez de CSV."""
+    workbook = Workbook()
+    hoja = workbook.active
+    hoja.append(headers)
+    for fila in filas:
+        hoja.append(fila)
+    buffer = io.BytesIO()
+    workbook.save(buffer)
+    return Response(
+        content=buffer.getvalue(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
 
 _Model = TypeVar("_Model", bound=DeclarativeBase)
 
@@ -172,6 +194,13 @@ def list_usuarios(request: Request, db: Session = Depends(get_db), user: PanelUs
     return templates.TemplateResponse(request, "usuarios.html", {"user": user, "usuarios": usuarios, "error": None})
 
 
+@router.get("/config/usuarios/exportar")
+def usuarios_exportar(db: Session = Depends(get_db), user: PanelUser = Depends(require_user)):
+    usuarios = db.scalars(select(PanelUser).order_by(PanelUser.id)).all()
+    filas = [[u.nombre, u.email, u.rol, "Activo" if u.activo else "Inactivo"] for u in usuarios]
+    return _xlsx_response(["Nombre", "Email", "Rol", "Estado"], filas, "usuarios.xlsx")
+
+
 @router.post("/config/usuarios")
 def create_usuario(
     request: Request,
@@ -265,6 +294,25 @@ def list_operadores(
     moviles = db.scalars(select(Movil).where(Movil.activo.is_(True)).order_by(Movil.nombre)).all()
     return templates.TemplateResponse(
         request, "operadores.html", {"user": user, "operadores": operadores, "moviles": moviles, "error": error or None}
+    )
+
+
+@router.get("/config/operadores/exportar")
+def operadores_exportar(db: Session = Depends(get_db), user: PanelUser = Depends(require_user)):
+    operadores = db.scalars(select(Operator).options(selectinload(Operator.movil)).order_by(Operator.id)).all()
+    filas = [
+        [
+            o.nombre,
+            o.whatsapp_numero,
+            "Si" if o.telegram_chat_id else "No",
+            o.tipo,
+            o.movil.numero if o.movil else "",
+            "Activo" if o.activo else "Inactivo",
+        ]
+        for o in operadores
+    ]
+    return _xlsx_response(
+        ["Nombre", "Numero", "Telegram vinculado", "Tipo", "Movil", "Estado"], filas, "operadores.xlsx"
     )
 
 
@@ -388,6 +436,22 @@ def list_moviles(
     )
 
 
+@router.get("/config/moviles/exportar")
+def moviles_exportar(db: Session = Depends(get_db), user: PanelUser = Depends(require_user)):
+    moviles = db.scalars(select(Movil).options(selectinload(Movil.responsable)).order_by(Movil.id)).all()
+    filas = [
+        [
+            m.numero,
+            m.nombre,
+            m.descripcion or "",
+            m.responsable.nombre if m.responsable else "",
+            "Activo" if m.activo else "Inactivo",
+        ]
+        for m in moviles
+    ]
+    return _xlsx_response(["Numero", "Nombre", "Descripcion", "Responsable", "Estado"], filas, "moviles.xlsx")
+
+
 @router.post("/config/moviles")
 def create_movil(
     request: Request,
@@ -488,6 +552,13 @@ def editar_movil_submit(
 def list_cuentas(request: Request, db: Session = Depends(get_db), user: PanelUser = Depends(require_user)):
     cuentas = db.scalars(select(BankAccount).order_by(BankAccount.id)).all()
     return templates.TemplateResponse(request, "cuentas.html", {"user": user, "cuentas": cuentas, "error": None})
+
+
+@router.get("/config/cuentas/exportar")
+def cuentas_exportar(db: Session = Depends(get_db), user: PanelUser = Depends(require_user)):
+    cuentas = db.scalars(select(BankAccount).order_by(BankAccount.id)).all()
+    filas = [[c.banco, c.numero_cuenta, c.alias, c.moneda] for c in cuentas]
+    return _xlsx_response(["Banco", "Numero de cuenta", "Alias", "Moneda"], filas, "cuentas.xlsx")
 
 
 @router.post("/config/cuentas")
@@ -650,6 +721,115 @@ def _ultimos_movimientos(db: Session, limite: int = 8) -> list[Movement]:
     ).all()
 
 
+def _bancos_del_dia(db: Session) -> list[dict]:
+    """Un panel por banco (mismo shape que _panel_banco, de /conciliaciones) para
+    cada banco con al menos un comprobante hoy -- usado en el home."""
+    hoy = hoy_argentina()
+    resultado = [
+        panel
+        for banco in _bancos_disponibles(db)
+        if (panel := _panel_banco(db, hoy, banco))["cantidad_comprobantes"] > 0
+    ]
+    resultado.sort(key=lambda p: p["cantidad_comprobantes"], reverse=True)
+    return resultado
+
+
+def _kpis_hoy(db: Session, bancos_del_dia: list[dict]) -> dict:
+    hoy = hoy_argentina()
+    ayer = hoy - timedelta(days=1)
+
+    def _conteo_y_monto(dia: date) -> tuple[int, Decimal]:
+        cantidad, monto = db.execute(
+            select(func.count(Movement.id), func.coalesce(func.sum(Movement.monto), 0)).where(
+                Movement.estado_registro == RecordState.CONFIRMADO,
+                func.date(Movement.fecha_transaccion) == dia,
+            )
+        ).one()
+        return cantidad or 0, monto or Decimal("0")
+
+    def _variacion(valor_hoy, valor_ayer) -> str | None:
+        if not valor_ayer:
+            return None
+        cambio = (valor_hoy - valor_ayer) / valor_ayer * 100
+        signo = "+" if cambio >= 0 else ""
+        return f"{signo}{cambio:.0f}% vs ayer"
+
+    comprobantes_hoy, monto_hoy = _conteo_y_monto(hoy)
+    comprobantes_ayer, monto_ayer = _conteo_y_monto(ayer)
+
+    salidas_activas = db.scalar(select(func.count(Reparto.id)).where(Reparto.hora_fin.is_(None))) or 0
+    operadores_en_salida = db.scalar(
+        select(func.count(func.distinct(RepartoOperador.operador_id)))
+        .join(Reparto, RepartoOperador.reparto_id == Reparto.id)
+        .where(Reparto.hora_fin.is_(None))
+    ) or 0
+
+    return {
+        "comprobantes_hoy": comprobantes_hoy,
+        "comprobantes_hoy_variacion": _variacion(comprobantes_hoy, comprobantes_ayer),
+        "monto_hoy": monto_hoy,
+        "monto_hoy_variacion": _variacion(monto_hoy, monto_ayer),
+        "salidas_activas": salidas_activas,
+        "operadores_en_salida": operadores_en_salida,
+        "bancos_en_uso": len(bancos_del_dia),
+        "bancos_conciliados": sum(1 for b in bancos_del_dia if b["estado"] == "conciliado"),
+    }
+
+
+def _comprobantes_y_montos_ultimos_dias(db: Session, dias: int = 7) -> list[dict]:
+    """Mismo patron que _actividad_ultimos_dias: trae los movimientos del rango y
+    agrupa en Python (no con func.date() agrupado en SQL, que devuelve tipos
+    distintos en SQLite vs Postgres)."""
+    hoy = hoy_argentina()
+    desde = hoy - timedelta(days=dias - 1)
+    movimientos = db.scalars(
+        select(Movement).where(
+            Movement.estado_registro == RecordState.CONFIRMADO,
+            Movement.fecha_transaccion >= datetime(desde.year, desde.month, desde.day),
+        )
+    ).all()
+    por_dia: dict[date, dict] = {}
+    for movimiento in movimientos:
+        if movimiento.fecha_transaccion is None:
+            continue
+        dia = movimiento.fecha_transaccion.date()
+        bucket = por_dia.setdefault(dia, {"cantidad": 0, "monto": Decimal("0")})
+        bucket["cantidad"] += 1
+        if movimiento.monto is not None:
+            bucket["monto"] += movimiento.monto
+    return [
+        {
+            "fecha": (desde + timedelta(days=i)).strftime("%d/%m"),
+            "cantidad": por_dia.get(desde + timedelta(days=i), {}).get("cantidad", 0),
+            "monto": float(por_dia.get(desde + timedelta(days=i), {}).get("monto", Decimal("0"))),
+        }
+        for i in range(dias)
+    ]
+
+
+def _comprobantes_por_banco_hoy(db: Session) -> list[dict]:
+    hoy = hoy_argentina()
+    filas = db.execute(
+        select(BankAccount.banco, func.count(Movement.id))
+        .select_from(Movement)
+        .outerjoin(BankAccount, Movement.cuenta_bancaria_id == BankAccount.id)
+        .where(Movement.estado_registro == RecordState.CONFIRMADO, func.date(Movement.fecha_transaccion) == hoy)
+        .group_by(BankAccount.banco)
+    ).all()
+    total = sum(cantidad for _, cantidad in filas) or 1
+    resultado = [
+        {
+            "banco": banco or "Sin banco",
+            "cantidad": cantidad,
+            "pct": round(cantidad / total * 100, 1),
+            "color": icono_banco(banco)["color"] if banco else "#9395A8",
+        }
+        for banco, cantidad in filas
+    ]
+    resultado.sort(key=lambda f: f["cantidad"], reverse=True)
+    return resultado
+
+
 @router.get("/resumen")
 def resumen(
     request: Request,
@@ -672,6 +852,11 @@ def resumen(
     cuentas = db.scalars(select(BankAccount).order_by(BankAccount.id)).all()
     conteo = _conteo_conciliacion(movimientos)
 
+    bancos_del_dia = _bancos_del_dia(db)
+    comprobantes_y_montos = _comprobantes_y_montos_ultimos_dias(db)
+    comprobantes_por_banco_hoy = _comprobantes_por_banco_hoy(db)
+    resumen_data_json = json.dumps({"dias": comprobantes_y_montos, "porBanco": comprobantes_por_banco_hoy})
+
     return templates.TemplateResponse(
         request,
         "resumen.html",
@@ -692,6 +877,11 @@ def resumen(
             "actividad_dias": (actividad_dias := _actividad_ultimos_dias(db)),
             "sparkline": _sparkline_svg(actividad_dias),
             "ultimos_movimientos": _ultimos_movimientos(db),
+            "hoy": hoy_argentina(),
+            "kpis_hoy": _kpis_hoy(db, bancos_del_dia),
+            "bancos_del_dia": bancos_del_dia,
+            "comprobantes_por_banco_hoy": comprobantes_por_banco_hoy,
+            "resumen_data_json": resumen_data_json,
         },
     )
 
@@ -707,31 +897,25 @@ def resumen_exportar(
 ):
     cuenta_id = int(cuenta_bancaria_id) if cuenta_bancaria_id else None
     movimientos = db.scalars(_resumen_query(vendedor, fecha_desde, fecha_hasta, cuenta_id)).all()
-    filas = _resumen_por_operador(movimientos)
+    filas_operador = _resumen_por_operador(movimientos)
 
-    buffer = io.StringIO()
-    writer = csv.writer(buffer)
-    writer.writerow(
-        ["Vendedor", "Telefono", "Tipo", "Total", "Comprobantes", "Conciliados con el banco", "Pendientes de conciliar", "Con diferencia"]
-    )
-    for fila in filas:
-        writer.writerow(
-            [
-                fila["operador"].nombre,
-                fila["operador"].whatsapp_numero,
-                fila["operador"].tipo,
-                fila["total"],
-                fila["cantidad"],
-                fila["conciliados"],
-                fila["pendientes"],
-                fila["diferencia"],
-            ]
-        )
-
-    return Response(
-        content=("﻿" + buffer.getvalue()).encode("utf-8"),
-        media_type="text/csv",
-        headers={"Content-Disposition": 'attachment; filename="resumen.csv"'},
+    filas = [
+        [
+            fila["operador"].nombre,
+            fila["operador"].whatsapp_numero,
+            fila["operador"].tipo,
+            fila["total"],
+            fila["cantidad"],
+            fila["conciliados"],
+            fila["pendientes"],
+            fila["diferencia"],
+        ]
+        for fila in filas_operador
+    ]
+    return _xlsx_response(
+        ["Vendedor", "Telefono", "Tipo", "Total", "Comprobantes", "Conciliados con el banco", "Pendientes de conciliar", "Con diferencia"],
+        filas,
+        "resumen.xlsx",
     )
 
 
@@ -884,38 +1068,49 @@ def comprobantes_exportar(
         )
     ).all()
 
-    buffer = io.StringIO()
-    writer = csv.writer(buffer)
-    writer.writerow(
+    filas = [
+        [
+            movimiento.fecha_transaccion.strftime("%Y-%m-%d %H:%M") if movimiento.fecha_transaccion else "",
+            movimiento.fecha_subida.strftime("%Y-%m-%d %H:%M"),
+            movimiento.factura_o_cuenta_tipo.value if movimiento.factura_o_cuenta_tipo else "",
+            movimiento.factura_o_cuenta_numero or "",
+            movimiento.cuenta_bancaria.banco if movimiento.cuenta_bancaria else "Sin banco",
+            movimiento.banco_emisor or "",
+            movimiento.titular or "",
+            movimiento.numero_operacion or "",
+            movimiento.monto if movimiento.monto is not None else "",
+            movimiento.operador.nombre,
+            movimiento.movil.numero if movimiento.movil else "",
+            movimiento.reparto.numero_reparto if movimiento.reparto and movimiento.reparto.numero_reparto is not None else "",
+            movimiento.estado_conciliacion.value,
+        ]
+        for movimiento in movimientos
+    ]
+    return _xlsx_response(
         [
             "Fecha transaccion", "Fecha subida", "Tipo", "Nro. factura/cuenta", "Cuenta banco", "Banco emisor",
             "Titular/Emisor", "N. operacion", "Monto", "Vendedor", "Movil", "Nro. Salida", "Conciliacion",
-        ]
+        ],
+        filas,
+        "comprobantes.xlsx",
     )
-    for movimiento in movimientos:
-        writer.writerow(
-            [
-                movimiento.fecha_transaccion.strftime("%Y-%m-%d %H:%M") if movimiento.fecha_transaccion else "",
-                movimiento.fecha_subida.strftime("%Y-%m-%d %H:%M"),
-                movimiento.factura_o_cuenta_tipo.value if movimiento.factura_o_cuenta_tipo else "",
-                movimiento.factura_o_cuenta_numero or "",
-                movimiento.cuenta_bancaria.banco if movimiento.cuenta_bancaria else "Sin banco",
-                movimiento.banco_emisor or "",
-                movimiento.titular or "",
-                movimiento.numero_operacion or "",
-                movimiento.monto if movimiento.monto is not None else "",
-                movimiento.operador.nombre,
-                movimiento.movil.numero if movimiento.movil else "",
-                movimiento.reparto.numero_reparto if movimiento.reparto and movimiento.reparto.numero_reparto is not None else "",
-                movimiento.estado_conciliacion.value,
-            ]
-        )
 
-    return Response(
-        content=("﻿" + buffer.getvalue()).encode("utf-8"),
-        media_type="text/csv",
-        headers={"Content-Disposition": 'attachment; filename="comprobantes.csv"'},
-    )
+
+def _repartos_query(movil_id: str, fecha_desde: str, fecha_hasta: str, q: str):
+    query = select(Reparto).options(selectinload(Reparto.movil))
+    if movil_id:
+        query = query.where(Reparto.movil_id == int(movil_id))
+    if fecha_desde:
+        query = query.where(Reparto.fecha >= datetime.strptime(fecha_desde, "%Y-%m-%d").date())
+    if fecha_hasta:
+        query = query.where(Reparto.fecha <= datetime.strptime(fecha_hasta, "%Y-%m-%d").date())
+    if q.strip():
+        needle = q.strip()
+        condiciones = [Movil.numero.ilike(f"%{needle}%"), Movil.nombre.ilike(f"%{needle}%")]
+        if needle.isdigit():
+            condiciones.append(Reparto.numero_reparto == int(needle))
+        query = query.join(Movil, Reparto.movil_id == Movil.id).where(or_(*condiciones))
+    return query.order_by(Reparto.fecha.desc(), Reparto.movil_id, Reparto.hora_inicio.desc())
 
 
 @router.get("/repartos")
@@ -924,19 +1119,11 @@ def list_repartos(
     movil_id: str = "",
     fecha_desde: str = "",
     fecha_hasta: str = "",
+    q: str = "",
     db: Session = Depends(get_db),
     user: PanelUser = Depends(require_user),
 ):
-    query = select(Reparto).options(selectinload(Reparto.movil))
-    if movil_id:
-        query = query.where(Reparto.movil_id == int(movil_id))
-    if fecha_desde:
-        query = query.where(Reparto.fecha >= datetime.strptime(fecha_desde, "%Y-%m-%d").date())
-    if fecha_hasta:
-        query = query.where(Reparto.fecha <= datetime.strptime(fecha_hasta, "%Y-%m-%d").date())
-    repartos = db.scalars(
-        query.order_by(Reparto.fecha.desc(), Reparto.movil_id, Reparto.hora_inicio.desc())
-    ).all()
+    repartos = db.scalars(_repartos_query(movil_id, fecha_desde, fecha_hasta, q)).all()
 
     conteos_comprobantes: dict[int, int] = {}
     if repartos:
@@ -961,7 +1148,47 @@ def list_repartos(
             "movil_id": movil_id,
             "fecha_desde": fecha_desde,
             "fecha_hasta": fecha_hasta,
+            "q": q,
         },
+    )
+
+
+@router.get("/repartos/exportar")
+def repartos_exportar(
+    movil_id: str = "",
+    fecha_desde: str = "",
+    fecha_hasta: str = "",
+    q: str = "",
+    db: Session = Depends(get_db),
+    user: PanelUser = Depends(require_user),
+):
+    repartos = db.scalars(_repartos_query(movil_id, fecha_desde, fecha_hasta, q)).all()
+    conteos_comprobantes: dict[int, int] = {}
+    if repartos:
+        conteos_comprobantes = dict(
+            db.execute(
+                select(Movement.reparto_id, func.count(Movement.id))
+                .where(Movement.reparto_id.in_([reparto.id for reparto in repartos]))
+                .group_by(Movement.reparto_id)
+            ).all()
+        )
+    filas = [
+        [
+            reparto.fecha.strftime("%Y-%m-%d"),
+            reparto.movil.numero,
+            reparto.movil.nombre,
+            reparto.numero_reparto if reparto.numero_reparto is not None else "",
+            reparto.hora_inicio.strftime("%H:%M"),
+            reparto.hora_fin.strftime("%H:%M") if reparto.hora_fin else "",
+            "Cerrada" if reparto.hora_fin else "Abierta",
+            conteos_comprobantes.get(reparto.id, 0),
+        ]
+        for reparto in repartos
+    ]
+    return _xlsx_response(
+        ["Fecha", "Movil", "Nombre movil", "Nro. Salida", "Hora inicio", "Hora fin", "Estado", "Comprobantes"],
+        filas,
+        "salidas.xlsx",
     )
 
 
@@ -1148,63 +1375,325 @@ def _conteos_por_resumen(db: Session) -> dict[int, dict[str, int]]:
     return conteos
 
 
-def _conciliaciones_context(
-    db: Session, user: PanelUser, error: str | None, resumen_id: str = "", mensaje: str | None = None
-) -> dict:
-    cuentas = db.scalars(select(BankAccount).order_by(BankAccount.id)).all()
+def _parse_fecha_o_hoy(fecha: str) -> date:
+    if fecha:
+        try:
+            return datetime.strptime(fecha, "%Y-%m-%d").date()
+        except ValueError:
+            pass
+    return hoy_argentina()
+
+
+def _bancos_disponibles(db: Session) -> list[str]:
+    return list(db.scalars(select(BankAccount.banco).distinct().order_by(BankAccount.banco)).all())
+
+
+def _cuenta_ids_por_banco(db: Session, banco: str) -> list[int]:
+    return list(db.scalars(select(BankAccount.id).where(BankAccount.banco == banco)).all())
+
+
+def _banco_o_default(db: Session, banco: str, bancos: list[str]) -> str:
+    if banco and banco in bancos:
+        return banco
+    return bancos[0] if bancos else ""
+
+
+def _cierre_del_dia(db: Session, fecha: date) -> CierreDiario | None:
+    return db.scalar(select(CierreDiario).where(CierreDiario.fecha == fecha))
+
+
+def _dia_cerrado_error(db: Session, fecha: date) -> str | None:
+    if _cierre_del_dia(db, fecha) is not None:
+        return f"El dia {fecha.isoformat()} ya esta cerrado. Reabrilo desde 'Ver resumen del dia' para modificarlo."
+    return None
+
+
+def _salidas_por_banco_del_dia(db: Session, fecha: date) -> dict[str, int]:
+    """Un query para toda la tira de pestañas: cantidad de salidas distintas con
+    comprobantes ese dia, agrupadas por banco."""
+    filas = db.execute(
+        select(BankAccount.banco, func.count(func.distinct(Movement.reparto_id)))
+        .select_from(Movement)
+        .join(BankAccount, Movement.cuenta_bancaria_id == BankAccount.id)
+        .where(Movement.estado_registro == RecordState.CONFIRMADO, func.date(Movement.fecha_transaccion) == fecha)
+        .group_by(BankAccount.banco)
+    ).all()
+    return dict(filas)
+
+
+def _sin_banco_identificado_del_dia(db: Session, fecha: date) -> tuple[int, Decimal]:
+    cantidad, total = db.execute(
+        select(func.count(Movement.id), func.coalesce(func.sum(Movement.monto), 0)).where(
+            Movement.estado_registro == RecordState.CONFIRMADO,
+            func.date(Movement.fecha_transaccion) == fecha,
+            Movement.cuenta_bancaria_id.is_(None),
+        )
+    ).one()
+    return cantidad or 0, total or Decimal("0")
+
+
+def _panel_banco(db: Session, fecha: date, banco: str) -> dict:
+    """KPIs + estado del banco seleccionado para el dia seleccionado -- todo
+    acotado a (fecha, banco), nunca al historico completo."""
+    cuenta_ids = _cuenta_ids_por_banco(db, banco)
+    filtro_movimientos_dia = (
+        Movement.estado_registro == RecordState.CONFIRMADO,
+        func.date(Movement.fecha_transaccion) == fecha,
+        Movement.cuenta_bancaria_id.in_(cuenta_ids),
+    )
+
+    cantidad_comprobantes, total_declarado = db.execute(
+        select(func.count(Movement.id), func.coalesce(func.sum(Movement.monto), 0)).where(*filtro_movimientos_dia)
+    ).one()
+    total_declarado = total_declarado or Decimal("0")
+
+    cantidad_salidas = db.scalar(
+        select(func.count(func.distinct(Movement.reparto_id))).where(*filtro_movimientos_dia)
+    ) or 0
+
     resumenes = db.scalars(
+        select(ImportedStatement).where(
+            ImportedStatement.cuenta_bancaria_id.in_(cuenta_ids), func.date(ImportedStatement.fecha) == fecha
+        )
+    ).all()
+
+    if not resumenes:
+        return {
+            "banco": banco,
+            "icono": icono_banco(banco),
+            "cantidad_comprobantes": cantidad_comprobantes or 0,
+            "cantidad_salidas": cantidad_salidas,
+            "total_declarado": total_declarado,
+            "total_banco": None,
+            "diferencia": None,
+            "estado": "sin_resumen",
+            "resumenes": [],
+        }
+
+    resumen_ids = [r.id for r in resumenes]
+    total_banco = db.scalar(
+        select(func.coalesce(func.sum(StatementLine.monto), 0)).where(
+            StatementLine.resumen_id.in_(resumen_ids), StatementLine.estado == StatementLineState.CONCILIADA
+        )
+    ) or Decimal("0")
+    diferencia = total_banco - total_declarado
+
+    hay_pendientes = db.scalar(
+        select(func.count(StatementLine.id)).where(
+            StatementLine.resumen_id.in_(resumen_ids), StatementLine.estado == StatementLineState.PENDIENTE
+        )
+    ) or 0
+    hay_con_diferencia = db.scalar(
+        select(func.count(Movement.id)).where(
+            *filtro_movimientos_dia, Movement.estado_conciliacion == ReconciliationState.CON_DIFERENCIA
+        )
+    ) or 0
+
+    if hay_pendientes or hay_con_diferencia:
+        estado = "a_revisar"
+    elif diferencia != 0:
+        estado = "error"
+    else:
+        estado = "conciliado"
+
+    return {
+        "banco": banco,
+        "icono": icono_banco(banco),
+        "cantidad_comprobantes": cantidad_comprobantes or 0,
+        "cantidad_salidas": cantidad_salidas,
+        "total_declarado": total_declarado,
+        "total_banco": total_banco,
+        "diferencia": diferencia,
+        "estado": estado,
+        "resumenes": resumenes,
+    }
+
+
+def _dia_puede_cerrarse(db: Session, fecha: date, bancos: list[str]) -> bool:
+    return all(_panel_banco(db, fecha, banco)["estado"] not in ("a_revisar", "error") for banco in bancos)
+
+
+def _movimientos_del_dia_query(fecha: date, cuenta_ids: list[int], estado: str, search: str, operador_id: str, reparto_id: str):
+    query = select(Movement).where(
+        Movement.estado_registro == RecordState.CONFIRMADO,
+        func.date(Movement.fecha_transaccion) == fecha,
+        Movement.cuenta_bancaria_id.in_(cuenta_ids),
+    )
+    if estado:
+        query = query.where(Movement.estado_conciliacion == ReconciliationState(estado))
+    if operador_id:
+        query = query.where(Movement.operador_id == int(operador_id))
+    if reparto_id:
+        query = query.where(Movement.reparto_id == int(reparto_id))
+    if search:
+        like = f"%{search}%"
+        condiciones = [
+            Movement.numero_operacion.ilike(like),
+            Movement.titular.ilike(like),
+            Movement.factura_o_cuenta_numero.ilike(like),
+        ]
+        try:
+            condiciones.append(Movement.monto == parse_monto_ar(search))
+        except ValueError:
+            pass
+        query = query.where(or_(*condiciones))
+    return query
+
+
+def _movimiento_row_dict(movimiento: Movement) -> dict:
+    reparto_label = "-"
+    if movimiento.reparto is not None and movimiento.reparto.numero_reparto is not None:
+        reparto_label = f"#{movimiento.reparto.numero_reparto} - {movimiento.operador.nombre}"
+    return {
+        "id": movimiento.id,
+        "fecha_hora": movimiento.fecha_transaccion.strftime("%d/%m %H:%M") if movimiento.fecha_transaccion else "-",
+        "comprobante": movimiento.factura_o_cuenta_numero or movimiento.numero_operacion or "-",
+        "titular": movimiento.titular or "-",
+        "monto": str(movimiento.monto) if movimiento.monto is not None else None,
+        "reparto_id": movimiento.reparto_id,
+        "reparto_label": reparto_label,
+        "operador": movimiento.operador.nombre,
+        "estado": movimiento.estado_conciliacion.value,
+    }
+
+
+def _salidas_del_dia(db: Session, fecha: date, banco: str) -> list[dict]:
+    cuenta_ids = _cuenta_ids_por_banco(db, banco)
+    filas = db.execute(
+        select(
+            Movement.reparto_id,
+            func.count(Movement.id),
+            func.coalesce(func.sum(Movement.monto), 0),
+            func.sum(case((Movement.estado_conciliacion == ReconciliationState.CON_DIFERENCIA, 1), else_=0)),
+            func.sum(case((Movement.estado_conciliacion == ReconciliationState.PENDIENTE, 1), else_=0)),
+        )
+        .where(
+            Movement.estado_registro == RecordState.CONFIRMADO,
+            func.date(Movement.fecha_transaccion) == fecha,
+            Movement.cuenta_bancaria_id.in_(cuenta_ids),
+            Movement.reparto_id.is_not(None),
+        )
+        .group_by(Movement.reparto_id)
+    ).all()
+    if not filas:
+        return []
+
+    reparto_ids = [fila[0] for fila in filas]
+    repartos = {
+        reparto.id: reparto
+        for reparto in db.scalars(
+            select(Reparto).where(Reparto.id.in_(reparto_ids)).options(selectinload(Reparto.movil))
+        ).all()
+    }
+    operadores_por_reparto: dict[int, list[str]] = {}
+    for reparto_id, nombre in db.execute(
+        select(RepartoOperador.reparto_id, Operator.nombre)
+        .join(Operator, Operator.id == RepartoOperador.operador_id)
+        .where(RepartoOperador.reparto_id.in_(reparto_ids))
+        .order_by(RepartoOperador.asociado_en)
+    ).all():
+        operadores_por_reparto.setdefault(reparto_id, []).append(nombre)
+
+    resultado = []
+    for reparto_id, cantidad, total, con_diferencia, pendientes in filas:
+        reparto = repartos.get(reparto_id)
+        nombres = operadores_por_reparto.get(reparto_id, [])
+        operador_label = nombres[0] if nombres else "-"
+        if len(nombres) > 1:
+            operador_label += f" y {len(nombres) - 1} mas"
+        estado = "a_revisar" if (con_diferencia or pendientes) else "conciliado"
+        resultado.append(
+            {
+                "reparto_id": reparto_id,
+                "numero_reparto": reparto.numero_reparto if reparto else None,
+                "movil": reparto.movil.numero if reparto and reparto.movil else "-",
+                "operador": operador_label,
+                "cantidad_comprobantes": cantidad,
+                "total": str(total),
+                "estado": estado,
+            }
+        )
+    resultado.sort(key=lambda fila: fila["numero_reparto"] or 0)
+    return resultado
+
+
+def _serializar_panel(panel: dict) -> dict:
+    return {
+        "banco": panel["banco"],
+        "icono": panel["icono"],
+        "cantidad_comprobantes": panel["cantidad_comprobantes"],
+        "cantidad_salidas": panel["cantidad_salidas"],
+        "total_declarado": str(panel["total_declarado"]),
+        "total_banco": str(panel["total_banco"]) if panel["total_banco"] is not None else None,
+        "diferencia": str(panel["diferencia"]) if panel["diferencia"] is not None else None,
+        "estado": panel["estado"],
+        "resumenes": [
+            {"id": r.id, "archivo_nombre": r.archivo_nombre, "fecha_importacion": r.fecha_importacion.strftime("%Y-%m-%d %H:%M")}
+            for r in panel["resumenes"]
+        ],
+    }
+
+
+def _construir_contexto_conciliaciones(
+    db: Session, user: PanelUser, fecha: date, banco: str = "", error: str | None = None, mensaje: str | None = None
+) -> dict:
+    bancos = _bancos_disponibles(db)
+    banco = _banco_o_default(db, banco, bancos)
+
+    panel = _panel_banco(db, fecha, banco) if banco else None
+    movimientos: list[Movement] = []
+    total_movimientos = 0
+    if banco:
+        cuenta_ids = _cuenta_ids_por_banco(db, banco)
+        query = _movimientos_del_dia_query(fecha, cuenta_ids, "", "", "", "")
+        total_movimientos = db.scalar(select(func.count()).select_from(query.subquery())) or 0
+        movimientos = db.scalars(
+            query.options(selectinload(Movement.operador), selectinload(Movement.reparto))
+            .order_by(Movement.fecha_transaccion.desc())
+            .limit(25)
+        ).all()
+    salidas = _salidas_del_dia(db, fecha, banco) if banco else []
+    sin_banco_cantidad, sin_banco_total = _sin_banco_identificado_del_dia(db, fecha)
+
+    lineas_pendientes: list[StatementLine] = []
+    if panel is not None and panel["resumenes"]:
+        resumen_ids = [r.id for r in panel["resumenes"]]
+        lineas_pendientes = db.scalars(
+            select(StatementLine)
+            .where(StatementLine.resumen_id.in_(resumen_ids), StatementLine.estado == StatementLineState.PENDIENTE)
+            .order_by(StatementLine.fecha)
+        ).all()
+
+    resumenes_historicos = db.scalars(
         select(ImportedStatement)
         .options(selectinload(ImportedStatement.cuenta_bancaria))
         .order_by(ImportedStatement.fecha_importacion.desc())
     ).all()
+    operadores = db.scalars(select(Operator).where(Operator.activo.is_(True)).order_by(Operator.nombre)).all()
 
-    resumen_seleccionado = None
-    if resumen_id:
-        resumen_seleccionado = next((r for r in resumenes if r.id == int(resumen_id)), None)
-
-    movimientos_query = select(Movement).where(
-        Movement.estado_registro == RecordState.CONFIRMADO,
-        Movement.estado_conciliacion.in_([ReconciliationState.PENDIENTE, ReconciliationState.CON_DIFERENCIA]),
-    )
-    lineas_pendientes_query = select(StatementLine).where(StatementLine.estado == StatementLineState.PENDIENTE)
-    lineas_conciliadas_query = select(StatementLine).where(StatementLine.estado == StatementLineState.CONCILIADA)
-
-    if resumen_seleccionado is not None:
-        # Un Movement no se asocia a una cuenta hasta que se concilia (ver
-        # reconciliation.py), asi que "movimientos que podrian pertenecer a este
-        # resumen" son los que ya quedaron pegados a su cuenta o todavia no tienen
-        # ninguna -- mismo criterio que usa el motor de matching automatico.
-        movimientos_query = movimientos_query.where(
-            (Movement.cuenta_bancaria_id.is_(None))
-            | (Movement.cuenta_bancaria_id == resumen_seleccionado.cuenta_bancaria_id)
-        )
-        lineas_pendientes_query = lineas_pendientes_query.where(StatementLine.resumen_id == resumen_seleccionado.id)
-        lineas_conciliadas_query = lineas_conciliadas_query.where(StatementLine.resumen_id == resumen_seleccionado.id)
-
-    movimientos_pendientes = db.scalars(
-        movimientos_query.options(selectinload(Movement.operador)).order_by(Movement.fecha_transaccion)
-    ).all()
-    lineas_pendientes = db.scalars(
-        lineas_pendientes_query.options(
-            selectinload(StatementLine.resumen).selectinload(ImportedStatement.cuenta_bancaria)
-        ).order_by(StatementLine.fecha)
-    ).all()
-    lineas_conciliadas = db.scalars(
-        lineas_conciliadas_query.options(
-            selectinload(StatementLine.resumen).selectinload(ImportedStatement.cuenta_bancaria),
-            selectinload(StatementLine.movimiento).selectinload(Movement.operador),
-        ).order_by(StatementLine.fecha.desc())
-    ).all()
     return {
         "user": user,
-        "cuentas": cuentas,
-        "movimientos_pendientes": movimientos_pendientes,
+        "fecha": fecha,
+        "fecha_anterior": (fecha - timedelta(days=1)).isoformat(),
+        "fecha_siguiente": (fecha + timedelta(days=1)).isoformat(),
+        "bancos": bancos,
+        "banco_seleccionado": banco,
+        "iconos_por_banco": {b: icono_banco(b) for b in bancos},
+        "conteos_salidas_por_banco": _salidas_por_banco_del_dia(db, fecha),
+        "panel": panel,
+        "movimientos": [_movimiento_row_dict(m) for m in movimientos],
+        "total_movimientos": total_movimientos,
+        "salidas": salidas,
+        "sin_banco_cantidad": sin_banco_cantidad,
+        "sin_banco_total": sin_banco_total,
         "lineas_pendientes": lineas_pendientes,
-        "lineas_conciliadas": lineas_conciliadas,
-        "resumenes": resumenes,
+        "cierre": _cierre_del_dia(db, fecha),
+        "resumenes_historicos": resumenes_historicos,
         "conteos_por_resumen": _conteos_por_resumen(db),
-        "resumen_id": resumen_id,
-        "resumen_seleccionado": resumen_seleccionado,
+        "cuentas": db.scalars(select(BankAccount).where(BankAccount.banco == banco).order_by(BankAccount.id)).all()
+        if banco
+        else [],
+        "operadores": operadores,
         "error": error,
         "mensaje": mensaje,
     }
@@ -1212,32 +1701,223 @@ def _conciliaciones_context(
 
 @router.get("/conciliaciones")
 def conciliaciones(
-    request: Request, resumen_id: str = "", db: Session = Depends(get_db), user: PanelUser = Depends(require_user)
+    request: Request,
+    fecha: str = "",
+    banco: str = "",
+    resumen_id: str = "",
+    db: Session = Depends(get_db),
+    user: PanelUser = Depends(require_user),
 ):
+    if resumen_id:
+        # Compat con links/bookmarks viejos que apuntaban a un resumen puntual --
+        # se resuelve a la (fecha, banco) equivalente en la vista nueva.
+        resumen = db.get(ImportedStatement, int(resumen_id))
+        if resumen is None:
+            return RedirectResponse("/conciliaciones", status_code=303)
+        cuenta = db.get(BankAccount, resumen.cuenta_bancaria_id)
+        destino = f"/conciliaciones?fecha={resumen.fecha.date().isoformat()}"
+        if cuenta is not None:
+            destino += f"&banco={cuenta.banco}"
+        return RedirectResponse(destino, status_code=303)
+
+    fecha_obj = _parse_fecha_o_hoy(fecha)
     return templates.TemplateResponse(
-        request, "conciliaciones.html", _conciliaciones_context(db, user, None, resumen_id)
+        request, "conciliaciones.html", _construir_contexto_conciliaciones(db, user, fecha_obj, banco)
     )
+
+
+@router.get("/conciliaciones/panel.json")
+def conciliaciones_panel_json(
+    fecha: str = "", banco: str = "", db: Session = Depends(get_db), user: PanelUser = Depends(require_user)
+):
+    fecha_obj = _parse_fecha_o_hoy(fecha)
+    bancos = _bancos_disponibles(db)
+    banco = _banco_o_default(db, banco, bancos)
+    panel = _panel_banco(db, fecha_obj, banco) if banco else None
+    sin_banco_cantidad, sin_banco_total = _sin_banco_identificado_del_dia(db, fecha_obj)
+    return {
+        "fecha": fecha_obj.isoformat(),
+        "banco": banco,
+        "panel": _serializar_panel(panel) if panel else None,
+        "cerrado": _cierre_del_dia(db, fecha_obj) is not None,
+        "sin_banco_cantidad": sin_banco_cantidad,
+        "sin_banco_total": str(sin_banco_total),
+    }
+
+
+@router.get("/conciliaciones/movimientos.json")
+def conciliaciones_movimientos_json(
+    fecha: str = "",
+    banco: str = "",
+    page: int = 1,
+    page_size: int = 25,
+    estado: str = "",
+    search: str = "",
+    operador_id: str = "",
+    reparto_id: str = "",
+    db: Session = Depends(get_db),
+    user: PanelUser = Depends(require_user),
+):
+    fecha_obj = _parse_fecha_o_hoy(fecha)
+    cuenta_ids = _cuenta_ids_por_banco(db, banco)
+    query = _movimientos_del_dia_query(fecha_obj, cuenta_ids, estado, search, operador_id, reparto_id)
+    total = db.scalar(select(func.count()).select_from(query.subquery())) or 0
+
+    page = max(page, 1)
+    page_size = min(max(page_size, 1), 100)
+    movimientos = db.scalars(
+        query.options(selectinload(Movement.operador), selectinload(Movement.reparto))
+        .order_by(Movement.fecha_transaccion.desc())
+        .limit(page_size)
+        .offset((page - 1) * page_size)
+    ).all()
+    total_pages = max((total + page_size - 1) // page_size, 1)
+    return {
+        "items": [_movimiento_row_dict(m) for m in movimientos],
+        "page": page,
+        "page_size": page_size,
+        "total": total,
+        "total_pages": total_pages,
+    }
+
+
+@router.get("/conciliaciones/movimientos/exportar")
+def conciliaciones_movimientos_exportar(
+    fecha: str = "",
+    banco: str = "",
+    estado: str = "",
+    search: str = "",
+    operador_id: str = "",
+    reparto_id: str = "",
+    db: Session = Depends(get_db),
+    user: PanelUser = Depends(require_user),
+):
+    fecha_obj = _parse_fecha_o_hoy(fecha)
+    cuenta_ids = _cuenta_ids_por_banco(db, banco)
+    query = _movimientos_del_dia_query(fecha_obj, cuenta_ids, estado, search, operador_id, reparto_id)
+    movimientos = db.scalars(
+        query.options(selectinload(Movement.operador), selectinload(Movement.reparto))
+        .order_by(Movement.fecha_transaccion.desc())
+    ).all()
+    filas = [
+        [
+            movimiento.fecha_transaccion.strftime("%Y-%m-%d %H:%M") if movimiento.fecha_transaccion else "",
+            movimiento.factura_o_cuenta_numero or movimiento.numero_operacion or "",
+            movimiento.titular or "",
+            movimiento.monto if movimiento.monto is not None else "",
+            movimiento.reparto.numero_reparto if movimiento.reparto and movimiento.reparto.numero_reparto is not None else "",
+            movimiento.operador.nombre,
+            movimiento.estado_conciliacion.value,
+        ]
+        for movimiento in movimientos
+    ]
+    return _xlsx_response(
+        ["Fecha / Hora", "Comprobante", "Titular", "Importe", "Salida", "Operador", "Estado"],
+        filas,
+        f"conciliaciones_{banco or 'todos'}_{fecha_obj.isoformat()}.xlsx",
+    )
+
+
+@router.get("/conciliaciones/salidas.json")
+def conciliaciones_salidas_json(
+    fecha: str = "",
+    banco: str = "",
+    page: int = 1,
+    page_size: int = 25,
+    db: Session = Depends(get_db),
+    user: PanelUser = Depends(require_user),
+):
+    fecha_obj = _parse_fecha_o_hoy(fecha)
+    salidas = _salidas_del_dia(db, fecha_obj, banco)
+    page = max(page, 1)
+    page_size = min(max(page_size, 1), 100)
+    total = len(salidas)
+    inicio = (page - 1) * page_size
+    total_pages = max((total + page_size - 1) // page_size, 1)
+    return {
+        "items": salidas[inicio : inicio + page_size],
+        "page": page,
+        "page_size": page_size,
+        "total": total,
+        "total_pages": total_pages,
+    }
+
+
+@router.get("/conciliaciones/resumen-dia.json")
+def conciliaciones_resumen_dia_json(
+    fecha: str = "", db: Session = Depends(get_db), user: PanelUser = Depends(require_user)
+):
+    fecha_obj = _parse_fecha_o_hoy(fecha)
+    bancos = _bancos_disponibles(db)
+    paneles = [_serializar_panel(_panel_banco(db, fecha_obj, banco)) for banco in bancos]
+    sin_banco_cantidad, sin_banco_total = _sin_banco_identificado_del_dia(db, fecha_obj)
+    return {
+        "fecha": fecha_obj.isoformat(),
+        "bancos": paneles,
+        "sin_banco_cantidad": sin_banco_cantidad,
+        "sin_banco_total": str(sin_banco_total),
+        "cerrado": _cierre_del_dia(db, fecha_obj) is not None,
+        "puede_cerrarse": _dia_puede_cerrarse(db, fecha_obj, bancos),
+    }
+
+
+@router.post("/conciliaciones/cierres")
+def cerrar_dia(
+    request: Request, fecha: str = Form(...), db: Session = Depends(get_db), user: PanelUser = Depends(require_user)
+):
+    fecha_obj = _parse_fecha_o_hoy(fecha)
+    bancos = _bancos_disponibles(db)
+    if not _dia_puede_cerrarse(db, fecha_obj, bancos):
+        return templates.TemplateResponse(
+            request,
+            "conciliaciones.html",
+            _construir_contexto_conciliaciones(
+                db, user, fecha_obj, error="No se puede cerrar el dia: hay bancos pendientes de revision."
+            ),
+            status_code=400,
+        )
+    if _cierre_del_dia(db, fecha_obj) is None:
+        db.add(CierreDiario(fecha=fecha_obj, cerrado_por_id=user.id))
+        db.commit()
+    return RedirectResponse(f"/conciliaciones?fecha={fecha_obj.isoformat()}", status_code=303)
+
+
+@router.post("/conciliaciones/cierres/{fecha}/reabrir")
+def reabrir_dia(
+    fecha: str, request: Request, db: Session = Depends(get_db), user: PanelUser = Depends(require_user)
+):
+    fecha_obj = _parse_fecha_o_hoy(fecha)
+    cierre = _cierre_del_dia(db, fecha_obj)
+    if cierre is not None:
+        db.delete(cierre)
+        db.commit()
+    return RedirectResponse(f"/conciliaciones?fecha={fecha_obj.isoformat()}", status_code=303)
 
 
 @router.post("/conciliaciones/reconciliar")
 def reconciliar_pendientes(
     request: Request,
-    resumen_id: str = Form(""),
+    fecha: str = Form(""),
+    banco: str = Form(""),
     db: Session = Depends(get_db),
     user: PanelUser = Depends(require_user),
 ):
     """Reintenta el matching automatico sobre las lineas pendientes SIN pedir un
     archivo nuevo -- util cuando lo que cambio no fue el resumen del banco sino que
     se confirmaron comprobantes nuevos despues de la ultima carga, que antes no
-    tenian con que emparejar."""
-    if resumen_id:
-        resumen = db.get(ImportedStatement, int(resumen_id))
-        resumenes = [resumen] if resumen is not None else []
+    tenian con que emparejar. Se aplica sobre todos los resumenes del banco
+    seleccionado (o de todos si no se paso banco), salteando los dias cerrados."""
+    fecha_obj = _parse_fecha_o_hoy(fecha)
+    if banco:
+        cuenta_ids = _cuenta_ids_por_banco(db, banco)
+        resumenes = db.scalars(select(ImportedStatement).where(ImportedStatement.cuenta_bancaria_id.in_(cuenta_ids))).all()
     else:
         resumenes = db.scalars(select(ImportedStatement)).all()
 
     conciliadas = 0
     for resumen in resumenes:
+        if _cierre_del_dia(db, resumen.fecha.date()) is not None:
+            continue
         lineas_pendientes = db.scalars(
             select(StatementLine).where(
                 StatementLine.resumen_id == resumen.id, StatementLine.estado == StatementLineState.PENDIENTE
@@ -1256,7 +1936,7 @@ def reconciliar_pendientes(
         else "No se encontraron coincidencias nuevas."
     )
     return templates.TemplateResponse(
-        request, "conciliaciones.html", _conciliaciones_context(db, user, None, resumen_id, mensaje)
+        request, "conciliaciones.html", _construir_contexto_conciliaciones(db, user, fecha_obj, banco, mensaje=mensaje)
     )
 
 
@@ -1269,12 +1949,28 @@ async def importar_resumen(
     db: Session = Depends(get_db),
     user: PanelUser = Depends(require_user),
 ):
+    fecha_obj = datetime.strptime(fecha, "%Y-%m-%d").date()
+    cuenta = db.get(BankAccount, cuenta_bancaria_id)
+    banco = cuenta.banco if cuenta is not None else ""
+
+    error_cierre = _dia_cerrado_error(db, fecha_obj)
+    if error_cierre:
+        return templates.TemplateResponse(
+            request,
+            "conciliaciones.html",
+            _construir_contexto_conciliaciones(db, user, fecha_obj, banco, error=error_cierre),
+            status_code=400,
+        )
+
     contenido = await archivo.read()
     try:
         filas, formato = parse_statement_file(archivo.filename or "", contenido)
     except StatementParseError as exc:
         return templates.TemplateResponse(
-            request, "conciliaciones.html", _conciliaciones_context(db, user, str(exc)), status_code=400
+            request,
+            "conciliaciones.html",
+            _construir_contexto_conciliaciones(db, user, fecha_obj, banco, error=str(exc)),
+            status_code=400,
         )
 
     resumen = ImportedStatement(
@@ -1301,7 +1997,7 @@ async def importar_resumen(
     db.add_all(lineas)
     match_statement(db, resumen, lineas)
     db.commit()
-    return RedirectResponse("/conciliaciones", status_code=303)
+    return RedirectResponse(f"/conciliaciones?fecha={fecha}&banco={banco}", status_code=303)
 
 
 @router.post("/conciliaciones/resumenes/{resumen_id}/actualizar")
@@ -1319,13 +2015,28 @@ async def actualizar_resumen(
     resumen = db.get(ImportedStatement, resumen_id)
     if resumen is None:
         return RedirectResponse("/conciliaciones", status_code=303)
+    fecha_obj = resumen.fecha.date()
+    cuenta = db.get(BankAccount, resumen.cuenta_bancaria_id)
+    banco = cuenta.banco if cuenta is not None else ""
+
+    error_cierre = _dia_cerrado_error(db, fecha_obj)
+    if error_cierre:
+        return templates.TemplateResponse(
+            request,
+            "conciliaciones.html",
+            _construir_contexto_conciliaciones(db, user, fecha_obj, banco, error=error_cierre),
+            status_code=400,
+        )
 
     contenido = await archivo.read()
     try:
         filas, _formato = parse_statement_file(archivo.filename or "", contenido)
     except StatementParseError as exc:
         return templates.TemplateResponse(
-            request, "conciliaciones.html", _conciliaciones_context(db, user, str(exc), str(resumen_id)), status_code=400
+            request,
+            "conciliaciones.html",
+            _construir_contexto_conciliaciones(db, user, fecha_obj, banco, error=str(exc)),
+            status_code=400,
         )
 
     lineas_existentes = db.scalars(select(StatementLine).where(StatementLine.resumen_id == resumen.id)).all()
@@ -1362,7 +2073,7 @@ async def actualizar_resumen(
         else "No se encontraron transacciones nuevas en el archivo: ya estaba todo cargado."
     )
     return templates.TemplateResponse(
-        request, "conciliaciones.html", _conciliaciones_context(db, user, None, str(resumen_id), mensaje)
+        request, "conciliaciones.html", _construir_contexto_conciliaciones(db, user, fecha_obj, banco, mensaje=mensaje)
     )
 
 
@@ -1372,19 +2083,28 @@ def emparejar_linea(
     request: Request,
     movimiento_id: int = Form(...),
     resumen_id: str = Form(""),
+    fecha: str = Form(""),
+    banco: str = Form(""),
     db: Session = Depends(get_db),
     user: PanelUser = Depends(require_user),
 ):
     linea = db.get(StatementLine, linea_id)
     movimiento = db.get(Movement, movimiento_id)
     if linea is not None and movimiento is not None:
+        if _cierre_del_dia(db, linea.fecha.date()) is not None:
+            return RedirectResponse(
+                f"/conciliaciones?fecha={fecha or linea.fecha.date().isoformat()}&banco={banco}", status_code=303
+            )
         linea.movimiento_id = movimiento.id
         linea.estado = StatementLineState.CONCILIADA
         movimiento.estado_conciliacion = ReconciliationState.CONCILIADO_MANUALMENTE
         if movimiento.cuenta_bancaria_id is None:
             movimiento.cuenta_bancaria_id = linea.resumen.cuenta_bancaria_id
         db.commit()
-    destino = f"/conciliaciones?resumen_id={resumen_id}" if resumen_id else "/conciliaciones"
+    if fecha or banco:
+        destino = f"/conciliaciones?fecha={fecha}&banco={banco}"
+    else:
+        destino = f"/conciliaciones?resumen_id={resumen_id}" if resumen_id else "/conciliaciones"
     return RedirectResponse(destino, status_code=303)
 
 
@@ -1393,12 +2113,17 @@ def marcar_linea_no_corresponde(
     linea_id: int,
     request: Request,
     resumen_id: str = Form(""),
+    fecha: str = Form(""),
+    banco: str = Form(""),
     db: Session = Depends(get_db),
     user: PanelUser = Depends(require_user),
 ):
     linea = db.get(StatementLine, linea_id)
-    if linea is not None:
+    if linea is not None and _cierre_del_dia(db, linea.fecha.date()) is None:
         linea.estado = StatementLineState.NO_CORRESPONDE
         db.commit()
-    destino = f"/conciliaciones?resumen_id={resumen_id}" if resumen_id else "/conciliaciones"
+    if fecha or banco:
+        destino = f"/conciliaciones?fecha={fecha}&banco={banco}"
+    else:
+        destino = f"/conciliaciones?resumen_id={resumen_id}" if resumen_id else "/conciliaciones"
     return RedirectResponse(destino, status_code=303)

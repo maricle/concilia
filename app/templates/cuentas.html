@@ -1,12 +1,11 @@
 {% extends "base.html" %}
+{% import "partials/_listado_header.html" as listado %}
 {% block title %}Cuentas bancarias - Concilia{% endblock %}
 {% block content %}
 <h1 class="h3 mb-4 text-gray-800">Cuentas bancarias</h1>
 
 <div class="card shadow mb-4">
-  <div class="card-header py-3">
-    <h6 class="m-0 font-weight-bold text-primary">Listado</h6>
-  </div>
+  {{ listado.header("Listado", "/config/cuentas/exportar") }}
   <div class="card-body">
     <div class="table-responsive">
       <table class="table table-bordered table-sm small mb-0" width="100%" cellspacing="0">

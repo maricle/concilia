@@ -1,0 +1,16 @@
+{# Chip de icono de banco: usa el logo real (imagen) si app/bancos.py tiene
+   uno cargado para ese banco, o el icono de Font Awesome + color como
+   fallback. Usar asi:
+
+   {% import "partials/_banco_icono.html" as banco_icono %}
+   {{ banco_icono.chip(iconos_por_banco[b], "bank-tab-icon") }}
+#}
+{% macro chip(datos, css_class) %}
+<span class="{{ css_class }}"{% if not datos.imagen %} style="background: {{ datos.color }};"{% endif %}>
+  {% if datos.imagen %}
+  <img src="/static/img/{{ datos.imagen }}" alt="">
+  {% else %}
+  <i class="fas {{ datos.icono }}"></i>
+  {% endif %}
+</span>
+{% endmacro %}

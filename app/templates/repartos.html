@@ -1,38 +1,30 @@
 {% extends "base.html" %}
+{% import "partials/_filtros.html" as filtros %}
 {% block title %}Salidas - Concilia{% endblock %}
 {% block content %}
 <h1 class="h3 mb-4 text-gray-800">Salidas</h1>
 
-<div class="card shadow mb-4">
-  <div class="card-header py-3">
-    <h6 class="m-0 font-weight-bold text-primary">Filtros</h6>
+{% call filtros.form("/repartos", q, "Buscar por movil o numero de salida...", movil_id or fecha_desde or fecha_hasta, "/repartos/exportar") %}
+<div class="form-row align-items-end">
+  <div class="form-group col-md-4">
+    <label>Movil</label>
+    <select class="form-control" name="movil_id">
+      <option value="">Todos</option>
+      {% for movil in moviles %}
+      <option value="{{ movil.id }}" {{ "selected" if movil_id == movil.id|string }}>{{ movil.numero }} - {{ movil.nombre }}</option>
+      {% endfor %}
+    </select>
   </div>
-  <div class="card-body">
-    <form method="get" action="/repartos">
-      <div class="form-row align-items-end">
-        <div class="form-group col-md-3">
-          <label>Movil</label>
-          <select class="form-control" name="movil_id">
-            <option value="">Todos</option>
-            {% for movil in moviles %}
-            <option value="{{ movil.id }}" {{ "selected" if movil_id == movil.id|string }}>{{ movil.numero }} - {{ movil.nombre }}</option>
-            {% endfor %}
-          </select>
-        </div>
-        <div class="form-group col-md-3">
-          <label>Fecha desde</label>
-          <input type="date" class="form-control" name="fecha_desde" value="{{ fecha_desde }}">
-        </div>
-        <div class="form-group col-md-3">
-          <label>Fecha hasta</label>
-          <input type="date" class="form-control" name="fecha_hasta" value="{{ fecha_hasta }}">
-        </div>
-      </div>
-      <button type="submit" class="btn btn-primary">Filtrar</button>
-      <a href="/repartos" class="btn btn-outline-secondary">Limpiar</a>
-    </form>
+  <div class="form-group col-md-4">
+    <label>Fecha desde</label>
+    <input type="date" class="form-control" name="fecha_desde" value="{{ fecha_desde }}">
+  </div>
+  <div class="form-group col-md-4">
+    <label>Fecha hasta</label>
+    <input type="date" class="form-control" name="fecha_hasta" value="{{ fecha_hasta }}">
   </div>
 </div>
+{% endcall %}
 
 <div class="card shadow mb-4">
   <div class="card-header py-3">

@@ -1,8 +1,9 @@
-import csv
-from datetime import date, datetime
+import io
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 
 from fastapi.testclient import TestClient
+from openpyxl import load_workbook
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -11,7 +12,18 @@ from app import panel
 from app.auth import hash_password
 from app.db import Base
 from app.main import app
-from app.models import BankAccount, Movement, Movil, Operator, PanelUser, RecordState, Reparto
+from app.models import (
+    BankAccount,
+    Movement,
+    Movil,
+    Operator,
+    PanelUser,
+    ReconciliationState,
+    RecordState,
+    Reparto,
+    RepartoOperador,
+)
+from app.zona_horaria import ahora_argentina, hoy_argentina
 
 
 def _client_with_admin():
@@ -625,9 +637,10 @@ def test_comprobantes_exportar_incluye_columna_movil():
     response = client.get("/comprobantes/exportar")
 
     assert response.status_code == 200
-    contenido = response.content.decode("utf-8-sig")
-    assert "Movil" in contenido
-    assert "M-01" in contenido
+    libro = load_workbook(io.BytesIO(response.content))
+    filas = [[celda.value for celda in fila] for fila in libro.active.iter_rows()]
+    assert "Movil" in filas[0]
+    assert any("M-01" in fila for fila in filas)
 
 
 def test_comprobantes_muestra_nro_de_reparto():
@@ -661,10 +674,11 @@ def test_comprobantes_muestra_nro_de_reparto():
     assert "Nro. Salida" in response.text
 
     export = client.get("/comprobantes/exportar")
-    filas = list(csv.reader(export.content.decode("utf-8-sig").splitlines()))
+    libro = load_workbook(io.BytesIO(export.content))
+    filas = [[celda.value for celda in fila] for fila in libro.active.iter_rows()]
     encabezado, fila = filas[0], filas[1]
     assert encabezado[encabezado.index("Nro. Salida")] == "Nro. Salida"
-    assert fila[encabezado.index("Nro. Salida")] == "5"
+    assert fila[encabezado.index("Nro. Salida")] == 5
 
 
 def test_repartos_listado_y_filtro_por_movil():
@@ -884,3 +898,186 @@ def test_repartos_muestra_cantidad_de_comprobantes():
     assert response.status_code == 200
     rows = response.text.split("<tbody>")[1]
     assert ">2<" in rows
+
+
+def test_resumen_home_requiere_login():
+    client, _ = _client_with_admin()
+    response = client.get("/resumen", follow_redirects=False)
+    assert response.status_code == 303
+    assert response.headers["location"] == "/login"
+
+
+def test_resumen_kpis_hoy_cuentan_solo_movimientos_de_hoy():
+    client, test_session = _client_with_admin()
+    with test_session() as session:
+        session.add(Operator(nombre="Ana", whatsapp_numero="111"))
+        session.add(BankAccount(banco="Nacion", numero_cuenta="1", alias="Principal"))
+        session.commit()
+        session.add_all(
+            [
+                Movement(
+                    operador_id=1,
+                    monto=Decimal("1000.00"),
+                    fecha_transaccion=ahora_argentina(),
+                    numero_operacion="OP-HOY",
+                    estado_registro=RecordState.CONFIRMADO,
+                    cuenta_bancaria_id=1,
+                ),
+                Movement(
+                    operador_id=1,
+                    monto=Decimal("500.00"),
+                    fecha_transaccion=ahora_argentina() - timedelta(days=1),
+                    numero_operacion="OP-AYER",
+                    estado_registro=RecordState.CONFIRMADO,
+                    cuenta_bancaria_id=1,
+                ),
+            ]
+        )
+        session.commit()
+
+    client.post("/login", data={"email": "admin@concilia.test", "password": "secreta123"})
+    response = client.get("/resumen")
+
+    assert response.status_code == 200
+    assert "Bancos en uso" in response.text
+    i = response.text.find("Comprobantes de hoy")
+    seccion = response.text[i : i + 400]
+    assert "<div class=\"kpi-value\">1</div>" in seccion
+
+
+def test_resumen_bancos_del_dia_muestra_estado_conciliado():
+    client, test_session = _client_with_admin()
+    with test_session() as session:
+        session.add(Operator(nombre="Ana", whatsapp_numero="111"))
+        session.add(BankAccount(banco="Nacion", numero_cuenta="1", alias="Principal"))
+        session.commit()
+        session.add(
+            Movement(
+                operador_id=1,
+                monto=Decimal("500.00"),
+                fecha_transaccion=ahora_argentina(),
+                numero_operacion="OP-HOY",
+                estado_registro=RecordState.CONFIRMADO,
+                cuenta_bancaria_id=1,
+            )
+        )
+        session.commit()
+
+    client.post("/login", data={"email": "admin@concilia.test", "password": "secreta123"})
+
+    csv_contenido = f"Fecha,Importe,Descripcion,Referencia\n{hoy_argentina().isoformat()},500.00,Transferencia,OP-HOY\n"
+    client.post(
+        "/conciliaciones/importar",
+        data={"cuenta_bancaria_id": "1", "fecha": hoy_argentina().isoformat()},
+        files={"archivo": ("resumen.csv", csv_contenido, "text/csv")},
+    )
+
+    response = client.get("/resumen")
+    assert response.status_code == 200
+    assert "Bancos del dia" in response.text
+    i = response.text.find("banco-dia-row")
+    seccion = response.text[i : i + 600]
+    assert "Nacion" in seccion
+    assert "Conciliado" in seccion
+
+
+def test_resumen_actividad_reciente_muestra_ultimos_comprobantes():
+    client, test_session = _client_with_admin()
+    with test_session() as session:
+        session.add(Operator(nombre="Ana", whatsapp_numero="111"))
+        session.commit()
+        session.add(
+            Movement(
+                operador_id=1,
+                monto=Decimal("1234.56"),
+                fecha_transaccion=ahora_argentina(),
+                numero_operacion="OP-ACTIVIDAD",
+                estado_registro=RecordState.CONFIRMADO,
+            )
+        )
+        session.commit()
+
+    client.post("/login", data={"email": "admin@concilia.test", "password": "secreta123"})
+    response = client.get("/resumen")
+
+    assert response.status_code == 200
+    i = response.text.find("Actividad reciente")
+    seccion = response.text[i : i + 1000]
+    assert "Ana" in seccion
+    assert "1.234,56" in seccion
+
+
+def _leer_xlsx(contenido: bytes) -> list[list]:
+    libro = load_workbook(io.BytesIO(contenido))
+    return [[celda.value for celda in fila] for fila in libro.active.iter_rows()]
+
+
+def test_repartos_exportar_devuelve_xlsx():
+    client, test_session = _client_with_admin()
+    with test_session() as session:
+        session.add(Operator(nombre="Ana", whatsapp_numero="111"))
+        session.commit()
+        session.add(Movil(numero="M-01", nombre="Camion 1", responsable_operador_id=1))
+        session.commit()
+        session.add(
+            Reparto(movil_id=1, fecha=date(2026, 8, 24), hora_inicio=datetime(2026, 8, 24, 8, 0), numero_reparto=7)
+        )
+        session.commit()
+
+    client.post("/login", data={"email": "admin@concilia.test", "password": "secreta123"})
+    response = client.get("/repartos/exportar")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    filas = _leer_xlsx(response.content)
+    assert "Nro. Salida" in filas[0]
+    assert any(7 in fila for fila in filas[1:])
+
+
+def test_conciliaciones_movimientos_exportar_devuelve_xlsx():
+    client, test_session = _client_with_admin()
+    with test_session() as session:
+        session.add(Operator(nombre="Ana", whatsapp_numero="111"))
+        session.add(BankAccount(banco="Nacion", numero_cuenta="1", alias="Principal"))
+        session.commit()
+        session.add(
+            Movement(
+                operador_id=1,
+                monto=Decimal("500.00"),
+                fecha_transaccion=ahora_argentina(),
+                numero_operacion="OP-EXPORT",
+                estado_registro=RecordState.CONFIRMADO,
+                cuenta_bancaria_id=1,
+            )
+        )
+        session.commit()
+
+    client.post("/login", data={"email": "admin@concilia.test", "password": "secreta123"})
+    response = client.get("/conciliaciones/movimientos/exportar", params={"banco": "Nacion"})
+
+    assert response.status_code == 200
+    filas = _leer_xlsx(response.content)
+    assert "Comprobante" in filas[0]
+    assert any("OP-EXPORT" in fila for fila in filas[1:])
+
+
+def test_config_exportar_devuelve_xlsx_para_las_4_pantallas():
+    client, test_session = _client_with_admin()
+    with test_session() as session:
+        session.add(Operator(nombre="Ana", whatsapp_numero="111"))
+        session.add(Movil(numero="M-01", nombre="Camion 1"))
+        session.add(BankAccount(banco="Nacion", numero_cuenta="1", alias="Principal"))
+        session.commit()
+
+    client.post("/login", data={"email": "admin@concilia.test", "password": "secreta123"})
+
+    for path, encabezado_esperado in [
+        ("/config/operadores/exportar", "Numero"),
+        ("/config/moviles/exportar", "Responsable"),
+        ("/config/cuentas/exportar", "Alias"),
+        ("/config/usuarios/exportar", "Rol"),
+    ]:
+        response = client.get(path)
+        assert response.status_code == 200, path
+        filas = _leer_xlsx(response.content)
+        assert encabezado_esperado in filas[0], path

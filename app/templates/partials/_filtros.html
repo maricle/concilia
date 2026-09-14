@@ -1,0 +1,31 @@
+{# Barra de filtros estandar: buscador de texto libre siempre visible +
+   boton "Filtros" que despliega el resto de los campos (pasados via {% call %}).
+   Usar asi:
+
+   {% import "partials/_filtros.html" as filtros %}
+   {% call filtros.form("/comprobantes", q, "Buscar...", hay_filtros_avanzados_activos, "/comprobantes/exportar") %}
+     ... campos de filtro puntuales de la pagina (selects, fechas, etc.) ...
+   {% endcall %}
+#}
+{% macro form(action, q, placeholder, show_advanced=False, exportar_action=none) %}
+<div class="card shadow mb-4">
+  <div class="card-body">
+    <form method="get" action="{{ action }}">
+      <div class="d-flex flex-wrap align-items-center" style="gap: 8px;">
+        <button type="button" class="btn btn-outline-secondary btn-sm" data-toggle="collapse" data-target="#filtros-avanzados">
+          <i class="fas fa-filter mr-1"></i>Filtros
+        </button>
+        <input type="text" class="form-control form-control-sm flex-grow-1" name="q" value="{{ q }}" placeholder="{{ placeholder }}" style="min-width: 240px;">
+        <button type="submit" class="btn btn-primary btn-sm">Buscar</button>
+        {% if exportar_action %}
+        <button type="submit" formaction="{{ exportar_action }}" class="btn btn-outline-secondary btn-sm" title="Exportar el listado filtrado a Excel"><i class="fas fa-file-excel mr-1"></i>Exportar</button>
+        {% endif %}
+      </div>
+      <div class="collapse{{ ' show' if show_advanced else '' }} mt-3 filtros-condensados" id="filtros-avanzados">
+        {{ caller() }}
+        <a href="{{ action }}" class="btn btn-outline-secondary btn-sm mt-2">Limpiar filtros</a>
+      </div>
+    </form>
+  </div>
+</div>
+{% endmacro %}

@@ -1,7 +1,204 @@
 {% extends "base.html" %}
+{% import "partials/_banco_icono.html" as banco_icono %}
 {% block title %}Resumen - Concilia{% endblock %}
 {% block content %}
-<h1 class="h3 mb-4 text-gray-800">Resumen</h1>
+<div class="d-flex justify-content-between align-items-start flex-wrap mb-4">
+  <div>
+    <h1 class="h3 mb-1 text-gray-800">Hola, {{ user.nombre }}</h1>
+    <p class="text-muted mb-0">Aqui tenes el resumen de la operacion de hoy.</p>
+  </div>
+  <span class="text-muted small mt-2">{{ hoy.strftime("%A, %d de %B de %Y") }}</span>
+</div>
+
+<div class="row kpi-row">
+  <div class="col-xl col-md-4 col-6 mb-4">
+    <div class="kpi-card">
+      <div class="kpi-top">
+        <span class="kpi-label">Comprobantes de hoy</span>
+        <span class="kpi-icon acc"><i class="fas fa-file-invoice-dollar"></i></span>
+      </div>
+      <div class="kpi-value">{{ kpis_hoy.comprobantes_hoy }}</div>
+      <div class="kpi-foot">{{ kpis_hoy.comprobantes_hoy_variacion or "sin datos de ayer" }}</div>
+    </div>
+  </div>
+  <div class="col-xl col-md-4 col-6 mb-4">
+    <div class="kpi-card">
+      <div class="kpi-top">
+        <span class="kpi-label">Monto total (hoy)</span>
+        <span class="kpi-icon acc"><i class="fas fa-dollar-sign"></i></span>
+      </div>
+      <div class="kpi-value">${{ "{:,.2f}".format(kpis_hoy.monto_hoy).replace(",", "_").replace(".", ",").replace("_", ".") }}</div>
+      <div class="kpi-foot">{{ kpis_hoy.monto_hoy_variacion or "sin datos de ayer" }}</div>
+    </div>
+  </div>
+  <div class="col-xl col-md-4 col-6 mb-4">
+    <div class="kpi-card">
+      <div class="kpi-top">
+        <span class="kpi-label">Salidas activas</span>
+        <span class="kpi-icon acc"><i class="fas fa-route"></i></span>
+      </div>
+      <div class="kpi-value">{{ kpis_hoy.salidas_activas }}</div>
+      <div class="kpi-foot">{{ kpis_hoy.operadores_en_salida }} operador{{ "es" if kpis_hoy.operadores_en_salida != 1 }}</div>
+    </div>
+  </div>
+  <div class="col-xl col-md-4 col-6 mb-4">
+    <div class="kpi-card">
+      <div class="kpi-top">
+        <span class="kpi-label">Bancos en uso</span>
+        <span class="kpi-icon acc"><i class="fas fa-university"></i></span>
+      </div>
+      <div class="kpi-value">{{ kpis_hoy.bancos_en_uso }}</div>
+      <div class="kpi-foot">{{ bancos_del_dia|map(attribute="banco")|join(", ") if bancos_del_dia else "sin actividad hoy" }}</div>
+    </div>
+  </div>
+  <div class="col-xl col-md-4 col-6 mb-4">
+    <div class="kpi-card">
+      <div class="kpi-top">
+        <span class="kpi-label">Bancos conciliados</span>
+        <span class="kpi-icon good"><i class="fas fa-check"></i></span>
+      </div>
+      <div class="kpi-value">{{ kpis_hoy.bancos_conciliados }} / {{ kpis_hoy.bancos_en_uso }}</div>
+      <div class="kpi-foot">{{ "%.0f"|format(kpis_hoy.bancos_conciliados / kpis_hoy.bancos_en_uso * 100) if kpis_hoy.bancos_en_uso else 0 }}%</div>
+    </div>
+  </div>
+</div>
+
+<div class="row">
+  <div class="col-lg-6 mb-4">
+    <div class="card shadow h-100">
+      <div class="card-header py-3">
+        <h6 class="m-0 font-weight-bold text-primary">Comprobantes y montos</h6>
+      </div>
+      <div class="card-body" style="height: 280px;">
+        <canvas id="chart-comprobantes-montos"></canvas>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-3 mb-4">
+    <div class="card shadow h-100">
+      <div class="card-header py-3">
+        <h6 class="m-0 font-weight-bold text-primary">Comprobantes por banco (hoy)</h6>
+      </div>
+      <div class="card-body" style="height: 280px;">
+        {% if comprobantes_por_banco_hoy %}
+        <canvas id="chart-comprobantes-banco"></canvas>
+        {% else %}
+        <p class="text-muted small mb-0">Todavia no hay comprobantes hoy.</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-3 mb-4">
+    <div class="card shadow h-100">
+      <div class="card-header py-3">
+        <h6 class="m-0 font-weight-bold text-primary">Estado de conciliacion (hoy)</h6>
+      </div>
+      <div class="card-body d-flex flex-column align-items-center justify-content-center" style="height: 280px;">
+        {% set pct = (kpis_hoy.bancos_conciliados / kpis_hoy.bancos_en_uso * 100) if kpis_hoy.bancos_en_uso else 0 %}
+        <div class="progress-ring" style="background: conic-gradient({{ 'var(--good)' if pct == 100 else 'var(--accent)' }} {{ pct * 3.6 }}deg, var(--border-soft) 0deg);">
+          <div class="progress-ring-inner">{{ "%.0f"|format(pct) }}%</div>
+        </div>
+        <p class="text-muted small text-center mt-3 mb-2">
+          {{ kpis_hoy.bancos_conciliados }} de {{ kpis_hoy.bancos_en_uso }} bancos conciliados
+          {% if kpis_hoy.bancos_en_uso - kpis_hoy.bancos_conciliados > 0 %}
+          <br>{{ kpis_hoy.bancos_en_uso - kpis_hoy.bancos_conciliados }} banco{{ "s" if kpis_hoy.bancos_en_uso - kpis_hoy.bancos_conciliados != 1 }} requiere{{ "n" if kpis_hoy.bancos_en_uso - kpis_hoy.bancos_conciliados != 1 }} atencion
+          {% endif %}
+        </p>
+        <a href="/conciliaciones" class="btn btn-sm btn-outline-primary">Ver conciliaciones <i class="fas fa-arrow-right ml-1"></i></a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row">
+  <div class="col-lg-7 mb-4">
+    <div class="card shadow h-100">
+      <div class="card-header py-3 d-flex justify-content-between align-items-center">
+        <h6 class="m-0 font-weight-bold text-primary">Actividad reciente</h6>
+        <a href="/comprobantes" class="small">Ver todas</a>
+      </div>
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-sm table-borderless small mb-0">
+            <thead>
+              <tr class="text-muted"><th>Fecha / Hora</th><th>Usuario</th><th>Detalle</th><th>Estado</th></tr>
+            </thead>
+            <tbody>
+              {% for mov in ultimos_movimientos %}
+              {% set ref = (("Factura " if mov.factura_o_cuenta_tipo.value == "factura" else "Cuenta ") + mov.factura_o_cuenta_numero) if mov.factura_o_cuenta_numero else "sin ref." %}
+              <tr>
+                <td class="text-nowrap">{{ mov.fecha_subida.strftime("%d/%m %H:%M") }}</td>
+                <td>{{ mov.operador.nombre }}</td>
+                <td>{{ ref }} - {{ "$" + "{:,.2f}".format(mov.monto).replace(",", "_").replace(".", ",").replace("_", ".") if mov.monto is not none else "monto no detectado" }}</td>
+                <td>
+                  {% if mov.estado_conciliacion.value == "pendiente" %}
+                  <span class="badge-pill-estado badge-pill-pendiente">Pendiente</span>
+                  {% elif mov.estado_conciliacion.value == "con_diferencia" %}
+                  <span class="badge-pill-estado badge-pill-diferencia">Diferencia</span>
+                  {% else %}
+                  <span class="badge-pill-estado badge-pill-conciliado">Conciliado</span>
+                  {% endif %}
+                </td>
+              </tr>
+              {% else %}
+              <tr><td colspan="4">No hay comprobantes todavia.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-5 mb-4">
+    <div class="card shadow h-100">
+      <div class="card-header py-3 d-flex justify-content-between align-items-center">
+        <h6 class="m-0 font-weight-bold text-primary">Bancos del dia</h6>
+        <a href="/conciliaciones" class="small">Ver detalle</a>
+      </div>
+      <div class="card-body">
+        {% for banco in bancos_del_dia %}
+        <a href="/conciliaciones?banco={{ banco.banco }}" class="banco-dia-row">
+          {{ banco_icono.chip(banco.icono, "banco-dia-icon") }}
+          <span class="flex-grow-1">
+            <span class="banco-dia-nombre d-block">{{ banco.banco }}</span>
+            <span class="banco-dia-meta">{{ banco.cantidad_comprobantes }} comprobante{{ "s" if banco.cantidad_comprobantes != 1 }}</span>
+          </span>
+          <span class="text-right mr-2">
+            <span class="d-block font-weight-bold small">${{ "{:,.2f}".format(banco.total_declarado).replace(",", "_").replace(".", ",").replace("_", ".") }}</span>
+            {% if banco.estado == "sin_resumen" %}
+            <span class="badge-pill-estado badge-pill-sinresumen">Sin resumen</span>
+            {% elif banco.estado == "a_revisar" %}
+            <span class="badge-pill-estado badge-pill-a_revisar">A revisar</span>
+            {% elif banco.estado == "error" %}
+            <span class="badge-pill-estado badge-pill-error">Error</span>
+            {% else %}
+            <span class="badge-pill-estado badge-pill-conciliado">Conciliado</span>
+            {% endif %}
+          </span>
+          <i class="fas fa-chevron-right text-muted small"></i>
+        </a>
+        {% else %}
+        <p class="text-muted small mb-0">Todavia no hay comprobantes hoy.</p>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card shadow mb-4">
+  <div class="card-body">
+    <h6 class="font-weight-bold text-primary mb-1">Acciones rapidas</h6>
+    <p class="text-muted small mb-3">Las tareas mas comunes, en un clic.</p>
+    <div class="d-flex flex-wrap" style="gap: 10px;">
+      <a href="/conciliaciones" class="btn btn-outline-primary"><i class="fas fa-balance-scale mr-1"></i>Abrir conciliaciones</a>
+      <a href="/comprobantes" class="btn btn-outline-secondary"><i class="fas fa-file-invoice-dollar mr-1"></i>Ver comprobantes</a>
+      <a href="/repartos" class="btn btn-outline-secondary"><i class="fas fa-route mr-1"></i>Ver salidas</a>
+    </div>
+  </div>
+</div>
+
+<hr class="my-4">
+<h5 class="mb-3 text-gray-800">Reporte por vendedor</h5>
 
 <form method="get" action="/resumen" class="form-row align-items-end mb-4">
   <div class="form-group col-md-3">
@@ -27,7 +224,7 @@
   </div>
   <div class="form-group col-md-2 d-flex">
     <button type="submit" class="btn btn-primary btn-block mr-1">Filtrar</button>
-    <button type="submit" formaction="/resumen/exportar" class="btn btn-outline-secondary btn-block ml-1" title="Exportar CSV"><i class="fas fa-file-csv"></i></button>
+    <button type="submit" formaction="/resumen/exportar" class="btn btn-outline-secondary btn-block ml-1" title="Exportar a Excel"><i class="fas fa-file-excel"></i></button>
   </div>
 </form>
 
@@ -112,7 +309,7 @@
 </div>
 
 <div class="row">
-  <div class="col-lg-9 mb-4">
+  <div class="col-lg-12 mb-4">
     <div class="card shadow h-100">
       <div class="card-header py-3">
         <h6 class="m-0 font-weight-bold text-primary">Resumen por vendedor</h6>
@@ -156,41 +353,13 @@
       </div>
     </div>
   </div>
-
-  <div class="col-lg-3 mb-4">
-    <div class="card shadow h-100">
-      <div class="card-header py-3">
-        <h6 class="m-0 font-weight-bold text-primary">Ultimos movimientos</h6>
-      </div>
-      <div class="card-body p-0">
-        <div class="moves">
-          {% for mov in ultimos_movimientos %}
-          {% set partes = mov.operador.nombre.split() %}
-          {% set iniciales = (partes[0][0] + (partes[1][0] if partes|length > 1 else "")) | upper %}
-          {% set ref = (("Factura " if mov.factura_o_cuenta_tipo.value == "factura" else "Cuenta ") + mov.factura_o_cuenta_numero) if mov.factura_o_cuenta_numero else "sin ref." %}
-          <div class="move-row">
-            <div class="move-avatar">{{ iniciales }}</div>
-            <div class="move-mid">
-              <div class="move-name">{{ mov.operador.nombre }}</div>
-              <div class="move-meta">{{ ref }} · {{ mov.banco_emisor or "banco no detectado" }} · {{ mov.fecha_subida.strftime("%d/%m %H:%M") }}</div>
-            </div>
-            <div class="move-right text-right">
-              <div class="move-amount">{{ "$" + "%.2f"|format(mov.monto) if mov.monto is not none else "-" }}</div>
-              {% if mov.estado_conciliacion.value == "pendiente" %}
-              <span class="badge-pill-estado badge-pill-pendiente">Pendiente</span>
-              {% elif mov.estado_conciliacion.value == "con_diferencia" %}
-              <span class="badge-pill-estado badge-pill-diferencia">Con diferencia</span>
-              {% else %}
-              <span class="badge-pill-estado badge-pill-conciliado">Conciliado</span>
-              {% endif %}
-            </div>
-          </div>
-          {% else %}
-          <div class="move-row">No hay movimientos todavia.</div>
-          {% endfor %}
-        </div>
-      </div>
-    </div>
-  </div>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script>
+  window.RESUMEN_DATA = {{ resumen_data_json|safe }};
+</script>
+<script src="/static/js/resumen.js"></script>
 {% endblock %}

@@ -31,6 +31,17 @@
   --bad:  #B3261E;   --bad-bg:  #FCE4E0;
 
   --shadow-card: 0 1px 2px rgba(20, 20, 31, .04), 0 1px 12px rgba(20, 20, 31, .05);
+
+  /* Radio de esquina unico para todo el sitio (cards, botones, inputs, chips,
+     etc.) -- los elementos circulares (avatares, iconos redondos) y las
+     badges tipo pill son la unica excepcion deliberada, no usan esta variable. */
+  --radius: .2rem;
+}
+
+/* ---------- RADIO UNIFICADO ---------- */
+.card, .btn, .form-control, .custom-select,
+.dropdown-menu, .modal-content, .alert, .input-group-text {
+  border-radius: var(--radius) !important;
 }
 
 /* ---------- TIPOGRAFIA ---------- */
@@ -39,6 +50,8 @@ body {
   color: var(--text-primary);
   font-family: "Inter", -apple-system, "Segoe UI", Arial, sans-serif;
   font-feature-settings: "tnum" 1;
+  font-size: .875rem;
+  line-height: 1.5;
 }
 h1, h2, h3, h4, h5, h6,
 .h1, .h2, .h3, .h4, .h5, .h6,
@@ -71,7 +84,7 @@ html, body { height: 100%; }
    toggle para plegar el sidebar (boton #sidebarToggle / #sidebarToggleTop,
    clase .sidebar.toggled) y necesita poder angostarlo el mismo. */
 .sidebar {
-  background: var(--sidebar-bg) !important;
+  background: var(--sidebar-bg) url("/static/img/sidebar-bg.png") no-repeat center bottom / cover !important;
 }
 .sidebar.toggled .sidebar-footer { display: none; }
 .sidebar .sidebar-brand { color: #fff; font-family: "Inter Tight", "Inter", sans-serif; font-weight: 800; }
@@ -82,7 +95,7 @@ html, body { height: 100%; }
   font-weight: 600;
   background: var(--sidebar-bg-soft);
   box-shadow: inset 2px 0 0 var(--accent);
-  border-radius: .35rem;
+  border-radius: var(--radius);
 }
 .sidebar-divider { border-top-color: rgba(255, 255, 255, .08); }
 .sidebar-heading {
@@ -105,7 +118,7 @@ html, body { height: 100%; }
 }
 .sidebar-footer .logo-chip {
   background: #fff;
-  border-radius: 8px;
+  border-radius: var(--radius);
   padding: 6px 10px;
   display: inline-flex;
   align-items: center;
@@ -115,7 +128,6 @@ html, body { height: 100%; }
 /* ---------- TARJETAS / PANELES ---------- */
 .card {
   border: 1px solid var(--border);
-  border-radius: 12px;
   box-shadow: var(--shadow-card);
 }
 .card-header {
@@ -128,7 +140,7 @@ html, body { height: 100%; }
 .kpi-card {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--radius);
   box-shadow: var(--shadow-card);
   padding: 16px 16px 14px;
   height: 100%;
@@ -143,10 +155,20 @@ html, body { height: 100%; }
 }
 .kpi-icon {
   width: 30px; height: 30px;
-  border-radius: 8px;
-  display: flex; align-items: center; justify-content: center;
   font-size: 13px;
+}
+/* Excepcion deliberada al radio unificado: estos chips e icon-pills quedan
+   mas redondeados (pedido explicito), como estaban antes de unificar todo a
+   var(--radius). */
+.kpi-icon, .bank-tab-icon {
+  display: flex; align-items: center; justify-content: center;
   flex-shrink: 0;
+  border-radius: .5rem;
+}
+.banco-dia-icon {
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+  border-radius: .55rem;
 }
 .kpi-icon.acc  { background: var(--accent-soft); color: var(--accent-strong); }
 .kpi-icon.good { background: var(--good-bg); color: var(--good); }
@@ -200,11 +222,86 @@ html, body { height: 100%; }
   font-size: .7rem;
   letter-spacing: .01em;
 }
-.badge-pill-pendiente  { background: var(--warn-bg); color: var(--warn); }
-.badge-pill-diferencia { background: var(--bad-bg);  color: var(--bad); }
-.badge-pill-conciliado { background: var(--good-bg); color: var(--good); }
-.badge-pill-activo     { background: var(--good-bg); color: var(--good); }
-.badge-pill-inactivo   { background: var(--bad-bg);  color: var(--bad); }
+.badge-pill-pendiente, .badge-pill-a_revisar             { background: var(--warn-bg); color: var(--warn); }
+.badge-pill-diferencia, .badge-pill-error, .badge-pill-inactivo { background: var(--bad-bg); color: var(--bad); }
+.badge-pill-conciliado, .badge-pill-activo                { background: var(--good-bg); color: var(--good); }
+.badge-pill-sinresumen                                     { background: var(--border-soft); color: var(--text-muted); }
+
+/* ---------- CONCILIACIONES: tira de bancos ---------- */
+.bank-tab-strip { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 4px; }
+.bank-tab, .bank-tab-add {
+  flex: 0 0 auto;
+  display: flex; align-items: center;
+  border-radius: .75rem; /* pastillas: mas redondeadas que el radio unificado, a proposito */
+  padding: 10px 16px;
+  text-decoration: none;
+  min-width: 150px;
+}
+.bank-tab {
+  gap: 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-card);
+  color: var(--text-primary);
+}
+.bank-tab:hover { border-color: var(--accent); }
+.bank-tab.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.bank-tab.active .bank-tab-count { color: rgba(255,255,255,.85); }
+.bank-tab-icon { width: 32px; height: 32px; color: #fff; font-size: 14px; overflow: hidden; }
+.bank-tab-name { font-weight: 700; font-size: 13px; }
+.bank-tab-count { font-size: 11.5px; color: var(--text-muted); }
+.bank-tab-add {
+  gap: 8px;
+  border: 1px dashed var(--border);
+  color: var(--text-secondary);
+  justify-content: center;
+}
+.bank-tab-add:hover { border-color: var(--accent); color: var(--accent-strong); }
+
+/* ---------- HOME: anillo de progreso (estado de conciliacion) ---------- */
+.progress-ring, .progress-ring-inner {
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+}
+.progress-ring { width: 120px; height: 120px; margin: 0 auto; }
+.progress-ring-inner {
+  width: 92px; height: 92px;
+  background: var(--surface);
+  font-size: 22px; font-weight: 800; color: var(--text-primary);
+}
+
+/* ---------- HOME: banco del dia (lista) ---------- */
+.banco-dia-row {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border-soft);
+  text-decoration: none;
+  color: var(--text-primary);
+}
+.banco-dia-row:last-child { border-bottom: none; }
+.banco-dia-row:hover { background: var(--surface-2); }
+.banco-dia-icon { width: 36px; height: 36px; color: #fff; font-size: 15px; overflow: hidden; }
+.bank-tab-icon img, .banco-dia-icon img { width: 100%; height: 100%; object-fit: contain; }
+.banco-dia-nombre { font-weight: 700; font-size: 13.5px; }
+.banco-dia-meta { font-size: 11.5px; color: var(--text-muted); }
+
+/* ---------- FILTROS CONDENSADOS (partials/_filtros.html) ---------- */
+/* Cualquier campo dentro del panel de filtros avanzados queda chico por
+   defecto (mismos valores que .form-control-sm de Bootstrap), sin tener que
+   agregar la clase a mano en cada select/input de cada listado. */
+.filtros-condensados label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+.filtros-condensados .form-control,
+.filtros-condensados select {
+  height: calc(1.5em + .5rem + 2px);
+  padding: .25rem .5rem;
+  font-size: 13px;
+}
+.filtros-condensados .form-group { margin-bottom: .75rem; }
 
 /* ---------- BARRA DE PROGRESO (% conciliado) ---------- */
 .conc-cell { display: flex; align-items: center; gap: 8px; }
@@ -218,36 +315,12 @@ html, body { height: 100%; }
 /* ---------- SPARKLINE ---------- */
 .spark-wrap svg { display: block; }
 
-/* ---------- LISTA "ULTIMOS MOVIMIENTOS" ---------- */
-.moves { display: flex; flex-direction: column; }
-.move-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 18px;
-  border-bottom: 1px solid var(--border-soft);
-}
-.move-row:last-child { border-bottom: none; }
-.move-avatar {
-  width: 30px; height: 30px; border-radius: 50%;
-  background: var(--accent-soft); color: var(--accent-strong);
-  display: flex; align-items: center; justify-content: center;
-  font-size: 11.5px; font-weight: 700; flex-shrink: 0;
-}
-.move-mid { flex: 1; min-width: 0; }
-.move-name { font-size: 12.8px; font-weight: 600; color: var(--text-primary); }
-.move-meta { font-size: 11.5px; color: var(--text-muted); margin-top: 1px; }
-.move-right { flex-shrink: 0; }
-.move-amount { font-size: 13px; font-weight: 700; color: var(--text-primary); }
-
 /* ---------- ICON BUTTONS (acciones de fila) ---------- */
-.btn-outline-primary, .btn-outline-secondary {
-  border-color: var(--border);
-  color: var(--text-secondary);
-}
+.btn-outline-primary, .btn-outline-secondary, .btn-outline-danger { border-color: var(--border); }
+.btn-outline-primary, .btn-outline-secondary { color: var(--text-secondary); }
+.btn-outline-danger { color: var(--bad); }
 .btn-outline-primary:hover { background: var(--accent); border-color: var(--accent); }
 .btn-outline-secondary:hover { background: var(--surface-2); color: var(--text-primary); }
-.btn-outline-danger { border-color: var(--border); color: var(--bad); }
 .btn-outline-danger:hover { background: var(--bad); border-color: var(--bad); color: #fff; }
 
 /* ---------- FORMULARIOS ---------- */
@@ -270,7 +343,7 @@ html, body { height: 100%; }
 .login-footer .txt { font-size: 11px; color: var(--text-muted); letter-spacing: .03em; margin-bottom: 8px; }
 .login-footer .logo-chip {
   background: #fff;
-  border-radius: 8px;
+  border-radius: var(--radius);
   padding: 6px 10px;
   display: inline-flex;
   align-items: center;

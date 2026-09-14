@@ -1,194 +1,286 @@
 {% extends "base.html" %}
+{% import "partials/_banco_icono.html" as banco_icono %}
 {% block title %}Conciliaciones - Concilia{% endblock %}
+
+{% macro badge_estado_movimiento(estado) %}
+  {% if estado == "pendiente" %}
+  <span class="badge-pill-estado badge-pill-pendiente">Pendiente</span>
+  {% elif estado == "con_diferencia" %}
+  <span class="badge-pill-estado badge-pill-diferencia">Diferencia</span>
+  {% else %}
+  <span class="badge-pill-estado badge-pill-conciliado">Conciliado</span>
+  {% endif %}
+{% endmacro %}
+
+{% macro badge_estado_banco(estado) %}
+  {% if estado == "sin_resumen" %}
+  <span class="badge-pill-estado badge-pill-sinresumen">SIN RESUMEN</span>
+  {% elif estado == "a_revisar" %}
+  <span class="badge-pill-estado badge-pill-a_revisar">A REVISAR</span>
+  {% elif estado == "error" %}
+  <span class="badge-pill-estado badge-pill-error">ERROR</span>
+  {% else %}
+  <span class="badge-pill-estado badge-pill-conciliado">CONCILIADO</span>
+  {% endif %}
+{% endmacro %}
+
+{% macro monto_ars(valor) %}{% if valor is none %}-{% else %}${{ "{:,.2f}".format(valor|float).replace(",", "_").replace(".", ",").replace("_", ".") }}{% endif %}{% endmacro %}
+
 {% block content %}
-<h1 class="h3 mb-4 text-gray-800">Conciliaciones</h1>
+<div class="d-flex justify-content-between align-items-start flex-wrap mb-4">
+  <div>
+    <h1 class="h3 mb-1 text-gray-800">Conciliaciones</h1>
+    <p class="text-muted mb-0">Revision y cierre diario por banco y medio de pago</p>
+  </div>
+  <div class="d-flex align-items-center flex-wrap" style="gap: 8px;">
+    <a class="btn btn-outline-secondary" href="/conciliaciones?fecha={{ fecha_anterior }}&banco={{ banco_seleccionado }}"><i class="fas fa-chevron-left"></i></a>
+    <form method="get" action="/conciliaciones" class="d-inline">
+      <input type="hidden" name="banco" value="{{ banco_seleccionado }}">
+      <input type="date" class="form-control" name="fecha" value="{{ fecha.isoformat() }}" onchange="this.form.submit()">
+    </form>
+    <a class="btn btn-outline-secondary" href="/conciliaciones?fecha={{ fecha_siguiente }}&banco={{ banco_seleccionado }}"><i class="fas fa-chevron-right"></i></a>
+    <button type="button" class="btn btn-outline-primary" data-toggle="modal" data-target="#modalResumenDia"><i class="fas fa-th-large mr-1"></i>Ver resumen del dia</button>
+  </div>
+</div>
 
 {% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
 {% if mensaje %}<div class="alert alert-success">{{ mensaje }}</div>{% endif %}
-
-<div class="card shadow mb-4">
-  <div class="card-header py-3">
-    <h6 class="m-0 font-weight-bold text-primary">Importar resumen bancario</h6>
-  </div>
-  <div class="card-body">
-    <form method="post" action="/conciliaciones/importar" enctype="multipart/form-data">
-      <div class="form-row align-items-end">
-        <div class="form-group col-md-4">
-          <label>Cuenta bancaria</label>
-          <select class="form-control" name="cuenta_bancaria_id" required>
-            {% for cuenta in cuentas %}
-            <option value="{{ cuenta.id }}">{{ cuenta.alias }} ({{ cuenta.banco }})</option>
-            {% endfor %}
-          </select>
-        </div>
-        <div class="form-group col-md-3">
-          <label>Fecha del resumen</label>
-          <input type="date" class="form-control" name="fecha" required>
-        </div>
-        <div class="form-group col-md-3">
-          <label>Archivo (CSV o XLSX)</label>
-          <input type="file" class="form-control-file" name="archivo" accept=".csv,.xlsx" required>
-        </div>
-        <div class="form-group col-md-2">
-          <button type="submit" class="btn btn-primary btn-block">Importar</button>
-        </div>
-      </div>
-    </form>
-  </div>
-</div>
-
-<div class="card shadow mb-4">
-  <div class="card-header py-3">
-    <h6 class="m-0 font-weight-bold text-primary">Resumenes importados</h6>
-  </div>
-  <div class="card-body">
-    <form method="get" action="/conciliaciones" class="form-row align-items-end mb-3">
-      <div class="form-group col-md-8">
-        <label>Filtrar por resumen</label>
-        <select name="resumen_id" class="form-control">
-          <option value="">Todos los resumenes</option>
-          {% for resumen in resumenes %}
-          <option value="{{ resumen.id }}" {{ "selected" if resumen_id == resumen.id|string }}>
-            {{ resumen.fecha.strftime("%Y-%m-%d") }} - {{ resumen.cuenta_bancaria.alias }} ({{ resumen.archivo_nombre }})
-          </option>
-          {% endfor %}
-        </select>
-      </div>
-      <div class="form-group col-md-4">
-        <button type="submit" class="btn btn-primary mr-1">Filtrar</button>
-        {% if resumen_id %}<a href="/conciliaciones" class="btn btn-outline-secondary">Ver todos</a>{% endif %}
-      </div>
-    </form>
-    <div class="table-responsive">
-      <table class="table table-bordered table-sm small mb-0" width="100%" cellspacing="0">
-        <thead>
-          <tr>
-            <th>Fecha importacion</th><th>Cuenta</th><th>Fecha resumen</th><th>Archivo</th>
-            <th>Conciliados</th><th>A revisar</th><th>Sin conciliar</th><th>Estado</th><th></th><th>Volver a revisar</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for resumen in resumenes %}
-          {% set conteo = conteos_por_resumen.get(resumen.id, {"conciliados": 0, "a_revisar": 0, "pendientes": 0, "no_corresponde": 0}) %}
-          <tr class="{{ 'table-active' if resumen_seleccionado and resumen.id == resumen_seleccionado.id }}">
-            <td>{{ resumen.fecha_importacion.strftime("%Y-%m-%d %H:%M") }}</td>
-            <td>{{ resumen.cuenta_bancaria.alias }}</td>
-            <td>{{ resumen.fecha.strftime("%Y-%m-%d") }}</td>
-            <td>{{ resumen.archivo_nombre }}</td>
-            <td>{{ conteo.conciliados }}</td>
-            <td>{{ conteo.a_revisar }}</td>
-            <td>{{ conteo.pendientes }}</td>
-            <td>
-              {% if conteo.pendientes == 0 and conteo.a_revisar == 0 %}
-              <span class="badge-pill-estado badge-pill-conciliado">Completo</span>
-              {% else %}
-              <span class="badge-pill-estado badge-pill-pendiente">Pendiente</span>
-              {% endif %}
-            </td>
-            <td><a href="/conciliaciones?resumen_id={{ resumen.id }}" class="btn btn-sm btn-outline-primary" title="Ver movimientos de este resumen"><i class="fas fa-eye"></i></a></td>
-            <td>
-              <form class="form-inline" method="post" action="/conciliaciones/resumenes/{{ resumen.id }}/actualizar" enctype="multipart/form-data" title="Volver a cargar este archivo (agrega solo las transacciones nuevas, no duplica las que ya estan)">
-                <input type="file" name="archivo" accept=".csv,.xlsx" required class="form-control form-control-sm mr-2" style="max-width: 180px;">
-                <button type="submit" class="btn btn-sm btn-outline-secondary" title="Revisar de nuevo"><i class="fas fa-sync-alt"></i></button>
-              </form>
-            </td>
-          </tr>
-          {% else %}
-          <tr><td colspan="10">Todavia no se importo ningun resumen.</td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-  </div>
-</div>
-
-{% if resumen_seleccionado %}
+{% if cierre %}
 <div class="alert alert-info d-flex justify-content-between align-items-center">
-  <span>
-    Mostrando movimientos del resumen <strong>{{ resumen_seleccionado.archivo_nombre }}</strong>
-    ({{ resumen_seleccionado.cuenta_bancaria.alias }}, {{ resumen_seleccionado.fecha.strftime("%Y-%m-%d") }}).
-  </span>
-  <a href="/conciliaciones" class="btn btn-sm btn-outline-secondary">Ver todos</a>
+  <span><i class="fas fa-lock mr-1"></i>Este dia esta cerrado (por {{ cierre.cerrado_por.nombre }} el {{ cierre.cerrado_en.strftime("%Y-%m-%d %H:%M") }}).</span>
+  <form method="post" action="/conciliaciones/cierres/{{ fecha.isoformat() }}/reabrir">
+    <button type="submit" class="btn btn-sm btn-outline-secondary">Reabrir</button>
+  </form>
 </div>
 {% endif %}
 
-<div class="card shadow mb-4">
-  <div class="card-header py-3">
-    <h6 class="m-0 font-weight-bold text-primary">Movimientos sin conciliar</h6>
-  </div>
-  <div class="card-body">
-    <div class="table-responsive">
-      <table class="table table-bordered table-sm small mb-0" width="100%" cellspacing="0">
-        <thead>
-          <tr><th>Fecha transaccion</th><th>N. operacion</th><th class="num">Monto</th><th>Vendedor</th><th>Estado</th><th></th></tr>
-        </thead>
-        <tbody>
-          {% for movimiento in movimientos_pendientes %}
-          <tr>
-            <td>{{ movimiento.fecha_transaccion.strftime("%Y-%m-%d") if movimiento.fecha_transaccion else "-" }}</td>
-            <td>{{ movimiento.numero_operacion or "-" }}</td>
-            <td class="num">{{ "$" + movimiento.monto|string if movimiento.monto is not none else "-" }}</td>
-            <td>{{ movimiento.operador.nombre }}</td>
-            <td>
-              {% if movimiento.estado_conciliacion.value == "pendiente" %}
-              <span class="badge-pill-estado badge-pill-pendiente">Pendiente</span>
-              {% elif movimiento.estado_conciliacion.value == "con_diferencia" %}
-              <span class="badge-pill-estado badge-pill-diferencia">Con diferencia</span>
-              {% else %}
-              <span class="badge-pill-estado badge-pill-conciliado">Conciliado</span>
-              {% endif %}
-            </td>
-            <td><a href="/comprobantes/{{ movimiento.id }}/editar" class="btn btn-sm btn-outline-primary" title="Editar"><i class="fas fa-pencil-alt"></i></a></td>
-          </tr>
-          {% else %}
-          <tr><td colspan="6">No hay movimientos pendientes de conciliar.</td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-  </div>
+{% if not bancos %}
+<div class="card shadow mb-4"><div class="card-body">
+  Todavia no hay cuentas bancarias configuradas. Cargá una en <a href="/config/cuentas">Cuentas bancarias</a> para empezar a conciliar.
+</div></div>
+{% else %}
+
+<div class="bank-tab-strip mb-4" id="bank-tab-strip">
+  {% for b in bancos %}
+  <a href="/conciliaciones?fecha={{ fecha.isoformat() }}&banco={{ b }}" class="bank-tab {{ 'active' if b == banco_seleccionado }}" data-banco="{{ b }}">
+    {{ banco_icono.chip(iconos_por_banco[b], "bank-tab-icon") }}
+    <span>
+      <span class="bank-tab-name d-block">{{ b }}</span>
+      <span class="bank-tab-count">{{ conteos_salidas_por_banco.get(b, 0) }} salida{{ "s" if conteos_salidas_por_banco.get(b, 0) != 1 }}</span>
+    </span>
+  </a>
+  {% endfor %}
+  <a href="/config/cuentas" class="bank-tab-add"><i class="fas fa-plus mr-1"></i>Agregar banco</a>
 </div>
 
-<div class="card shadow mb-4">
-  <div class="card-header py-3">
-    <h6 class="m-0 font-weight-bold text-primary">Lineas conciliadas</h6>
+{% if panel %}
+<div class="card shadow mb-4" id="panel-banco">
+  <div class="card-header py-3 d-flex justify-content-between align-items-center flex-wrap">
+    <div>
+      <h6 class="m-0 font-weight-bold text-primary">{{ panel.banco }}</h6>
+      <span class="text-muted small">Conciliacion del dia {{ fecha.isoformat() }}</span>
+    </div>
+    <div class="d-flex align-items-center" style="gap: 10px;">
+      <button type="button" class="btn btn-outline-primary btn-sm" data-toggle="modal" data-target="#modalSubirResumen"><i class="fas fa-upload mr-1"></i>Subir resumen bancario</button>
+      <span id="panel-badge-estado">{{ badge_estado_banco(panel.estado) }}</span>
+    </div>
   </div>
   <div class="card-body">
-    <div class="table-responsive">
-      <table class="table table-bordered table-sm small mb-0" width="100%" cellspacing="0">
-        <thead>
-          <tr><th>Fecha</th><th class="num">Monto</th><th>Referencia</th><th>Movimiento vinculado</th><th>Vendedor</th><th>Estado</th></tr>
-        </thead>
-        <tbody>
-          {% for linea in lineas_conciliadas %}
-          <tr>
-            <td>{{ linea.fecha.strftime("%Y-%m-%d") }}</td>
-            <td class="num">${{ linea.monto }}</td>
-            <td>{{ linea.referencia or "-" }}</td>
-            <td>{{ (linea.movimiento.numero_operacion or "-") if linea.movimiento else "-" }}</td>
-            <td>{{ linea.movimiento.operador.nombre if linea.movimiento else "-" }}</td>
-            <td>
-              {% if linea.movimiento and linea.movimiento.estado_conciliacion.value == "con_diferencia" %}
-              <span class="badge-pill-estado badge-pill-diferencia">Con diferencia</span>
+    <div class="row kpi-row">
+      <div class="col-xl col-md-6 col-6 mb-3">
+        <div class="kpi-card">
+          <div class="kpi-top">
+            <span class="kpi-label">Comprobantes</span>
+            <span class="kpi-icon acc"><i class="fas fa-file-invoice-dollar"></i></span>
+          </div>
+          <div class="kpi-value" id="kpi-comprobantes">{{ panel.cantidad_comprobantes }}</div>
+          <div class="kpi-foot">en {{ panel.cantidad_salidas }} salida{{ "s" if panel.cantidad_salidas != 1 }}</div>
+        </div>
+      </div>
+      <div class="col-xl col-md-6 col-6 mb-3">
+        <div class="kpi-card">
+          <div class="kpi-top">
+            <span class="kpi-label">Total declarado</span>
+            <span class="kpi-icon acc"><i class="fas fa-file-signature"></i></span>
+          </div>
+          <div class="kpi-value" id="kpi-declarado">{{ monto_ars(panel.total_declarado) }}</div>
+        </div>
+      </div>
+      <div class="col-xl col-md-6 col-6 mb-3">
+        <div class="kpi-card">
+          <div class="kpi-top">
+            <span class="kpi-label">Total banco</span>
+            <span class="kpi-icon acc"><i class="fas fa-university"></i></span>
+          </div>
+          <div class="kpi-value" id="kpi-banco">{{ monto_ars(panel.total_banco) }}</div>
+        </div>
+      </div>
+      <div class="col-xl col-md-6 col-6 mb-3">
+        <div class="kpi-card">
+          <div class="kpi-top">
+            <span class="kpi-label">Diferencia</span>
+            <span class="kpi-icon {{ 'good' if panel.diferencia == 0 else 'bad' }}"><i class="fas fa-{{ 'check' if panel.diferencia == 0 else 'exclamation' }}"></i></span>
+          </div>
+          <div class="kpi-value" id="kpi-diferencia" style="{{ 'color: var(--good)' if panel.diferencia == 0 else ('color: var(--bad)' if panel.diferencia else '') }}">{{ monto_ars(panel.diferencia) }}</div>
+        </div>
+      </div>
+    </div>
+
+    <ul class="nav nav-tabs" id="conciliaciones-tabs" role="tablist">
+      <li class="nav-item"><a class="nav-link active" id="tab-movimientos" data-toggle="tab" href="#panel-movimientos" role="tab">Movimientos del dia</a></li>
+      <li class="nav-item"><a class="nav-link" id="tab-salidas" data-toggle="tab" href="#panel-salidas" role="tab">Salidas ({{ panel.cantidad_salidas }})</a></li>
+    </ul>
+    <div class="tab-content pt-3">
+      <div class="tab-pane fade show active" id="panel-movimientos" role="tabpanel">
+        <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap" style="gap: 8px;">
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="btn-filtros"><i class="fas fa-filter mr-1"></i>Filtros</button>
+          <div class="d-flex flex-wrap" style="gap: 8px;">
+            <input type="text" class="form-control form-control-sm" id="buscador-movimientos" style="max-width: 320px;" placeholder="Buscar movimiento, comprobante, titular...">
+            <a id="link-exportar-movimientos" href="/conciliaciones/movimientos/exportar?fecha={{ fecha.isoformat() }}&banco={{ banco_seleccionado }}" class="btn btn-outline-secondary btn-sm" title="Exportar a Excel"><i class="fas fa-file-excel mr-1"></i>Exportar</a>
+          </div>
+        </div>
+        <div id="filtros-movimientos" class="form-row align-items-end mb-3 filtros-condensados" style="display: none;">
+          <div class="form-group col-md-3">
+            <label>Estado</label>
+            <select class="form-control" id="filtro-estado">
+              <option value="">Todos</option>
+              <option value="pendiente">Pendiente</option>
+              <option value="conciliado">Conciliado</option>
+              <option value="conciliado_manualmente">Conciliado manualmente</option>
+              <option value="con_diferencia">Con diferencia</option>
+            </select>
+          </div>
+          <div class="form-group col-md-3">
+            <label>Operador</label>
+            <select class="form-control" id="filtro-operador">
+              <option value="">Todos</option>
+              {% for operador in operadores %}
+              <option value="{{ operador.id }}">{{ operador.nombre }}</option>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
+        <div class="table-responsive">
+          <table class="table table-bordered table-sm small mb-0" width="100%" cellspacing="0">
+            <thead>
+              <tr>
+                <th>Fecha / Hora</th><th>Comprobante</th><th>Descripcion / Titular</th>
+                <th class="num">Importe</th><th>Salida</th><th>Estado</th><th></th>
+              </tr>
+            </thead>
+            <tbody id="tbody-movimientos">
+              {% for m in movimientos %}
+              <tr>
+                <td>{{ m.fecha_hora }}</td>
+                <td>{{ m.comprobante }}</td>
+                <td>{{ m.titular }}</td>
+                <td class="num">{{ monto_ars(m.monto) }}</td>
+                <td>{{ m.reparto_label }}</td>
+                <td>{{ badge_estado_movimiento(m.estado) }}</td>
+                <td class="text-nowrap">
+                  <a href="/comprobantes/{{ m.id }}/editar" class="btn btn-sm btn-outline-primary" title="Editar"><i class="fas fa-pencil-alt"></i></a>
+                </td>
+              </tr>
               {% else %}
-              <span class="badge-pill-estado badge-pill-conciliado">Conciliado</span>
-              {% endif %}
-            </td>
-          </tr>
-          {% else %}
-          <tr><td colspan="6">Todavia no se concilio ninguna linea.</td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
+              <tr><td colspan="7">No hay movimientos este dia para este banco.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        <div class="d-flex justify-content-between align-items-center mt-2">
+          <span class="text-muted small" id="paginacion-info">Mostrando {{ movimientos|length }} de {{ total_movimientos }} movimientos</span>
+          <nav><ul class="pagination pagination-sm mb-0" id="paginacion-movimientos"></ul></nav>
+        </div>
+      </div>
+      <div class="tab-pane fade" id="panel-salidas" role="tabpanel">
+        <div class="table-responsive">
+          <table class="table table-bordered table-sm small mb-0" width="100%" cellspacing="0">
+            <thead>
+              <tr><th>Salida</th><th>Movil</th><th>Operador</th><th class="num">Comprobantes</th><th class="num">Total</th><th>Estado</th></tr>
+            </thead>
+            <tbody id="tbody-salidas">
+              {% for s in salidas %}
+              <tr>
+                <td>#{{ s.numero_reparto if s.numero_reparto is not none else "-" }}</td>
+                <td>{{ s.movil }}</td>
+                <td>{{ s.operador }}</td>
+                <td class="num">{{ s.cantidad_comprobantes }}</td>
+                <td class="num">{{ monto_ars(s.total) }}</td>
+                <td>{{ badge_estado_banco(s.estado) if s.estado != "conciliado" else badge_estado_movimiento("conciliado") }}</td>
+              </tr>
+              {% else %}
+              <tr><td colspan="6">No hay salidas este dia para este banco.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   </div>
 </div>
+{% endif %}
+
+{% if sin_banco_cantidad %}
+<div class="alert alert-secondary small">
+  <i class="fas fa-info-circle mr-1"></i>
+  Sin banco identificado ese dia: {{ sin_banco_cantidad }} comprobante{{ "s" if sin_banco_cantidad != 1 }} por {{ monto_ars(sin_banco_total) }} (no se suman a ningun banco de arriba).
+</div>
+{% endif %}
+
+<details class="mb-4">
+  <summary class="text-muted small mb-2" style="cursor: pointer;">Ver historial completo de resumenes importados</summary>
+  <div class="card shadow mt-2">
+    <div class="card-body">
+      <div class="table-responsive">
+        <table class="table table-bordered table-sm small mb-0" width="100%" cellspacing="0">
+          <thead>
+            <tr>
+              <th>Fecha importacion</th><th>Cuenta</th><th>Fecha resumen</th><th>Archivo</th>
+              <th>Conciliados</th><th>A revisar</th><th>Sin conciliar</th><th>Estado</th><th></th><th>Volver a revisar</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for resumen in resumenes_historicos %}
+            {% set conteo = conteos_por_resumen.get(resumen.id, {"conciliados": 0, "a_revisar": 0, "pendientes": 0, "no_corresponde": 0}) %}
+            <tr>
+              <td>{{ resumen.fecha_importacion.strftime("%Y-%m-%d %H:%M") }}</td>
+              <td>{{ resumen.cuenta_bancaria.alias }}</td>
+              <td>{{ resumen.fecha.strftime("%Y-%m-%d") }}</td>
+              <td>{{ resumen.archivo_nombre }}</td>
+              <td>{{ conteo.conciliados }}</td>
+              <td>{{ conteo.a_revisar }}</td>
+              <td>{{ conteo.pendientes }}</td>
+              <td>
+                {% if conteo.pendientes == 0 and conteo.a_revisar == 0 %}
+                <span class="badge-pill-estado badge-pill-conciliado">Completo</span>
+                {% else %}
+                <span class="badge-pill-estado badge-pill-pendiente">Pendiente</span>
+                {% endif %}
+              </td>
+              <td><a href="/conciliaciones?resumen_id={{ resumen.id }}" class="btn btn-sm btn-outline-primary" title="Ver"><i class="fas fa-eye"></i></a></td>
+              <td>
+                <form class="form-inline" method="post" action="/conciliaciones/resumenes/{{ resumen.id }}/actualizar" enctype="multipart/form-data" title="Volver a cargar este archivo (agrega solo las transacciones nuevas)">
+                  <input type="file" name="archivo" accept=".csv,.xlsx" required class="form-control form-control-sm mr-2" style="max-width: 180px;">
+                  <button type="submit" class="btn btn-sm btn-outline-secondary" title="Revisar de nuevo"><i class="fas fa-sync-alt"></i></button>
+                </form>
+              </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="10">Todavia no se importo ningun resumen.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</details>
 
 <div class="card shadow mb-4">
   <div class="card-header py-3 d-flex justify-content-between align-items-center">
-    <h6 class="m-0 font-weight-bold text-primary">Lineas de resumen sin conciliar</h6>
-    <form method="post" action="/conciliaciones/reconciliar" title="Vuelve a intentar el emparejamiento automatico contra los comprobantes confirmados, sin subir ningun archivo (util si se confirmaron comprobantes nuevos despues de la ultima carga)">
-      <input type="hidden" name="resumen_id" value="{{ resumen_id }}">
+    <h6 class="m-0 font-weight-bold text-primary">Lineas de resumen sin conciliar ({{ panel.banco if panel else "" }})</h6>
+    <form method="post" action="/conciliaciones/reconciliar" title="Reintenta el emparejamiento automatico sin subir ningun archivo">
+      <input type="hidden" name="fecha" value="{{ fecha.isoformat() }}">
+      <input type="hidden" name="banco" value="{{ banco_seleccionado }}">
       <button type="submit" class="btn btn-sm btn-outline-primary"><i class="fas fa-sync-alt mr-1"></i>Reintentar conciliacion</button>
     </form>
   </div>
@@ -196,25 +288,23 @@
     <div class="table-responsive">
       <table class="table table-bordered table-sm small mb-0" width="100%" cellspacing="0">
         <thead>
-          <tr><th>Fecha</th><th class="num">Monto</th><th>Descripcion</th><th>Referencia</th><th>Cuenta</th><th>Emparejar</th><th></th></tr>
+          <tr><th>Fecha</th><th class="num">Monto</th><th>Descripcion</th><th>Referencia</th><th>Emparejar</th><th></th></tr>
         </thead>
         <tbody>
           {% for linea in lineas_pendientes %}
           <tr>
             <td>{{ linea.fecha.strftime("%Y-%m-%d") }}</td>
-            <td class="num">${{ linea.monto }}</td>
+            <td class="num">{{ monto_ars(linea.monto) }}</td>
             <td>{{ linea.descripcion or "-" }}</td>
             <td>{{ linea.referencia or "-" }}</td>
-            <td>{{ linea.resumen.cuenta_bancaria.alias }}</td>
             <td>
               <form class="form-inline" method="post" action="/conciliaciones/lineas/{{ linea.id }}/emparejar">
-                <input type="hidden" name="resumen_id" value="{{ resumen_id }}">
+                <input type="hidden" name="fecha" value="{{ fecha.isoformat() }}">
+                <input type="hidden" name="banco" value="{{ banco_seleccionado }}">
                 <select name="movimiento_id" class="form-control form-control-sm mr-2" required>
                   <option value="">Elegir movimiento...</option>
-                  {% for movimiento in movimientos_pendientes %}
-                  <option value="{{ movimiento.id }}">
-                    {{ movimiento.numero_operacion or "sin nro. de operacion" }} - {{ "$" + movimiento.monto|string if movimiento.monto is not none else "monto no detectado" }} - {{ movimiento.operador.nombre }}
-                  </option>
+                  {% for m in movimientos %}
+                  <option value="{{ m.id }}">{{ m.comprobante }} - {{ monto_ars(m.monto) }} - {{ m.operador }}</option>
                   {% endfor %}
                 </select>
                 <button type="submit" class="btn btn-sm btn-outline-primary" title="Emparejar"><i class="fas fa-link"></i></button>
@@ -222,17 +312,92 @@
             </td>
             <td>
               <form method="post" action="/conciliaciones/lineas/{{ linea.id }}/no-corresponde">
-                <input type="hidden" name="resumen_id" value="{{ resumen_id }}">
+                <input type="hidden" name="fecha" value="{{ fecha.isoformat() }}">
+                <input type="hidden" name="banco" value="{{ banco_seleccionado }}">
                 <button type="submit" class="btn btn-sm btn-outline-secondary" title="No corresponde"><i class="fas fa-ban"></i></button>
               </form>
             </td>
           </tr>
           {% else %}
-          <tr><td colspan="7">No hay lineas de resumen pendientes de conciliar.</td></tr>
+          <tr><td colspan="6">No hay lineas de resumen pendientes de conciliar para este banco/dia.</td></tr>
           {% endfor %}
         </tbody>
       </table>
     </div>
   </div>
 </div>
+
+{% endif %}
+
+<!-- Modal: subir resumen bancario -->
+<div class="modal fade" id="modalSubirResumen" tabindex="-1" role="dialog">
+  <div class="modal-dialog" role="document">
+    <div class="modal-content">
+      <form method="post" action="/conciliaciones/importar" enctype="multipart/form-data">
+        <div class="modal-header">
+          <h5 class="modal-title">Subir resumen{{ " - " + banco_seleccionado if banco_seleccionado }}</h5>
+          <button type="button" class="close" data-dismiss="modal"><span>&times;</span></button>
+        </div>
+        <div class="modal-body">
+          <p class="text-muted small mb-3">Banco: <strong>{{ banco_seleccionado }}</strong> — Fecha: <strong>{{ fecha.isoformat() }}</strong></p>
+          <input type="hidden" name="fecha" value="{{ fecha.isoformat() }}">
+          {% if cuentas|length > 1 %}
+          <div class="form-group">
+            <label>Cuenta</label>
+            <select class="form-control" name="cuenta_bancaria_id" required>
+              {% for cuenta in cuentas %}
+              <option value="{{ cuenta.id }}">{{ cuenta.alias }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          {% elif cuentas %}
+          <input type="hidden" name="cuenta_bancaria_id" value="{{ cuentas[0].id }}">
+          {% endif %}
+          <div class="form-group" id="dropzone-resumen" style="border: 2px dashed var(--border); border-radius: 10px; padding: 24px; text-align: center; cursor: pointer;">
+            <i class="fas fa-cloud-upload-alt fa-2x text-muted mb-2"></i>
+            <div class="text-muted">Arrastra el archivo aqui o hace click para elegirlo</div>
+            <div class="small text-muted mt-1">CSV o XLSX</div>
+            <input type="file" class="form-control-file" name="archivo" accept=".csv,.xlsx" required style="display:none;" id="input-archivo-resumen">
+            <div id="nombre-archivo-resumen" class="small font-weight-bold mt-2"></div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-dismiss="modal">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Procesar resumen</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: resumen del dia -->
+<div class="modal fade" id="modalResumenDia" tabindex="-1" role="dialog">
+  <div class="modal-dialog modal-lg" role="document">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Cierre {{ fecha.isoformat() }}</h5>
+        <button type="button" class="close" data-dismiss="modal"><span>&times;</span></button>
+      </div>
+      <div class="modal-body" id="contenido-resumen-dia">
+        <div class="text-muted">Cargando...</div>
+      </div>
+      <div class="modal-footer">
+        <form method="post" action="/conciliaciones/cierres" id="form-cerrar-dia">
+          <input type="hidden" name="fecha" value="{{ fecha.isoformat() }}">
+          <button type="submit" class="btn btn-primary" id="btn-cerrar-dia" disabled title="Todos los bancos deben estar conciliados.">Cerrar recaudacion del dia</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  window.CONCILIACIONES_CONTEXTO = {
+    fecha: "{{ fecha.isoformat() }}",
+    banco: "{{ banco_seleccionado }}"
+  };
+</script>
+<script src="/static/js/conciliaciones.js"></script>
 {% endblock %}

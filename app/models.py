@@ -228,6 +228,22 @@ class PanelUser(Base):
     activo: Mapped[bool] = mapped_column(default=True)
 
 
+class CierreDiario(Base):
+    """Marca que la recaudacion de un dia quedo cerrada -- mientras exista,
+    /conciliaciones bloquea subir/actualizar resumenes y emparejar/marcar lineas
+    de esa fecha. Se borra para reabrir el dia (sin historial de reapertura,
+    no hay tabla de auditoria en el resto de la app tampoco)."""
+
+    __tablename__ = "cierres_diarios"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    fecha: Mapped[date] = mapped_column(Date, unique=True, index=True)
+    cerrado_por_id: Mapped[int] = mapped_column(ForeignKey("usuarios_panel.id"))
+    cerrado_en: Mapped[datetime] = mapped_column(DateTime, default=ahora_argentina)
+
+    cerrado_por: Mapped[PanelUser] = relationship()
+
+
 class WhatsAppConversation(Base):
     __tablename__ = "conversaciones_whatsapp"
 

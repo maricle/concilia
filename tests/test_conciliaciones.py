@@ -10,7 +10,19 @@ from app import panel
 from app.auth import hash_password
 from app.db import Base
 from app.main import app
-from app.models import BankAccount, Movement, Operator, PanelUser, RecordState, ReconciliationState, StatementLine
+from app.models import (
+    BankAccount,
+    CierreDiario,
+    Movement,
+    Movil,
+    Operator,
+    PanelUser,
+    RecordState,
+    ReconciliationState,
+    Reparto,
+    RepartoOperador,
+    StatementLine,
+)
 
 
 def _client_with_admin():
@@ -73,7 +85,7 @@ def test_importar_resumen_reconciles_matching_movement():
     )
     assert response.status_code == 303
 
-    pagina = client.get("/conciliaciones")
+    pagina = client.get("/conciliaciones", params={"fecha": "2026-08-24", "banco": "Nacion"})
     assert "OP-1" in pagina.text
     assert "Conciliado" in pagina.text
 
@@ -210,3 +222,293 @@ def test_resumenes_table_shows_breakdown_by_line_state():
         assert con_diferencia.estado_conciliacion == ReconciliationState.CON_DIFERENCIA
         estados = sorted(l.estado.value for l in lineas)
         assert estados == ["conciliada", "conciliada", "pendiente"]
+
+
+def test_panel_json_sin_resumen_status_when_no_statement_uploaded():
+    client, test_session = _client_with_admin()
+    _login(client)
+
+    with test_session() as session:
+        session.add(
+            Movement(
+                operador_id=1,
+                monto=Decimal("500.00"),
+                fecha_transaccion=datetime(2026, 8, 24),
+                numero_operacion="OP-1",
+                estado_registro=RecordState.CONFIRMADO,
+                cuenta_bancaria_id=1,
+            )
+        )
+        session.commit()
+
+    respuesta = client.get("/conciliaciones/panel.json", params={"fecha": "2026-08-24", "banco": "Nacion"})
+    assert respuesta.status_code == 200
+    panel = respuesta.json()["panel"]
+    assert panel["estado"] == "sin_resumen"
+    assert panel["cantidad_comprobantes"] == 1
+    assert panel["total_declarado"] == "500.00"
+    assert panel["total_banco"] is None
+
+
+def test_panel_json_conciliado_computes_totales_y_diferencia_cero():
+    client, test_session = _client_with_admin()
+    _login(client)
+
+    with test_session() as session:
+        session.add(
+            Movement(
+                operador_id=1,
+                monto=Decimal("500.00"),
+                fecha_transaccion=datetime(2026, 8, 24),
+                numero_operacion="OP-1",
+                estado_registro=RecordState.CONFIRMADO,
+            )
+        )
+        session.commit()
+
+    csv_contenido = "Fecha,Importe,Descripcion,Referencia\n24/08/2026,500.00,Transferencia,OP-1\n"
+    client.post(
+        "/conciliaciones/importar",
+        data={"cuenta_bancaria_id": "1", "fecha": "2026-08-24"},
+        files={"archivo": ("resumen.csv", csv_contenido, "text/csv")},
+    )
+
+    panel = client.get("/conciliaciones/panel.json", params={"fecha": "2026-08-24", "banco": "Nacion"}).json()["panel"]
+    assert panel["estado"] == "conciliado"
+    assert panel["total_declarado"] == "500.00"
+    assert panel["total_banco"] == "500.00"
+    assert panel["diferencia"] == "0.00"
+
+
+def test_panel_json_a_revisar_when_pending_line_exists():
+    client, test_session = _client_with_admin()
+    _login(client)
+
+    csv_contenido = "Fecha,Importe,Descripcion,Referencia\n24/08/2026,999.00,Sin match,OP-SIN-MATCH\n"
+    client.post(
+        "/conciliaciones/importar",
+        data={"cuenta_bancaria_id": "1", "fecha": "2026-08-24"},
+        files={"archivo": ("resumen.csv", csv_contenido, "text/csv")},
+    )
+
+    panel = client.get("/conciliaciones/panel.json", params={"fecha": "2026-08-24", "banco": "Nacion"}).json()["panel"]
+    assert panel["estado"] == "a_revisar"
+
+
+def test_movimientos_json_pagination_and_search():
+    client, test_session = _client_with_admin()
+    _login(client)
+
+    with test_session() as session:
+        session.add_all(
+            [
+                Movement(
+                    operador_id=1,
+                    monto=Decimal(str(100 + i)),
+                    fecha_transaccion=datetime(2026, 8, 24, 10, i),
+                    numero_operacion=f"OP-{i}",
+                    titular="Cliente Uno" if i == 0 else "Cliente Dos",
+                    estado_registro=RecordState.CONFIRMADO,
+                    cuenta_bancaria_id=1,
+                )
+                for i in range(5)
+            ]
+        )
+        session.commit()
+
+    respuesta = client.get(
+        "/conciliaciones/movimientos.json", params={"fecha": "2026-08-24", "banco": "Nacion", "page": 1, "page_size": 2}
+    )
+    data = respuesta.json()
+    assert data["total"] == 5
+    assert data["total_pages"] == 3
+    assert len(data["items"]) == 2
+
+    busqueda = client.get(
+        "/conciliaciones/movimientos.json",
+        params={"fecha": "2026-08-24", "banco": "Nacion", "search": "Cliente Uno"},
+    )
+    resultado = busqueda.json()
+    assert resultado["total"] == 1
+    assert resultado["items"][0]["titular"] == "Cliente Uno"
+
+
+def test_movimientos_json_filtra_por_estado():
+    client, test_session = _client_with_admin()
+    _login(client)
+
+    with test_session() as session:
+        session.add_all(
+            [
+                Movement(
+                    operador_id=1,
+                    monto=Decimal("100"),
+                    fecha_transaccion=datetime(2026, 8, 24),
+                    numero_operacion="OP-PEND",
+                    estado_registro=RecordState.CONFIRMADO,
+                    estado_conciliacion=ReconciliationState.PENDIENTE,
+                    cuenta_bancaria_id=1,
+                ),
+                Movement(
+                    operador_id=1,
+                    monto=Decimal("200"),
+                    fecha_transaccion=datetime(2026, 8, 24),
+                    numero_operacion="OP-CONC",
+                    estado_registro=RecordState.CONFIRMADO,
+                    estado_conciliacion=ReconciliationState.CONCILIADO,
+                    cuenta_bancaria_id=1,
+                ),
+            ]
+        )
+        session.commit()
+
+    respuesta = client.get(
+        "/conciliaciones/movimientos.json",
+        params={"fecha": "2026-08-24", "banco": "Nacion", "estado": "conciliado"},
+    )
+    data = respuesta.json()
+    assert data["total"] == 1
+    assert data["items"][0]["comprobante"] == "OP-CONC"
+
+
+def test_salidas_json_agrupa_por_reparto_con_totales():
+    client, test_session = _client_with_admin()
+    _login(client)
+
+    with test_session() as session:
+        session.add(Movil(numero="M-01", nombre="Camion 1", responsable_operador_id=1))
+        session.commit()
+        session.add(
+            Reparto(movil_id=1, fecha=datetime(2026, 8, 24).date(), hora_inicio=datetime(2026, 8, 24, 8, 0), numero_reparto=5)
+        )
+        session.commit()
+        session.add(RepartoOperador(reparto_id=1, operador_id=1))
+        session.add_all(
+            [
+                Movement(
+                    operador_id=1,
+                    monto=Decimal("300"),
+                    fecha_transaccion=datetime(2026, 8, 24, 9, 0),
+                    numero_operacion="OP-A",
+                    estado_registro=RecordState.CONFIRMADO,
+                    cuenta_bancaria_id=1,
+                    reparto_id=1,
+                ),
+                Movement(
+                    operador_id=1,
+                    monto=Decimal("200"),
+                    fecha_transaccion=datetime(2026, 8, 24, 10, 0),
+                    numero_operacion="OP-B",
+                    estado_registro=RecordState.CONFIRMADO,
+                    cuenta_bancaria_id=1,
+                    reparto_id=1,
+                ),
+            ]
+        )
+        session.commit()
+
+    respuesta = client.get("/conciliaciones/salidas.json", params={"fecha": "2026-08-24", "banco": "Nacion"})
+    data = respuesta.json()
+    assert data["total"] == 1
+    salida = data["items"][0]
+    assert salida["numero_reparto"] == 5
+    assert salida["cantidad_comprobantes"] == 2
+    assert salida["total"] == "500.00"
+    assert salida["operador"] == "Ana"
+
+
+def test_bancos_sin_identificar_no_se_suman_a_ningun_banco():
+    client, test_session = _client_with_admin()
+    _login(client)
+
+    with test_session() as session:
+        session.add(
+            Movement(
+                operador_id=1,
+                monto=Decimal("777.00"),
+                fecha_transaccion=datetime(2026, 8, 24),
+                numero_operacion="OP-SIN-BANCO",
+                estado_registro=RecordState.CONFIRMADO,
+                cuenta_bancaria_id=None,
+            )
+        )
+        session.commit()
+
+    panel = client.get("/conciliaciones/panel.json", params={"fecha": "2026-08-24", "banco": "Nacion"}).json()
+    assert panel["panel"]["total_declarado"] == "0"
+    assert panel["sin_banco_cantidad"] == 1
+    assert panel["sin_banco_total"] == "777.00"
+
+
+def test_cerrar_dia_bloqueado_mientras_hay_banco_a_revisar():
+    client, test_session = _client_with_admin()
+    _login(client)
+
+    csv_contenido = "Fecha,Importe,Descripcion,Referencia\n24/08/2026,999.00,Sin match,OP-SIN-MATCH\n"
+    client.post(
+        "/conciliaciones/importar",
+        data={"cuenta_bancaria_id": "1", "fecha": "2026-08-24"},
+        files={"archivo": ("resumen.csv", csv_contenido, "text/csv")},
+    )
+
+    respuesta = client.post("/conciliaciones/cierres", data={"fecha": "2026-08-24"})
+    assert respuesta.status_code == 400
+    assert "pendientes de revision" in respuesta.text
+
+    with test_session() as session:
+        assert session.query(CierreDiario).count() == 0
+
+
+def test_cerrar_dia_y_reabrir():
+    client, test_session = _client_with_admin()
+    _login(client)
+
+    respuesta = client.post("/conciliaciones/cierres", data={"fecha": "2026-08-24"}, follow_redirects=False)
+    assert respuesta.status_code == 303
+
+    with test_session() as session:
+        assert session.query(CierreDiario).count() == 1
+
+    respuesta = client.post("/conciliaciones/cierres/2026-08-24/reabrir", follow_redirects=False)
+    assert respuesta.status_code == 303
+    with test_session() as session:
+        assert session.query(CierreDiario).count() == 0
+
+
+def test_dia_cerrado_bloquea_nuevo_resumen():
+    client, test_session = _client_with_admin()
+    _login(client)
+
+    with test_session() as session:
+        session.add(CierreDiario(fecha=datetime(2026, 8, 24).date(), cerrado_por_id=1))
+        session.commit()
+
+    csv_contenido = "Fecha,Importe,Descripcion,Referencia\n24/08/2026,500.00,Transferencia,OP-1\n"
+    respuesta = client.post(
+        "/conciliaciones/importar",
+        data={"cuenta_bancaria_id": "1", "fecha": "2026-08-24"},
+        files={"archivo": ("resumen.csv", csv_contenido, "text/csv")},
+    )
+    assert respuesta.status_code == 400
+    assert "ya esta cerrado" in respuesta.text
+
+    with test_session() as session:
+        assert session.query(StatementLine).count() == 0
+
+
+def test_legacy_resumen_id_redirige_a_fecha_banco():
+    client, test_session = _client_with_admin()
+    _login(client)
+
+    csv_contenido = "Fecha,Importe,Descripcion,Referencia\n24/08/2026,500.00,Transferencia,OP-1\n"
+    client.post(
+        "/conciliaciones/importar",
+        data={"cuenta_bancaria_id": "1", "fecha": "2026-08-24"},
+        files={"archivo": ("resumen.csv", csv_contenido, "text/csv")},
+    )
+    with test_session() as session:
+        resumen_id = session.query(StatementLine).one().resumen_id
+
+    respuesta = client.get("/conciliaciones", params={"resumen_id": resumen_id}, follow_redirects=False)
+    assert respuesta.status_code == 303
+    assert respuesta.headers["location"] == "/conciliaciones?fecha=2026-08-24&banco=Nacion"
