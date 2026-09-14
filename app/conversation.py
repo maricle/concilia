@@ -427,13 +427,11 @@ class ConversationService:
         conversation.movimiento_borrador_id = movement.id
         self.session.add(conversation)
 
-        if cuenta_bancaria is None:
-            # No se pudo identificar la cuenta sola -- se le pide al operador que
-            # elija entre las cargadas, en vez de rechazar el comprobante entero.
-            conversation.estado = ConversationState.ESPERANDO_CUENTA_BANCARIA
-            self.session.commit()
-            return self._prompt_elegir_cuenta_bancaria()
-
+        # Si no se pudo identificar la cuenta sola, el movimiento queda registrado
+        # con cuenta_bancaria_id null en vez de interrumpir al operador para que
+        # elija a mano -- un administrador la completa despues desde el panel
+        # (/comprobantes/{id}/editar, ver editar_movimiento.html), que para eso
+        # tiene el texto crudo extraido como referencia.
         # Se salta directo al paso de factura/cuenta -- mostrar el resumen y pedir
         # una confirmacion aparte antes de esto era una revision redundante, ya que
         # el resumen se vuelve a mostrar completo (con factura/cuenta ya cargada)
