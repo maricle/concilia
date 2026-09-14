@@ -1362,8 +1362,9 @@ def editar_movimiento_form(
     movimiento_id: int, request: Request, db: Session = Depends(get_db), user: PanelUser = Depends(require_user)
 ):
     movimiento = _get_or_redirect(db, Movement, movimiento_id, "/comprobantes")
+    cuentas = db.scalars(select(BankAccount).order_by(BankAccount.id)).all()
     return templates.TemplateResponse(
-        request, "editar_movimiento.html", {"user": user, "movimiento": movimiento, "error": None}
+        request, "editar_movimiento.html", {"user": user, "movimiento": movimiento, "cuentas": cuentas, "error": None}
     )
 
 
@@ -1375,7 +1376,7 @@ def editar_movimiento_submit(
     monto: str = Form(""),
     numero_operacion: str = Form(""),
     banco_emisor: str = Form(""),
-    cuenta_receptora_extraida: str = Form(""),
+    cuenta_bancaria_id: str = Form(""),
     titular: str = Form(""),
     factura_o_cuenta_tipo: str = Form(""),
     factura_o_cuenta_numero: str = Form(""),
@@ -1383,6 +1384,7 @@ def editar_movimiento_submit(
     user: PanelUser = Depends(require_user),
 ):
     movimiento = _get_or_redirect(db, Movement, movimiento_id, "/comprobantes")
+    cuentas = db.scalars(select(BankAccount).order_by(BankAccount.id)).all()
 
     try:
         nueva_fecha = datetime.strptime(fecha_transaccion, "%Y-%m-%dT%H:%M")
@@ -1391,7 +1393,7 @@ def editar_movimiento_submit(
         return templates.TemplateResponse(
             request,
             "editar_movimiento.html",
-            {"user": user, "movimiento": movimiento, "error": "Fecha o monto invalido."},
+            {"user": user, "movimiento": movimiento, "cuentas": cuentas, "error": "Fecha o monto invalido."},
             status_code=400,
         )
 
@@ -1400,7 +1402,12 @@ def editar_movimiento_submit(
         return templates.TemplateResponse(
             request,
             "editar_movimiento.html",
-            {"user": user, "movimiento": movimiento, "error": f"Ya existe otro comprobante con el numero {numero_operacion}."},
+            {
+                "user": user,
+                "movimiento": movimiento,
+                "cuentas": cuentas,
+                "error": f"Ya existe otro comprobante con el numero {numero_operacion}.",
+            },
             status_code=400,
         )
 
@@ -1408,7 +1415,7 @@ def editar_movimiento_submit(
     movimiento.monto = nuevo_monto
     movimiento.numero_operacion = numero_operacion
     movimiento.banco_emisor = banco_emisor or None
-    movimiento.cuenta_receptora_extraida = cuenta_receptora_extraida or None
+    movimiento.cuenta_bancaria_id = int(cuenta_bancaria_id) if cuenta_bancaria_id else None
     movimiento.titular = titular or None
     movimiento.factura_o_cuenta_tipo = TipoIdentificador(factura_o_cuenta_tipo) if factura_o_cuenta_tipo else None
     movimiento.factura_o_cuenta_numero = factura_o_cuenta_numero or None

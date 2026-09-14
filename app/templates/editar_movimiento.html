@@ -25,16 +25,37 @@
             <input type="text" class="form-control" name="numero_operacion" value="{{ movimiento.numero_operacion or '' }}">
           </div>
           <div class="form-group">
-            <label>Banco emisor</label>
-            <input type="text" class="form-control" name="banco_emisor" value="{{ movimiento.banco_emisor or '' }}">
+            <label>Cuenta receptora</label>
+            <div class="d-flex align-items-center" style="gap: .6rem;">
+              {% set icono_actual = icono_banco(movimiento.cuenta_bancaria.banco) if movimiento.cuenta_bancaria else None %}
+              <span id="cuenta-receptora-icono" class="banco-dia-icon"{% if not icono_actual or not icono_actual.imagen %} style="background: {{ icono_actual.color if icono_actual else '#9395A8' }};"{% endif %}>
+                {% if icono_actual and icono_actual.imagen %}
+                <img src="/static/img/{{ icono_actual.imagen }}" alt="">
+                {% else %}
+                <i class="fas {{ icono_actual.icono if icono_actual else 'fa-question' }}"></i>
+                {% endif %}
+              </span>
+              <select class="form-control" name="cuenta_bancaria_id" id="cuenta-receptora-select" onchange="actualizarIconoCuentaReceptora()">
+                <option value="">-- Sin identificar --</option>
+                {% for cuenta in cuentas %}
+                {% set icono = icono_banco(cuenta.banco) %}
+                <option value="{{ cuenta.id }}" data-icono="{{ icono.icono }}" data-color="{{ icono.color }}" data-imagen="{{ icono.imagen or '' }}" {{ "selected" if movimiento.cuenta_bancaria_id == cuenta.id }}>{{ cuenta.alias }} ({{ cuenta.banco }})</option>
+                {% endfor %}
+              </select>
+            </div>
+            {% if movimiento.cuenta_receptora_extraida %}
+            <small class="form-text text-muted">CBU/CVU/alias leido del comprobante: {{ movimiento.cuenta_receptora_extraida }}</small>
+            {% endif %}
           </div>
-          <div class="form-group">
-            <label>CBU / CVU / alias receptor</label>
-            <input type="text" class="form-control" name="cuenta_receptora_extraida" value="{{ movimiento.cuenta_receptora_extraida or '' }}">
-          </div>
-          <div class="form-group">
-            <label>Titular / Emisor</label>
-            <input type="text" class="form-control" name="titular" value="{{ movimiento.titular or '' }}">
+          <div class="form-row">
+            <div class="form-group col-md-6">
+              <label>Titular / Emisor</label>
+              <input type="text" class="form-control" name="titular" value="{{ movimiento.titular or '' }}">
+            </div>
+            <div class="form-group col-md-6">
+              <label>Banco emisor</label>
+              <input type="text" class="form-control" name="banco_emisor" value="{{ movimiento.banco_emisor or '' }}">
+            </div>
           </div>
           <div class="form-row">
             <div class="form-group col-md-4">
@@ -75,4 +96,21 @@
     </div>
   </div>
 </div>
+<script>
+function actualizarIconoCuentaReceptora() {
+  var select = document.getElementById("cuenta-receptora-select");
+  var chip = document.getElementById("cuenta-receptora-icono");
+  var opcion = select.options[select.selectedIndex];
+  var imagen = opcion.getAttribute("data-imagen");
+  var color = opcion.getAttribute("data-color");
+  var claseIcono = opcion.getAttribute("data-icono");
+  if (!opcion.value) {
+    chip.style.background = "#9395A8";
+    chip.innerHTML = '<i class="fas fa-question"></i>';
+    return;
+  }
+  chip.style.background = imagen ? "" : color;
+  chip.innerHTML = imagen ? '<img src="/static/img/' + imagen + '" alt="">' : '<i class="fas ' + claseIcono + '"></i>';
+}
+</script>
 {% endblock %}

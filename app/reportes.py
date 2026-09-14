@@ -3,6 +3,7 @@ from collections import defaultdict
 from decimal import Decimal
 
 from reportlab.lib import colors
+from reportlab.lib.enums import TA_RIGHT
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import cm
@@ -15,6 +16,21 @@ _styles = getSampleStyleSheet()
 _TITULO_STYLE = ParagraphStyle("TituloSalida", parent=_styles["Heading1"], fontSize=16, spaceAfter=6)
 _SUBTITULO_STYLE = ParagraphStyle("SubtituloSalida", parent=_styles["Heading2"], fontSize=12, spaceAfter=6)
 _NORMAL_STYLE = _styles["Normal"]
+# Estilos de celda usados via Paragraph (no como texto plano) para que las
+# tablas ajusten el texto largo al ancho de columna en vez de desbordarlo
+# encima de la celda vecina (ej. numeros de operacion largos).
+_CELDA_STYLE = ParagraphStyle("Celda", parent=_styles["Normal"], fontSize=8, leading=10)
+_CELDA_STYLE_HEADER = ParagraphStyle("CeldaHeader", parent=_CELDA_STYLE, textColor=colors.white, fontName="Helvetica-Bold")
+_CELDA_STYLE_RIGHT = ParagraphStyle("CeldaRight", parent=_CELDA_STYLE, alignment=TA_RIGHT)
+_CELDA_STYLE_HEADER_RIGHT = ParagraphStyle("CeldaHeaderRight", parent=_CELDA_STYLE_HEADER, alignment=TA_RIGHT)
+
+
+def _celda(texto: str, *, right: bool = False, header: bool = False) -> Paragraph:
+    if header:
+        style = _CELDA_STYLE_HEADER_RIGHT if right else _CELDA_STYLE_HEADER
+    else:
+        style = _CELDA_STYLE_RIGHT if right else _CELDA_STYLE
+    return Paragraph(str(texto), style)
 
 
 def _formato_fecha_hora(valor) -> str:
@@ -38,33 +54,30 @@ def _elementos_resumen_salida(reparto: Reparto, movimientos: list[Movement], ope
 
     elementos.append(Paragraph("Comprobantes registrados", _SUBTITULO_STYLE))
     encabezado = ["Fecha transaccion", "Banco", "Factura/Cuenta", "N. operacion", "Vendedor", "Monto"]
-    filas = [encabezado]
+    filas = [[_celda(texto, header=True, right=(i == len(encabezado) - 1)) for i, texto in enumerate(encabezado)]]
     total_general = Decimal("0")
     for movimiento in movimientos:
         if movimiento.monto is not None:
             total_general += movimiento.monto
         filas.append(
             [
-                _formato_fecha_hora(movimiento.fecha_transaccion),
-                movimiento.cuenta_bancaria.banco if movimiento.cuenta_bancaria else "-",
-                movimiento.factura_o_cuenta_numero or "-",
-                movimiento.numero_operacion or "-",
-                movimiento.operador.nombre,
-                _formato_monto(movimiento.monto),
+                _celda(_formato_fecha_hora(movimiento.fecha_transaccion)),
+                _celda(movimiento.cuenta_bancaria.banco if movimiento.cuenta_bancaria else "-"),
+                _celda(movimiento.factura_o_cuenta_numero or "-"),
+                _celda(movimiento.numero_operacion or "-"),
+                _celda(movimiento.operador.nombre),
+                _celda(_formato_monto(movimiento.monto), right=True),
             ]
         )
     if len(filas) == 1:
-        filas.append(["Sin comprobantes registrados", "", "", "", "", ""])
+        filas.append([_celda("Sin comprobantes registrados")] + [_celda("")] * 5)
 
     tabla = Table(filas, repeatRows=1, colWidths=[2.6 * cm, 2.6 * cm, 2.8 * cm, 3 * cm, 3.2 * cm, 2.5 * cm])
     tabla.setStyle(
         TableStyle(
             [
                 ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#4e73df")),
-                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-                ("FONTSIZE", (0, 0), (-1, -1), 8),
                 ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
-                ("ALIGN", (-1, 0), (-1, -1), "RIGHT"),
                 ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
             ]
         )
@@ -76,23 +89,26 @@ def _elementos_resumen_salida(reparto: Reparto, movimientos: list[Movement], ope
 
     elementos.append(Paragraph("Desglose por cuenta bancaria", _SUBTITULO_STYLE))
     subtotales: dict[str, Decimal] = defaultdict(Decimal)
+    cantidades: dict[str, int] = defaultdict(int)
     for movimiento in movimientos:
         banco = movimiento.cuenta_bancaria.banco if movimiento.cuenta_bancaria else "Sin banco"
         subtotales[banco] += movimiento.monto or Decimal("0")
-    filas_bancos = [["Banco", "Subtotal"]] + [
-        [banco, _formato_monto(subtotal)] for banco, subtotal in sorted(subtotales.items())
+        cantidades[banco] += 1
+    filas_bancos = [
+        [_celda("Banco", header=True), _celda("Cantidad", header=True, right=True), _celda("Subtotal", header=True, right=True)]
+    ] + [
+        [_celda(banco), _celda(cantidades[banco], right=True), _celda(_formato_monto(subtotal), right=True)]
+        for banco, subtotal in sorted(subtotales.items())
     ]
     if len(filas_bancos) == 1:
-        filas_bancos.append(["Sin comprobantes registrados", ""])
-    tabla_bancos = Table(filas_bancos, colWidths=[8 * cm, 4 * cm])
+        filas_bancos.append([_celda("Sin comprobantes registrados"), _celda(""), _celda("")])
+    tabla_bancos = Table(filas_bancos, colWidths=[7 * cm, 2.5 * cm, 3.5 * cm])
     tabla_bancos.setStyle(
         TableStyle(
             [
                 ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#4e73df")),
-                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-                ("FONTSIZE", (0, 0), (-1, -1), 9),
                 ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
-                ("ALIGN", (-1, 0), (-1, -1), "RIGHT"),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
             ]
         )
     )
