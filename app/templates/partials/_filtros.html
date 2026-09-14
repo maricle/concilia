@@ -16,9 +16,6 @@
           <i class="fas fa-filter mr-1"></i>Filtros
         </button>
         <input type="text" class="form-control form-control-sm flex-grow-1" name="q" value="{{ q }}" placeholder="{{ placeholder }}" style="min-width: 240px;">
-        {% if exportar_action %}
-        <button type="submit" formaction="{{ exportar_action }}" class="btn btn-outline-secondary btn-sm" title="Exportar el listado filtrado a Excel"><i class="fas fa-file-excel mr-1"></i>Exportar</button>
-        {% endif %}
       </div>
       <div class="collapse{{ ' show' if show_advanced else '' }} mt-3 filtros-condensados" id="filtros-avanzados">
         {{ caller() }}
@@ -26,6 +23,9 @@
       <div class="d-flex align-items-center mt-3" style="gap: 8px;">
         <button type="submit" class="btn btn-primary btn-sm">Buscar</button>
         <a href="{{ action }}" class="btn btn-outline-secondary btn-sm">Limpiar filtros</a>
+        {% if exportar_action %}
+        <button type="submit" formaction="{{ exportar_action }}" class="btn btn-outline-secondary btn-sm" title="Exportar el listado filtrado a Excel"><i class="fas fa-file-excel mr-1" style="color: var(--good);"></i>Exportar</button>
+        {% endif %}
       </div>
     </form>
   </div>
