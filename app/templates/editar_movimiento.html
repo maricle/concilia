@@ -29,8 +29,16 @@
             <input type="text" class="form-control" name="banco_emisor" value="{{ movimiento.banco_emisor or '' }}">
           </div>
           <div class="form-group">
-            <label>CBU / CVU / alias receptor</label>
-            <input type="text" class="form-control" name="cuenta_receptora_extraida" value="{{ movimiento.cuenta_receptora_extraida or '' }}">
+            <label>Cuenta receptora</label>
+            <select class="form-control" name="cuenta_bancaria_id">
+              <option value="">-- Sin identificar --</option>
+              {% for cuenta in cuentas %}
+              <option value="{{ cuenta.id }}" {{ "selected" if movimiento.cuenta_bancaria_id == cuenta.id }}>{{ cuenta.alias }} ({{ cuenta.banco }})</option>
+              {% endfor %}
+            </select>
+            {% if movimiento.cuenta_receptora_extraida %}
+            <small class="form-text text-muted">CBU/CVU/alias leido del comprobante: {{ movimiento.cuenta_receptora_extraida }}</small>
+            {% endif %}
           </div>
           <div class="form-group">
             <label>Titular / Emisor</label>

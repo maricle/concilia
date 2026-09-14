@@ -554,6 +554,7 @@ def test_editar_movimiento_updates_fields():
     client, test_session = _client_with_admin()
     with test_session() as session:
         session.add(Operator(nombre="Ana", whatsapp_numero="111"))
+        session.add(BankAccount(banco="Banco Galicia", numero_cuenta="0000003100051586023938", alias="galicia.demonte"))
         session.commit()
         session.add(
             Movement(
@@ -562,6 +563,7 @@ def test_editar_movimiento_updates_fields():
                 fecha_transaccion=datetime(2026, 8, 24),
                 numero_operacion="OP-1",
                 banco_emisor="Banco Viejo",
+                cuenta_receptora_extraida="CBU-leido-del-comprobante",
                 estado_registro=RecordState.CONFIRMADO,
             )
         )
@@ -575,7 +577,7 @@ def test_editar_movimiento_updates_fields():
             "monto": "650.50",
             "numero_operacion": "OP-1-CORREGIDO",
             "banco_emisor": "Banco Nuevo",
-            "cuenta_receptora_extraida": "CBU12345",
+            "cuenta_bancaria_id": "1",
             "titular": "Juan Perez",
             "factura_o_cuenta_tipo": "factura",
             "factura_o_cuenta_numero": "9999",
@@ -589,10 +591,49 @@ def test_editar_movimiento_updates_fields():
         assert movimiento.numero_operacion == "OP-1-CORREGIDO"
         assert movimiento.monto == Decimal("650.50")
         assert movimiento.banco_emisor == "Banco Nuevo"
-        assert movimiento.cuenta_receptora_extraida == "CBU12345"
+        assert movimiento.cuenta_bancaria_id == 1
+        # el texto crudo leido del comprobante es solo referencia, no se toca
+        # desde este formulario -- lo que el admin corrige es cuenta_bancaria_id.
+        assert movimiento.cuenta_receptora_extraida == "CBU-leido-del-comprobante"
         assert movimiento.titular == "Juan Perez"
         assert movimiento.factura_o_cuenta_numero == "9999"
         assert movimiento.fecha_transaccion == datetime(2026, 8, 20)
+
+
+def test_editar_movimiento_allows_clearing_cuenta_bancaria():
+    client, test_session = _client_with_admin()
+    with test_session() as session:
+        session.add(Operator(nombre="Ana", whatsapp_numero="111"))
+        session.add(BankAccount(banco="Banco Galicia", numero_cuenta="0000003100051586023938", alias="galicia.demonte"))
+        session.commit()
+        session.add(
+            Movement(
+                operador_id=1,
+                monto=Decimal("500"),
+                fecha_transaccion=datetime(2026, 8, 24),
+                numero_operacion="OP-1",
+                cuenta_bancaria_id=1,
+                estado_registro=RecordState.CONFIRMADO,
+            )
+        )
+        session.commit()
+
+    client.post("/login", data={"email": "admin@concilia.test", "password": "secreta123"})
+    response = client.post(
+        "/comprobantes/1/editar",
+        data={
+            "fecha_transaccion": "2026-08-24T00:00",
+            "monto": "500",
+            "numero_operacion": "OP-1",
+            "cuenta_bancaria_id": "",
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+
+    with test_session() as session:
+        movimiento = session.get(Movement, 1)
+        assert movimiento.cuenta_bancaria_id is None
 
 
 def test_editar_movimiento_allows_blank_monto():
