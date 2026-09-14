@@ -87,9 +87,20 @@ def test_few_shot_examples_montos_parsean_al_valor_correcto():
     esperados = {
         "mercadopago_sin_numero_operacion.jpg": Decimal("8750"),
         "mercadopago_centavos_superindice.jpg": Decimal("36396.31"),
+        "mercadopago_origen_y_destino_combinado.jpg": Decimal("12500.00"),
     }
     for ejemplo in extraction._FEW_SHOT_EXAMPLES:
         assert extraction._parse_monto(ejemplo["salida_esperada"]["monto"]) == esperados[ejemplo["archivo"]]
+
+
+def test_few_shot_origen_destino_combinado_usa_la_segunda_cuenta_como_receptora():
+    """Canario del bug real: el ejemplo debe ensenar que cuenta_receptora es la
+    SEGUNDA entidad listada (destino), no la primera (origen)."""
+    ejemplo = next(
+        e for e in extraction._FEW_SHOT_EXAMPLES if e["archivo"] == "mercadopago_origen_y_destino_combinado.jpg"
+    )
+    assert ejemplo["salida_esperada"]["cuenta_receptora"] == "0000000000000000000002"
+    assert ejemplo["salida_esperada"]["titular"] == "Juan Perez"
 
 
 def test_few_shot_messages_precede_the_real_question():

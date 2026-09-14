@@ -14,6 +14,7 @@ from app.db import Base
 from app.main import app
 from app.models import (
     BankAccount,
+    ImportedStatement,
     Movement,
     Movil,
     Operator,
@@ -22,6 +23,8 @@ from app.models import (
     RecordState,
     Reparto,
     RepartoOperador,
+    StatementLine,
+    StatementLineState,
 )
 from app.zona_horaria import ahora_argentina, hoy_argentina
 
@@ -201,6 +204,155 @@ def test_movimientos_list_shows_only_confirmed():
     assert response.status_code == 200
     assert "OP-CONFIRMADO" in response.text
     assert "OP-BORRADOR" not in response.text
+
+
+def test_comprobantes_no_muestra_columna_fecha_subida():
+    client, test_session = _client_with_admin()
+    with test_session() as session:
+        session.add(Operator(nombre="Ana", whatsapp_numero="111"))
+        session.commit()
+
+    client.post("/login", data={"email": "admin@concilia.test", "password": "secreta123"})
+    response = client.get("/comprobantes")
+
+    assert response.status_code == 200
+    encabezado_tabla = response.text.split("<thead>")[1].split("</thead>")[0]
+    assert "Fecha subida" not in encabezado_tabla
+    assert "Fecha transaccion" in encabezado_tabla
+
+
+def test_comprobantes_muestra_logo_del_banco_receptor():
+    client, test_session = _client_with_admin()
+    with test_session() as session:
+        session.add(Operator(nombre="Ana", whatsapp_numero="111"))
+        session.add(BankAccount(banco="Galicia", numero_cuenta="1", alias="Principal"))
+        session.commit()
+        session.add(
+            Movement(
+                operador_id=1,
+                monto=Decimal("500"),
+                fecha_transaccion=datetime(2026, 8, 24),
+                numero_operacion="OP-1",
+                estado_registro=RecordState.CONFIRMADO,
+                cuenta_bancaria_id=1,
+            )
+        )
+        session.commit()
+
+    client.post("/login", data={"email": "admin@concilia.test", "password": "secreta123"})
+    response = client.get("/comprobantes")
+
+    assert response.status_code == 200
+    assert "banco-dia-icon" in response.text
+    assert "galicia.png" in response.text
+
+
+def test_eliminar_movimiento_individual():
+    client, test_session = _client_with_admin()
+    with test_session() as session:
+        session.add(Operator(nombre="Ana", whatsapp_numero="111"))
+        session.commit()
+        session.add(
+            Movement(
+                operador_id=1,
+                monto=Decimal("500"),
+                fecha_transaccion=datetime(2026, 8, 24),
+                numero_operacion="OP-1",
+                estado_registro=RecordState.CONFIRMADO,
+            )
+        )
+        session.commit()
+
+    client.post("/login", data={"email": "admin@concilia.test", "password": "secreta123"})
+    response = client.post("/comprobantes/1/eliminar", follow_redirects=False)
+
+    assert response.status_code == 303
+    with test_session() as session:
+        assert session.get(Movement, 1) is None
+
+
+def test_eliminar_movimientos_en_lote():
+    client, test_session = _client_with_admin()
+    with test_session() as session:
+        session.add(Operator(nombre="Ana", whatsapp_numero="111"))
+        session.commit()
+        session.add_all(
+            [
+                Movement(
+                    operador_id=1,
+                    monto=Decimal("500"),
+                    fecha_transaccion=datetime(2026, 8, 24),
+                    numero_operacion="OP-1",
+                    estado_registro=RecordState.CONFIRMADO,
+                ),
+                Movement(
+                    operador_id=1,
+                    monto=Decimal("300"),
+                    fecha_transaccion=datetime(2026, 8, 24),
+                    numero_operacion="OP-2",
+                    estado_registro=RecordState.CONFIRMADO,
+                ),
+                Movement(
+                    operador_id=1,
+                    monto=Decimal("200"),
+                    fecha_transaccion=datetime(2026, 8, 24),
+                    numero_operacion="OP-3",
+                    estado_registro=RecordState.CONFIRMADO,
+                ),
+            ]
+        )
+        session.commit()
+
+    client.post("/login", data={"email": "admin@concilia.test", "password": "secreta123"})
+    response = client.post(
+        "/comprobantes/eliminar-lote", data={"movimiento_ids": ["1", "2"]}, follow_redirects=False
+    )
+
+    assert response.status_code == 303
+    with test_session() as session:
+        assert session.get(Movement, 1) is None
+        assert session.get(Movement, 2) is None
+        assert session.get(Movement, 3) is not None
+
+
+def test_eliminar_movimientos_en_lote_desvincula_lineas_de_resumen():
+    client, test_session = _client_with_admin()
+    with test_session() as session:
+        session.add(Operator(nombre="Ana", whatsapp_numero="111"))
+        session.add(BankAccount(banco="Nacion", numero_cuenta="1", alias="Principal"))
+        session.commit()
+        session.add(
+            Movement(
+                operador_id=1,
+                monto=Decimal("500"),
+                fecha_transaccion=datetime(2026, 8, 24),
+                numero_operacion="OP-1",
+                estado_registro=RecordState.CONFIRMADO,
+                cuenta_bancaria_id=1,
+            )
+        )
+        session.commit()
+        session.add(
+            ImportedStatement(
+                cuenta_bancaria_id=1, fecha=datetime(2026, 8, 24), archivo_nombre="r.csv", formato="csv", usuario_id=1
+            )
+        )
+        session.commit()
+        session.add(
+            StatementLine(
+                resumen_id=1, fecha=datetime(2026, 8, 24), monto=Decimal("500"), movimiento_id=1,
+                estado=StatementLineState.CONCILIADA,
+            )
+        )
+        session.commit()
+
+    client.post("/login", data={"email": "admin@concilia.test", "password": "secreta123"})
+    client.post("/comprobantes/eliminar-lote", data={"movimiento_ids": ["1"]})
+
+    with test_session() as session:
+        linea = session.get(StatementLine, 1)
+        assert linea.movimiento_id is None
+        assert linea.estado == StatementLineState.PENDIENTE
 
 
 def test_editar_movimiento_requires_login():

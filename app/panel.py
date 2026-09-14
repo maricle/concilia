@@ -70,6 +70,7 @@ def _sort_url(request: Request, campo: str) -> str:
 
 
 templates.env.globals["sort_url"] = _sort_url
+templates.env.globals["icono_banco"] = icono_banco
 
 
 def _xlsx_response(headers: list[str], filas: list[list], filename: str) -> Response:
@@ -1337,20 +1338,39 @@ def editar_movimiento_submit(
     return RedirectResponse("/comprobantes", status_code=303)
 
 
+def _eliminar_movimiento(db: Session, movimiento: Movement) -> None:
+    # Si estaba emparejado con una linea de resumen, la linea vuelve a quedar
+    # pendiente en vez de arrastrar una referencia rota a un movimiento borrado.
+    lineas_vinculadas = db.scalars(select(StatementLine).where(StatementLine.movimiento_id == movimiento.id)).all()
+    for linea in lineas_vinculadas:
+        linea.movimiento_id = None
+        linea.estado = StatementLineState.PENDIENTE
+    db.delete(movimiento)
+
+
 @router.post("/comprobantes/{movimiento_id}/eliminar")
 def eliminar_movimiento(
     movimiento_id: int, request: Request, db: Session = Depends(get_db), user: PanelUser = Depends(require_user)
 ):
     movimiento = db.get(Movement, movimiento_id)
     if movimiento is not None:
-        # Si estaba emparejado con una linea de resumen, la linea vuelve a quedar
-        # pendiente en vez de arrastrar una referencia rota a un movimiento borrado.
-        lineas_vinculadas = db.scalars(select(StatementLine).where(StatementLine.movimiento_id == movimiento.id)).all()
-        for linea in lineas_vinculadas:
-            linea.movimiento_id = None
-            linea.estado = StatementLineState.PENDIENTE
-        db.delete(movimiento)
+        _eliminar_movimiento(db, movimiento)
         db.commit()
+    return RedirectResponse("/comprobantes", status_code=303)
+
+
+@router.post("/comprobantes/eliminar-lote")
+def eliminar_movimientos_lote(
+    request: Request,
+    movimiento_ids: list[int] = Form(default=[]),
+    db: Session = Depends(get_db),
+    user: PanelUser = Depends(require_user),
+):
+    for movimiento_id in movimiento_ids:
+        movimiento = db.get(Movement, movimiento_id)
+        if movimiento is not None:
+            _eliminar_movimiento(db, movimiento)
+    db.commit()
     return RedirectResponse("/comprobantes", status_code=303)
 
 

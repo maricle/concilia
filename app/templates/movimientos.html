@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% import "partials/_filtros.html" as filtros %}
+{% import "partials/_banco_icono.html" as banco_icono %}
 {% block title %}Comprobantes - Concilia{% endblock %}
 {% macro th_ordenable(campo, etiqueta, style="", cls="") %}
 <th class="{{ cls }}" style="{{ style }}">
@@ -83,18 +84,20 @@
 {% endcall %}
 
 <div class="card shadow mb-4">
-  <div class="card-header py-3">
+  <div class="card-header py-3 d-flex justify-content-between align-items-center">
     <h6 class="m-0 font-weight-bold text-primary">Movimientos confirmados</h6>
+    <button type="submit" form="form-comprobantes" formaction="/comprobantes/eliminar-lote" class="btn btn-sm btn-outline-danger" onclick="return confirm('¿Eliminar los comprobantes seleccionados? Esta accion no se puede deshacer.');"><i class="fas fa-trash-alt mr-1"></i>Eliminar seleccionados</button>
   </div>
   <div class="card-body">
+    <form method="post" id="form-comprobantes">
     <div class="table-responsive">
       <table class="table table-bordered table-sm small mb-0" width="100%" cellspacing="0">
         <thead>
           <tr>
+            <th style="width: 30px;"><input type="checkbox" id="marcar-todos-comprobantes"></th>
             {{ th_ordenable("fecha_transaccion", "Fecha transaccion", "width: 90px; white-space: normal;") }}
-            {{ th_ordenable("fecha_subida", "Fecha subida", "width: 90px; white-space: normal;") }}
             <th style="width: 85px; white-space: normal;">Factura/Cuenta</th>
-            {{ th_ordenable("cuenta_banco", "Cuenta banco") }}
+            {{ th_ordenable("cuenta_banco", "Banco") }}
             <th>Titular / Emisor</th>
             {{ th_ordenable("numero_operacion", "N. operacion") }}
             {{ th_ordenable("monto", "Monto", cls="num") }}
@@ -108,8 +111,8 @@
         <tbody>
           {% for movimiento in movimientos %}
           <tr>
+            <td><input type="checkbox" name="movimiento_ids" value="{{ movimiento.id }}" class="chk-comprobante"></td>
             <td>{{ movimiento.fecha_transaccion|fecha_transaccion }}</td>
-            <td>{{ movimiento.fecha_subida.strftime("%Y-%m-%d %H:%M") }}</td>
             <td>
               {% if movimiento.factura_o_cuenta_numero %}
               {{ "F: " if movimiento.factura_o_cuenta_tipo and movimiento.factura_o_cuenta_tipo.value == "factura" else "Cta: " }}{{ movimiento.factura_o_cuenta_numero }}
@@ -117,7 +120,13 @@
               -
               {% endif %}
             </td>
-            <td>{{ movimiento.cuenta_bancaria.banco if movimiento.cuenta_bancaria else "Sin banco" }}</td>
+            <td>
+              {% if movimiento.cuenta_bancaria %}
+              {{ banco_icono.chip(icono_banco(movimiento.cuenta_bancaria.banco), "banco-dia-icon") }}
+              {% else %}
+              <span class="text-muted">Sin banco</span>
+              {% endif %}
+            </td>
             <td>{{ movimiento.titular or "-" }}</td>
             <td>{{ movimiento.numero_operacion or "-" }}</td>
             <td class="num">{{ "$" + movimiento.monto|string if movimiento.monto is not none else "-" }}</td>
@@ -138,9 +147,6 @@
               <a href="/comprobantes/{{ movimiento.id }}/archivo" target="_blank" class="btn btn-sm btn-outline-secondary" title="Ver comprobante"><i class="fas fa-eye"></i></a>
               {% endif %}
               <a href="/comprobantes/{{ movimiento.id }}/editar" class="btn btn-sm btn-outline-primary" title="Editar"><i class="fas fa-pencil-alt"></i></a>
-              <form class="d-inline" method="post" action="/comprobantes/{{ movimiento.id }}/eliminar" onsubmit="return confirm('¿Eliminar este comprobante? Esta accion no se puede deshacer.');">
-                <button type="submit" class="btn btn-sm btn-outline-danger" title="Eliminar"><i class="fas fa-trash-alt"></i></button>
-              </form>
             </td>
           </tr>
           {% else %}
@@ -149,6 +155,14 @@
         </tbody>
       </table>
     </div>
+    </form>
   </div>
 </div>
+<script>
+  document.getElementById("marcar-todos-comprobantes").addEventListener("change", function () {
+    document.querySelectorAll(".chk-comprobante").forEach(function (chk) {
+      chk.checked = this.checked;
+    }, this);
+  });
+</script>
 {% endblock %}

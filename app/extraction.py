@@ -50,6 +50,24 @@ _FEW_SHOT_EXAMPLES = [
             "titular": None,
         },
     },
+    {
+        # Corrige un error real en produccion: un comprobante mostraba el CBU de
+        # Galicia como destino, pero el sistema lo registro contra Mercado Pago --
+        # el modelo tomo el CVU del ORIGEN en vez del CBU del DESTINO. Pasa cuando
+        # el comprobante no dice "De"/"Para" explicitamente, sino que junta las dos
+        # cuentas bajo un unico titulo "Origen y destino": el orden (primera =
+        # origen, segunda = destino) es lo unico que las distingue.
+        "archivo": "mercadopago_origen_y_destino_combinado.jpg",
+        "media_type": "image/jpeg",
+        "salida_esperada": {
+            "monto": "12.500,00",
+            "fecha_transaccion": None,
+            "numero_operacion": "111222333444",
+            "banco_emisor": "Mercado Pago",
+            "cuenta_receptora": "0000000000000000000002",
+            "titular": "Juan Perez",
+        },
+    },
 ]
 
 def _build_tool() -> dict:
@@ -63,11 +81,21 @@ def _build_tool() -> dict:
     cuenta_receptora_schema = {
         "type": ["string", "null"],
         "description": (
-            "Identificador de la cuenta que RECIBE el dinero (el destinatario, la seccion 'Para' o "
-            "'Destino' del comprobante) -- nunca la cuenta de quien envia ('De'/'Origen'). Transcribi el "
-            "CBU, CVU o alias exactamente como figura en el comprobante (todos los digitos, sin espacios "
-            "ni separadores propios); no intentes adivinar a que cuenta registrada corresponde, eso se "
-            "resuelve despues por otro lado."
+            "DATO CRITICO, el mas importante despues del monto: el CBU/CVU/alias de la cuenta que RECIBE "
+            "el dinero (el destinatario) -- nunca la cuenta de quien envia. Un error aca hace que el pago "
+            "se registre contra el banco equivocado, asi que prestale especial atencion a distinguir "
+            "origen de destino. "
+            "Muchos comprobantes tienen etiquetas explicitas 'De'/'Para' o 'Origen'/'Destino': en ese caso "
+            "es directo, usa la de 'Para'/'Destino'. "
+            "PERO otros comprobantes (comun en Mercado Pago) muestran un unico titulo 'Origen y destino' "
+            "seguido de DOS personas/cuentas listadas una debajo de la otra, SIN que cada una diga "
+            "explicitamente 'origen' o 'destino' -- en ese caso el ORDEN es lo que importa: la PRIMERA "
+            "listada (arriba) es siempre quien envia (origen), la SEGUNDA (abajo) es siempre quien recibe "
+            "(destino). Usa el CBU/CVU de esa segunda entidad, nunca el de la primera aunque este mas "
+            "arriba o se vea mas prominente. "
+            "Transcribi el CBU, CVU o alias exactamente como figura en el comprobante (todos los digitos, "
+            "sin espacios ni separadores propios); no intentes adivinar a que cuenta registrada "
+            "corresponde, eso se resuelve despues por otro lado."
         ),
     }
     return {
@@ -117,10 +145,13 @@ def _build_tool() -> dict:
                 "titular": {
                     "type": ["string", "null"],
                     "description": (
-                        "Nombre del titular de la cuenta de ORIGEN (quien envia el dinero -- la seccion "
-                        "'De'/'Origen'/'Cuenta debito' del comprobante), si figura. Nunca el nombre de la "
-                        "empresa que recibe el pago: la cuenta receptora siempre es una de las cuentas de "
-                        "la empresa (ver cuenta_receptora), asi que su titular nunca va aca."
+                        "Nombre del titular de la cuenta de ORIGEN (quien envia el dinero), si figura. "
+                        "Misma logica que cuenta_receptora para identificar cual es el origen: si el "
+                        "comprobante tiene etiquetas 'De'/'Origen', usa esa; si en cambio junta todo bajo "
+                        "un titulo 'Origen y destino' con dos entidades listadas en orden, el origen es "
+                        "siempre la PRIMERA (arriba), nunca la segunda. Nunca el nombre de la empresa que "
+                        "recibe el pago: la cuenta receptora siempre es una de las cuentas de la empresa "
+                        "(ver cuenta_receptora), asi que su titular nunca va aca."
                     ),
                 },
             },
@@ -130,10 +161,13 @@ def _build_tool() -> dict:
 
 SYSTEM_PROMPT = (
     "Sos un asistente que lee comprobantes de transferencias bancarias en espanol y extrae sus datos "
-    "estructurados usando la herramienta provista. El monto es el dato mas importante: si no lo podes "
-    "leer con confianza, dejalo en null en vez de inventar un valor. Para el resto de los campos, si no "
-    "estas seguro tambien dejalos en null en vez de usar un texto de relleno como 'desconocido', 'N/A' "
-    "o '<UNKNOWN>'."
+    "estructurados usando la herramienta provista. El monto y la cuenta_receptora (CBU/CVU/alias de quien "
+    "RECIBE el dinero) son los datos mas importantes -- un error en cualquiera de los dos hace que el pago "
+    "se registre mal (monto equivocado, o contra el banco equivocado). Prestales especial atencion, en "
+    "particular a no confundir origen con destino cuando el comprobante no los etiqueta explicitamente. Si "
+    "no los podes leer con confianza, dejalos en null en vez de inventar un valor. Para el resto de los "
+    "campos, si no estas seguro tambien dejalos en null en vez de usar un texto de relleno como "
+    "'desconocido', 'N/A' o '<UNKNOWN>'."
 )
 
 _VALORES_PLACEHOLDER = {"unknown", "n/a", "na", "desconocido", "no disponible", "none", "null", "-", "s/d"}
