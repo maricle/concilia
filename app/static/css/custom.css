@@ -207,6 +207,7 @@ html, body { height: 100%; }
 .table td { padding: 11px 14px; font-size: 13px; color: var(--text-primary); }
 .table th { padding: 9px 14px; }
 .table tbody tr:hover td { background: var(--surface-2); }
+.fila-comprobante { cursor: pointer; }
 .table tfoot td, .table tfoot th {
   background: var(--surface-2);
   font-weight: 700;

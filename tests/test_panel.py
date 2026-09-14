@@ -423,6 +423,133 @@ def test_ver_archivo_returns_file_content(monkeypatch):
     assert response.headers["content-type"] == "image/jpeg"
 
 
+def test_nuevo_movimiento_form_requiere_login():
+    client, _ = _client_with_admin()
+    response = client.get("/comprobantes/nuevo", follow_redirects=False)
+    assert response.status_code == 303
+    assert response.headers["location"] == "/login"
+
+
+def test_nuevo_movimiento_crea_comprobante_confirmado():
+    client, test_session = _client_with_admin()
+    with test_session() as session:
+        session.add(Operator(nombre="Ana", whatsapp_numero="111"))
+        session.add(BankAccount(banco="Nacion", numero_cuenta="1", alias="Principal"))
+        session.commit()
+
+    client.post("/login", data={"email": "admin@concilia.test", "password": "secreta123"})
+    response = client.post(
+        "/comprobantes/nuevo",
+        data={
+            "operador_id": "1",
+            "cuenta_bancaria_id": "1",
+            "fecha_transaccion": "2026-08-24T10:30",
+            "monto": "1500.50",
+            "numero_operacion": "OP-MANUAL-1",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/comprobantes"
+    with test_session() as session:
+        movimiento = session.query(Movement).filter_by(numero_operacion="OP-MANUAL-1").one()
+        assert movimiento.monto == Decimal("1500.50")
+        assert movimiento.operador_id == 1
+        assert movimiento.cuenta_bancaria_id == 1
+        assert movimiento.estado_registro == RecordState.CONFIRMADO
+        assert movimiento.origen == "panel"
+        assert movimiento.archivo_id is None
+
+
+def test_nuevo_movimiento_con_archivo_adjunto(monkeypatch):
+    client, test_session = _client_with_admin()
+    with test_session() as session:
+        session.add(Operator(nombre="Ana", whatsapp_numero="111"))
+        session.add(BankAccount(banco="Nacion", numero_cuenta="1", alias="Principal"))
+        session.commit()
+
+    monkeypatch.setattr(panel, "save_comprobante_archivo", lambda nombre, content_type, contenido: 42)
+
+    client.post("/login", data={"email": "admin@concilia.test", "password": "secreta123"})
+    response = client.post(
+        "/comprobantes/nuevo",
+        data={
+            "operador_id": "1",
+            "cuenta_bancaria_id": "1",
+            "fecha_transaccion": "2026-08-24T10:30",
+            "monto": "500",
+        },
+        files={"archivo": ("comprobante.jpg", b"fake-bytes", "image/jpeg")},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    with test_session() as session:
+        movimiento = session.query(Movement).one()
+        assert movimiento.archivo_id == 42
+
+
+def test_nuevo_movimiento_rechaza_numero_operacion_duplicado():
+    client, test_session = _client_with_admin()
+    with test_session() as session:
+        session.add(Operator(nombre="Ana", whatsapp_numero="111"))
+        session.add(BankAccount(banco="Nacion", numero_cuenta="1", alias="Principal"))
+        session.commit()
+        session.add(
+            Movement(
+                operador_id=1,
+                monto=Decimal("100"),
+                fecha_transaccion=datetime(2026, 8, 24),
+                numero_operacion="OP-EXISTENTE",
+                estado_registro=RecordState.CONFIRMADO,
+            )
+        )
+        session.commit()
+
+    client.post("/login", data={"email": "admin@concilia.test", "password": "secreta123"})
+    response = client.post(
+        "/comprobantes/nuevo",
+        data={
+            "operador_id": "1",
+            "cuenta_bancaria_id": "1",
+            "fecha_transaccion": "2026-08-24T10:30",
+            "monto": "500",
+            "numero_operacion": "OP-EXISTENTE",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "Ya existe otro comprobante" in response.text
+    with test_session() as session:
+        assert session.query(Movement).count() == 1
+
+
+def test_comprobantes_fila_es_clickeable_y_sin_boton_editar():
+    client, test_session = _client_with_admin()
+    with test_session() as session:
+        session.add(Operator(nombre="Ana", whatsapp_numero="111"))
+        session.commit()
+        session.add(
+            Movement(
+                operador_id=1,
+                monto=Decimal("500"),
+                fecha_transaccion=datetime(2026, 8, 24),
+                numero_operacion="OP-1",
+                estado_registro=RecordState.CONFIRMADO,
+            )
+        )
+        session.commit()
+
+    client.post("/login", data={"email": "admin@concilia.test", "password": "secreta123"})
+    response = client.get("/comprobantes")
+
+    assert response.status_code == 200
+    assert 'class="fila-comprobante" data-href="/comprobantes/1/editar"' in response.text
+    assert "Nuevo comprobante" in response.text
+    assert "fa-pencil-alt" not in response.text
+
+
 def test_editar_movimiento_updates_fields():
     client, test_session = _client_with_admin()
     with test_session() as session:

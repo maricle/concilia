@@ -86,7 +86,10 @@
 <div class="card shadow mb-4">
   <div class="card-header py-3 d-flex justify-content-between align-items-center">
     <h6 class="m-0 font-weight-bold text-primary">Movimientos confirmados</h6>
-    <button type="submit" form="form-comprobantes" formaction="/comprobantes/eliminar-lote" class="btn btn-sm btn-outline-danger" onclick="return confirm('¿Eliminar los comprobantes seleccionados? Esta accion no se puede deshacer.');"><i class="fas fa-trash-alt mr-1"></i>Eliminar seleccionados</button>
+    <div class="d-flex" style="gap: 8px;">
+      <button type="submit" form="form-comprobantes" formaction="/comprobantes/eliminar-lote" class="btn btn-sm btn-outline-danger" onclick="return confirm('¿Eliminar los comprobantes seleccionados? Esta accion no se puede deshacer.');"><i class="fas fa-trash-alt mr-1"></i>Eliminar seleccionados</button>
+      <a href="/comprobantes/nuevo" class="btn btn-sm btn-primary"><i class="fas fa-plus mr-1"></i>Nuevo comprobante</a>
+    </div>
   </div>
   <div class="card-body">
     <form method="post" id="form-comprobantes">
@@ -110,7 +113,7 @@
         </thead>
         <tbody>
           {% for movimiento in movimientos %}
-          <tr>
+          <tr class="fila-comprobante" data-href="/comprobantes/{{ movimiento.id }}/editar">
             <td><input type="checkbox" name="movimiento_ids" value="{{ movimiento.id }}" class="chk-comprobante"></td>
             <td>{{ movimiento.fecha_transaccion|fecha_transaccion }}</td>
             <td>
@@ -146,7 +149,6 @@
               {% if movimiento.archivo_id %}
               <a href="/comprobantes/{{ movimiento.id }}/archivo" target="_blank" class="btn btn-sm btn-outline-secondary" title="Ver comprobante"><i class="fas fa-eye"></i></a>
               {% endif %}
-              <a href="/comprobantes/{{ movimiento.id }}/editar" class="btn btn-sm btn-outline-primary" title="Editar"><i class="fas fa-pencil-alt"></i></a>
             </td>
           </tr>
           {% else %}
@@ -163,6 +165,12 @@
     document.querySelectorAll(".chk-comprobante").forEach(function (chk) {
       chk.checked = this.checked;
     }, this);
+  });
+  document.querySelectorAll(".fila-comprobante").forEach(function (fila) {
+    fila.addEventListener("click", function (e) {
+      if (e.target.closest("a, button, input")) return;
+      window.location.href = fila.dataset.href;
+    });
   });
 </script>
 {% endblock %}

@@ -35,7 +35,7 @@ from .models import (
 from .numeros import parse_monto_ar
 from .reconciliation import StatementParseError, match_statement, parse_statement_file
 from .reportes import generar_resumen_salida_pdf, generar_resumen_salidas_pdf
-from .storage import get_comprobante_archivo
+from .storage import get_comprobante_archivo, save_comprobante_archivo
 from .zona_horaria import hoy_argentina
 
 router = APIRouter()
@@ -1277,6 +1277,84 @@ def ver_archivo_movimiento(
         media_type=archivo.content_type,
         headers={"Content-Disposition": f'inline; filename="{archivo.nombre_archivo}"'},
     )
+
+
+@router.get("/comprobantes/nuevo")
+def nuevo_movimiento_form(request: Request, db: Session = Depends(get_db), user: PanelUser = Depends(require_user)):
+    return templates.TemplateResponse(
+        request,
+        "nuevo_movimiento.html",
+        {
+            "user": user,
+            "operadores": db.scalars(select(Operator).where(Operator.activo.is_(True)).order_by(Operator.nombre)).all(),
+            "cuentas": db.scalars(select(BankAccount).order_by(BankAccount.id)).all(),
+            "error": None,
+        },
+    )
+
+
+@router.post("/comprobantes/nuevo")
+async def nuevo_movimiento_submit(
+    request: Request,
+    operador_id: str = Form(...),
+    cuenta_bancaria_id: str = Form(...),
+    fecha_transaccion: str = Form(...),
+    monto: str = Form(...),
+    numero_operacion: str = Form(""),
+    banco_emisor: str = Form(""),
+    titular: str = Form(""),
+    factura_o_cuenta_tipo: str = Form(""),
+    factura_o_cuenta_numero: str = Form(""),
+    archivo: UploadFile | None = None,
+    db: Session = Depends(get_db),
+    user: PanelUser = Depends(require_user),
+):
+    def _reformar(error: str):
+        return templates.TemplateResponse(
+            request,
+            "nuevo_movimiento.html",
+            {
+                "user": user,
+                "operadores": db.scalars(select(Operator).where(Operator.activo.is_(True)).order_by(Operator.nombre)).all(),
+                "cuentas": db.scalars(select(BankAccount).order_by(BankAccount.id)).all(),
+                "error": error,
+            },
+            status_code=400,
+        )
+
+    try:
+        nueva_fecha = datetime.strptime(fecha_transaccion, "%Y-%m-%dT%H:%M")
+        nuevo_monto = Decimal(monto)
+    except (ValueError, InvalidOperation):
+        return _reformar("Fecha o monto invalido.")
+
+    numero_operacion = numero_operacion.strip() or None
+    if numero_operacion and _duplicate_exists(db, Movement.numero_operacion, numero_operacion):
+        return _reformar(f"Ya existe otro comprobante con el numero {numero_operacion}.")
+
+    archivo_id = None
+    if archivo is not None and archivo.filename:
+        contenido = await archivo.read()
+        if contenido:
+            archivo_id = save_comprobante_archivo(archivo.filename, archivo.content_type or "application/octet-stream", contenido)
+
+    movimiento = Movement(
+        operador_id=int(operador_id),
+        cuenta_bancaria_id=int(cuenta_bancaria_id),
+        fecha_transaccion=nueva_fecha,
+        monto=nuevo_monto,
+        numero_operacion=numero_operacion,
+        banco_emisor=banco_emisor or None,
+        titular=titular or None,
+        factura_o_cuenta_tipo=TipoIdentificador(factura_o_cuenta_tipo) if factura_o_cuenta_tipo else None,
+        factura_o_cuenta_numero=factura_o_cuenta_numero or None,
+        archivo_id=archivo_id,
+        origen="panel",
+        estado_registro=RecordState.CONFIRMADO,
+    )
+    db.add(movimiento)
+    db.commit()
+    return RedirectResponse("/comprobantes", status_code=303)
 
 
 @router.get("/comprobantes/{movimiento_id}/editar")

@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}Nuevo comprobante - Concilia{% endblock %}
+{% block content %}
+<h1 class="h3 mb-4 text-gray-800">Nuevo comprobante</h1>
+
+<div class="card shadow mb-4" style="max-width: 700px;">
+  <div class="card-body">
+    {% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
+    <form method="post" action="/comprobantes/nuevo" enctype="multipart/form-data">
+      <div class="form-row">
+        <div class="form-group col-md-6">
+          <label>Vendedor *</label>
+          <select class="form-control" name="operador_id" required>
+            <option value="">-- Elegir --</option>
+            {% for operador in operadores %}
+            <option value="{{ operador.id }}">{{ operador.nombre }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-group col-md-6">
+          <label>Cuenta receptora *</label>
+          <select class="form-control" name="cuenta_bancaria_id" required>
+            <option value="">-- Elegir --</option>
+            {% for cuenta in cuentas %}
+            <option value="{{ cuenta.id }}">{{ cuenta.alias }} ({{ cuenta.banco }})</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group col-md-6">
+          <label>Fecha y hora de transaccion *</label>
+          <input type="datetime-local" class="form-control" name="fecha_transaccion" required>
+        </div>
+        <div class="form-group col-md-6">
+          <label>Monto *</label>
+          <input type="text" class="form-control" name="monto" placeholder="0.00" required>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Numero de operacion</label>
+        <input type="text" class="form-control" name="numero_operacion">
+      </div>
+      <div class="form-group">
+        <label>Banco emisor</label>
+        <input type="text" class="form-control" name="banco_emisor">
+      </div>
+      <div class="form-group">
+        <label>Titular / Emisor</label>
+        <input type="text" class="form-control" name="titular">
+      </div>
+      <div class="form-row">
+        <div class="form-group col-md-4">
+          <label>Tipo</label>
+          <select class="form-control" name="factura_o_cuenta_tipo">
+            <option value="">-- Elegir --</option>
+            <option value="factura">Factura</option>
+            <option value="cuenta">Cuenta</option>
+          </select>
+        </div>
+        <div class="form-group col-md-8">
+          <label>Numero de factura o cuenta</label>
+          <input type="text" class="form-control" name="factura_o_cuenta_numero">
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Archivo del comprobante (opcional)</label>
+        <input type="file" class="form-control-file" name="archivo" accept="image/*,application/pdf">
+      </div>
+      <button type="submit" class="btn btn-primary">Crear comprobante</button>
+      <a href="/comprobantes" class="btn btn-outline-secondary">Cancelar</a>
+    </form>
+  </div>
+</div>
+{% endblock %}
