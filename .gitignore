@@ -4,5 +4,6 @@ __pycache__/
 *.py[cod]
 .env
 *.db
+concilia_backup*.sql
 *.egg-info/
 comprobantes test/
