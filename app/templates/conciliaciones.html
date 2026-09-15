@@ -285,14 +285,37 @@
     </form>
   </div>
   <div class="card-body">
+    {% if lineas_pendientes %}
+    <div class="form-row align-items-end mb-3" id="filtros-lineas-pendientes">
+      <div class="form-group col-6 col-md-2 mb-2">
+        <label class="small mb-1">Fecha desde</label>
+        <input type="date" class="form-control form-control-sm" id="filtro-linea-fecha-desde">
+      </div>
+      <div class="form-group col-6 col-md-2 mb-2">
+        <label class="small mb-1">Fecha hasta</label>
+        <input type="date" class="form-control form-control-sm" id="filtro-linea-fecha-hasta">
+      </div>
+      <div class="form-group col-6 col-md-2 mb-2">
+        <label class="small mb-1">Monto desde</label>
+        <input type="number" step="0.01" class="form-control form-control-sm" id="filtro-linea-monto-desde" placeholder="0">
+      </div>
+      <div class="form-group col-6 col-md-2 mb-2">
+        <label class="small mb-1">Monto hasta</label>
+        <input type="number" step="0.01" class="form-control form-control-sm" id="filtro-linea-monto-hasta" placeholder="0">
+      </div>
+      <div class="form-group col-12 col-md-2 mb-2">
+        <button type="button" class="btn btn-outline-secondary btn-sm" id="btn-limpiar-filtro-lineas">Limpiar filtros</button>
+      </div>
+    </div>
+    {% endif %}
     <div class="table-responsive">
-      <table class="table table-bordered table-sm small mb-0" width="100%" cellspacing="0">
+      <table class="table table-bordered table-sm small mb-0" width="100%" cellspacing="0" id="tabla-lineas-pendientes">
         <thead>
           <tr><th>Fecha</th><th class="num">Monto</th><th>Descripcion</th><th>Referencia</th><th>Emparejar</th><th></th></tr>
         </thead>
         <tbody>
           {% for linea in lineas_pendientes %}
-          <tr>
+          <tr data-fecha="{{ linea.fecha.strftime("%Y-%m-%d") }}" data-monto="{{ linea.monto }}">
             <td>{{ linea.fecha.strftime("%Y-%m-%d") }}</td>
             <td class="num">{{ monto_ars(linea.monto) }}</td>
             <td>{{ linea.descripcion or "-" }}</td>
@@ -323,6 +346,7 @@
           {% endfor %}
         </tbody>
       </table>
+      <div class="text-muted small mt-2" id="mensaje-sin-coincidencias-lineas" hidden>Ninguna linea coincide con los filtros.</div>
     </div>
   </div>
 </div>

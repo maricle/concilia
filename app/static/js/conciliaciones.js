@@ -216,4 +216,38 @@
       $("#nombre-archivo-resumen").text(this.files[0].name);
     }
   });
+
+  // Filtro de fecha/monto sobre "Lineas de resumen sin conciliar". La tabla ya
+  // viene completa del server (no esta paginada) asi que alcanza con
+  // mostrar/ocultar filas en el cliente, sin pegarle de nuevo al backend.
+  function aplicarFiltroLineasPendientes() {
+    var fechaDesde = $("#filtro-linea-fecha-desde").val();
+    var fechaHasta = $("#filtro-linea-fecha-hasta").val();
+    var montoDesde = parseFloat($("#filtro-linea-monto-desde").val());
+    var montoHasta = parseFloat($("#filtro-linea-monto-hasta").val());
+    var visibles = 0;
+
+    $("#tabla-lineas-pendientes tbody tr[data-fecha]").each(function () {
+      var $fila = $(this);
+      var fecha = $fila.data("fecha").toString();
+      var monto = parseFloat($fila.data("monto"));
+      var coincide = true;
+
+      if (fechaDesde && fecha < fechaDesde) coincide = false;
+      if (fechaHasta && fecha > fechaHasta) coincide = false;
+      if (!isNaN(montoDesde) && monto < montoDesde) coincide = false;
+      if (!isNaN(montoHasta) && monto > montoHasta) coincide = false;
+
+      $fila.toggle(coincide);
+      if (coincide) visibles++;
+    });
+
+    $("#mensaje-sin-coincidencias-lineas").prop("hidden", visibles !== 0);
+  }
+
+  $("#filtros-lineas-pendientes").on("input change", "input", aplicarFiltroLineasPendientes);
+  $("#btn-limpiar-filtro-lineas").on("click", function () {
+    $("#filtros-lineas-pendientes input").val("");
+    aplicarFiltroLineasPendientes();
+  });
 })();
