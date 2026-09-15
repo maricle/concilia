@@ -106,18 +106,13 @@
     });
   }
 
-  $(document).on("click", "#bank-tab-strip .bank-tab", function (e) {
-    e.preventDefault();
-    var banco = $(this).data("banco");
-    estado.banco = banco;
-    estado.page = 1;
-    $("#bank-tab-strip .bank-tab").removeClass("active");
-    $(this).addClass("active");
-    var url = "/conciliaciones?fecha=" + estado.fecha + "&banco=" + encodeURIComponent(banco);
-    window.history.pushState({}, "", url);
-    cargarPanel();
-    cargarMovimientos();
-  });
+  // Cambiar de banco es navegacion normal (no AJAX parcial): ademas del panel de
+  // KPIs y la tabla de movimientos, la pestaña activa tambien determina las
+  // lineas de resumen sin conciliar, el historial de resumenes importados y el
+  // modal de subir resumen -- todo eso se renderiza server-side, asi que
+  // intentar actualizar solo una parte via JS (como se hacia antes) los dejaba
+  // desincronizados del banco realmente seleccionado. Un reload completo los
+  // mantiene siempre consistentes entre si.
 
   $("#btn-filtros").on("click", function () {
     $("#filtros-movimientos").slideToggle(150);

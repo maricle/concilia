@@ -1769,11 +1769,13 @@ def _construir_contexto_conciliaciones(
             .order_by(StatementLine.fecha)
         ).all()
 
-    resumenes_historicos = db.scalars(
-        select(ImportedStatement)
-        .options(selectinload(ImportedStatement.cuenta_bancaria))
-        .order_by(ImportedStatement.fecha_importacion.desc())
-    ).all()
+    # Antes mostraba TODO lo importado alguna vez, sin relacion con el banco/dia
+    # que se esta mirando arriba -- panel["resumenes"] ya es exactamente esa
+    # misma lista (mismo filtro que usa _panel_banco para las lineas pendientes),
+    # asi que no hace falta una query aparte.
+    resumenes_historicos = sorted(
+        panel["resumenes"] if panel is not None else [], key=lambda r: r.fecha_importacion, reverse=True
+    )
     operadores = db.scalars(select(Operator).where(Operator.activo.is_(True)).order_by(Operator.nombre)).all()
 
     return {
