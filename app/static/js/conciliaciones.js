@@ -186,7 +186,14 @@
   // Drag & drop del modal de subida.
   var $dropzone = $("#dropzone-resumen");
   var $input = $("#input-archivo-resumen");
-  $dropzone.on("click", function () {
+  $dropzone.on("click", function (e) {
+    // El input esta anidado dentro del dropzone: sin este chequeo, el click que
+    // dispara .trigger("click") sobre el input burbujea de vuelta hasta este mismo
+    // handler (target = input) y lo vuelve a disparar, cancelando el dialogo que
+    // recien se habia abierto.
+    if (e.target === $input[0]) {
+      return;
+    }
     $input.trigger("click");
   });
   $dropzone.on("dragover", function (e) {
