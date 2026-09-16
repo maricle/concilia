@@ -4,6 +4,8 @@
 **Fecha:** 2026-08-20
 **Fase de este documento:** especificación funcional (la especificación técnica/arquitectura se aborda en un documento separado, posterior a este)
 
+> **Nota sobre el canal (vigente):** el canal en uso hoy es **Telegram**, no WhatsApp — WhatsApp Business (Meta) es el canal originalmente planeado en este documento y se agrega más adelante, todavía no está conectado en producción (detalle técnico en `spec-tecnico-conciliacion-bancaria.md`, sección 14). Todas las menciones a "WhatsApp" en el resto de este documento describen el diseño/objetivo original y deben leerse hoy como "Telegram" salvo que se indique lo contrario.
+
 ## 1. Objetivo
 
 **Contexto del negocio.** La empresa reparte paquetes y cobra en el domicilio del cliente al momento de la entrega. El pago se recibe por transferencia bancaria, y cada repartidor manda por WhatsApp el comprobante de esa transferencia apenas la recibe.
@@ -135,3 +137,33 @@ Con las últimas definiciones, el spec funcional queda cerrado en sus puntos pri
 ## 10. Fuera de alcance (por ahora)
 
 Integración con Odoo o cualquier ERP/sistema de facturación. Multi-empresa (varios clientes distintos usando la misma instancia — la captura de referencia usada para el panel es solo inspiración visual, esa función no se replica). Medios de pago distintos a transferencia bancaria. Panel o app propia para el operador fuera de WhatsApp (el operador solo interactúa por WhatsApp; el panel web es exclusivo del rol Administrador).
+
+## 11. Actualizaciones posteriores a este spec
+
+Este documento quedó como borrador desde su fecha original; el sistema siguió evolucionando con uso real. Registro de los cambios de comportamiento relevantes, no exhaustivo:
+
+**Móviles y salidas de reparto.** Contra lo definido en la sección 2 ("la app no modela repartos, rutas... ni ningún otro proceso logístico"), se agregó igualmente esta función a pedido del usuario: cada operador puede tener un móvil (vehículo) asignado, y por Telegram arranca/cierra un turno de reparto ("salida") con comandos de texto libre. Todo comprobante confirmado queda asociado a la salida vigente del operador en ese momento; al cerrar una salida se genera un resumen (PDF, descargable desde el panel) con el detalle de comprobantes y el total por cuenta bancaria. Es una extensión real del alcance original, no solo un dato de referencia.
+
+**Cuenta receptora no identificada.** El paso 7 del flujo (sección 4) asumía que el sistema siempre podía pedirle al operador la cuenta/factura una vez identificada la cuenta bancaria receptora. En la práctica, cuando el sistema no logra identificar automáticamente a qué cuenta bancaria de la empresa corresponde el pago, **ya no se interrumpe al operador para que elija a mano** entre las cuentas cargadas (como se hacía en una versión intermedia): el comprobante se registra igual, sin cuenta asociada, y el administrador la completa después desde el panel de edición. Esto prioriza no frenar el flujo del operador por sobre resolver la cuenta en el momento.
+
+**Extracción de datos.** Se corrigieron varios casos reales encontrados con comprobantes de producción: lectura de centavos mostrados en superíndice sin coma visible (frecuente en Mercado Pago), confusión entre cuenta de origen y de destino en comprobantes que listan ambas bajo un único título sin etiquetas explícitas "De"/"Para" (se resuelve por orden: la primera entidad listada es siempre el origen), y números de cuenta (CBU/CVU) largos que se leían incompletos — el sistema ahora detecta cuando faltan dígitos y reintenta automáticamente con más cuidado antes de guardar el dato.
+
+**Panel de administración.** Sobre la referencia de interfaz descrita en la sección 6.1: el dashboard "Resumen" se rediseñó con indicadores del día (comparados contra ayer) además del reporte por vendedor que ya existía; los filtros de "Mis Comprobantes" y de Salidas se estandarizaron en un mismo componente (buscador siempre visible + filtros avanzados colapsables + Buscar/Limpiar filtros/Exportar agrupados); la exportación pasó de CSV a Excel (.xlsx) y se extendió a pantallas que no la tenían; se implementó la carga manual de comprobantes (sección 4.1, antes solo especificada); se agregó eliminación en lote de comprobantes; y la edición de un comprobante ya no permite tipear la cuenta receptora como texto libre, sino elegirla de una lista de las cuentas bancarias registradas (con el ícono del banco), evitando errores de tipeo y datos que no coinciden con ninguna cuenta real.
+
+## 12. Mejoras solicitadas para la próxima iteración
+
+Pedido directo del usuario, a implementar después de este punto. Ninguno de estos puntos está construido todavía salvo que se aclare lo contrario.
+
+**Historial de cambios (auditoría).** Alcance general, no solo comprobantes: cualquier cambio relevante sobre cualquier entidad del sistema (movimientos, salidas, cuentas bancarias, operadores, móviles, usuarios de panel) debe quedar registrado con quién lo hizo y cuándo. Hoy no existe ninguna tabla de auditoría en la app.
+
+**No modificar un comprobante ya conciliado.** Un movimiento cuyo estado de conciliación ya sea **Conciliado** o **Conciliado manualmente** no puede editarse desde el panel — ni siquiera por el administrador. Los estados **Pendiente** y **Con diferencia** siguen editables, porque suelen ser justamente los que necesitan una corrección para poder conciliarse.
+
+**Extracción automática también en la carga manual.** La carga manual de un comprobante desde el panel (sección 4.1) deja de requerir tipear todos los datos a mano: al adjuntar la imagen o PDF, el sistema corre la misma extracción con IA que ya usa el flujo de Telegram y pre-completa monto, fecha, banco emisor, cuenta receptora, titular, etc. Quien carga el comprobante revisa y corrige esos datos antes de guardar, igual que hace el operador por Telegram.
+
+**Reporte automático de Mercado Pago por correo — diferido.** Mercado Pago manda un reporte por correo con el detalle de movimientos; más adelante se evalúa leerlo automáticamente para ingestar comprobantes sin depender de que el operador mande cada uno por Telegram. **No se implementa en esta iteración**, queda solo anotado.
+
+**Reapertura de una salida cerrada.** Se mantiene la posibilidad de reabrir una salida ya cerrada (por ejemplo, si se cerró por error o falta cargar un comprobante tardío). Cada reapertura queda registrada en el historial de cambios general, con quién la reabrió y cuándo.
+
+**Actor nuevo: recaudador de sala "Entrega y retiro".** Además de los operadores que reparten y cobran en el domicilio del cliente, hay un rol que cobra en un mostrador fijo (sala de "entrega y retiro" del depósito/local), sin vehículo asignado. Como la app hoy exige siempre un móvil y una salida para todo comprobante confirmado (sección 11), se define un **móvil "0"**: un móvil especial sin vehículo real que representa esa área fija. El recaudador de esa sala abre y cierra sus propias salidas sobre el móvil 0, igual que cualquier otro operador sobre su móvil real.
+
+**Nuevo rol de panel: Recaudador.** Además del rol Administrador (acceso total), se agrega el rol **Recaudador**: puede cargar comprobantes desde el panel (carga manual, sección 4.1), pero no puede eliminarlos ni modificar ninguna pantalla de Configuración (operadores, cuentas bancarias, usuarios, móviles). La sección de Conciliaciones queda reservada exclusivamente a los roles Administrador/Contador — un Recaudador no la ve ni puede operarla.

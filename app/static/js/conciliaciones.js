@@ -106,18 +106,13 @@
     });
   }
 
-  $(document).on("click", "#bank-tab-strip .bank-tab", function (e) {
-    e.preventDefault();
-    var banco = $(this).data("banco");
-    estado.banco = banco;
-    estado.page = 1;
-    $("#bank-tab-strip .bank-tab").removeClass("active");
-    $(this).addClass("active");
-    var url = "/conciliaciones?fecha=" + estado.fecha + "&banco=" + encodeURIComponent(banco);
-    window.history.pushState({}, "", url);
-    cargarPanel();
-    cargarMovimientos();
-  });
+  // Cambiar de banco es navegacion normal (no AJAX parcial): ademas del panel de
+  // KPIs y la tabla de movimientos, la pestaña activa tambien determina las
+  // lineas de resumen sin conciliar, el historial de resumenes importados y el
+  // modal de subir resumen -- todo eso se renderiza server-side, asi que
+  // intentar actualizar solo una parte via JS (como se hacia antes) los dejaba
+  // desincronizados del banco realmente seleccionado. Un reload completo los
+  // mantiene siempre consistentes entre si.
 
   $("#btn-filtros").on("click", function () {
     $("#filtros-movimientos").slideToggle(150);
@@ -186,7 +181,14 @@
   // Drag & drop del modal de subida.
   var $dropzone = $("#dropzone-resumen");
   var $input = $("#input-archivo-resumen");
-  $dropzone.on("click", function () {
+  $dropzone.on("click", function (e) {
+    // El input esta anidado dentro del dropzone: sin este chequeo, el click que
+    // dispara .trigger("click") sobre el input burbujea de vuelta hasta este mismo
+    // handler (target = input) y lo vuelve a disparar, cancelando el dialogo que
+    // recien se habia abierto.
+    if (e.target === $input[0]) {
+      return;
+    }
     $input.trigger("click");
   });
   $dropzone.on("dragover", function (e) {
@@ -208,5 +210,39 @@
     if (this.files && this.files.length) {
       $("#nombre-archivo-resumen").text(this.files[0].name);
     }
+  });
+
+  // Filtro de fecha/monto sobre "Lineas de resumen sin conciliar". La tabla ya
+  // viene completa del server (no esta paginada) asi que alcanza con
+  // mostrar/ocultar filas en el cliente, sin pegarle de nuevo al backend.
+  function aplicarFiltroLineasPendientes() {
+    var fechaDesde = $("#filtro-linea-fecha-desde").val();
+    var fechaHasta = $("#filtro-linea-fecha-hasta").val();
+    var montoDesde = parseFloat($("#filtro-linea-monto-desde").val());
+    var montoHasta = parseFloat($("#filtro-linea-monto-hasta").val());
+    var visibles = 0;
+
+    $("#tabla-lineas-pendientes tbody tr[data-fecha]").each(function () {
+      var $fila = $(this);
+      var fecha = $fila.data("fecha").toString();
+      var monto = parseFloat($fila.data("monto"));
+      var coincide = true;
+
+      if (fechaDesde && fecha < fechaDesde) coincide = false;
+      if (fechaHasta && fecha > fechaHasta) coincide = false;
+      if (!isNaN(montoDesde) && monto < montoDesde) coincide = false;
+      if (!isNaN(montoHasta) && monto > montoHasta) coincide = false;
+
+      $fila.toggle(coincide);
+      if (coincide) visibles++;
+    });
+
+    $("#mensaje-sin-coincidencias-lineas").prop("hidden", visibles !== 0);
+  }
+
+  $("#filtros-lineas-pendientes").on("input change", "input", aplicarFiltroLineasPendientes);
+  $("#btn-limpiar-filtro-lineas").on("click", function () {
+    $("#filtros-lineas-pendientes input").val("");
+    aplicarFiltroLineasPendientes();
   });
 })();

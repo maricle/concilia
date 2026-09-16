@@ -27,20 +27,9 @@
 {% macro monto_ars(valor) %}{% if valor is none %}-{% else %}${{ "{:,.2f}".format(valor|float).replace(",", "_").replace(".", ",").replace("_", ".") }}{% endif %}{% endmacro %}
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-start flex-wrap mb-4">
-  <div>
-    <h1 class="h3 mb-1 text-gray-800">Conciliaciones</h1>
-    <p class="text-muted mb-0">Revision y cierre diario por banco y medio de pago</p>
-  </div>
-  <div class="d-flex align-items-center flex-wrap" style="gap: 8px;">
-    <a class="btn btn-outline-secondary" href="/conciliaciones?fecha={{ fecha_anterior }}&banco={{ banco_seleccionado }}"><i class="fas fa-chevron-left"></i></a>
-    <form method="get" action="/conciliaciones" class="d-inline">
-      <input type="hidden" name="banco" value="{{ banco_seleccionado }}">
-      <input type="date" class="form-control" name="fecha" value="{{ fecha.isoformat() }}" onchange="this.form.submit()">
-    </form>
-    <a class="btn btn-outline-secondary" href="/conciliaciones?fecha={{ fecha_siguiente }}&banco={{ banco_seleccionado }}"><i class="fas fa-chevron-right"></i></a>
-    <button type="button" class="btn btn-outline-primary" data-toggle="modal" data-target="#modalResumenDia"><i class="fas fa-th-large mr-1"></i>Ver resumen del dia</button>
-  </div>
+<div class="mb-4">
+  <h1 class="h3 mb-1 text-gray-800">Conciliaciones</h1>
+  <p class="text-muted mb-0">Revision y cierre diario por banco y medio de pago</p>
 </div>
 
 {% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
@@ -71,6 +60,16 @@
   </a>
   {% endfor %}
   <a href="/config/cuentas" class="bank-tab-add"><i class="fas fa-plus mr-1"></i>Agregar banco</a>
+</div>
+
+<div class="d-flex justify-content-end align-items-center flex-wrap mb-4" style="gap: 8px;">
+  <a class="btn btn-outline-secondary" href="/conciliaciones?fecha={{ fecha_anterior }}&banco={{ banco_seleccionado }}"><i class="fas fa-chevron-left"></i></a>
+  <form method="get" action="/conciliaciones" class="d-inline">
+    <input type="hidden" name="banco" value="{{ banco_seleccionado }}">
+    <input type="date" class="form-control" name="fecha" value="{{ fecha.isoformat() }}" onchange="this.form.submit()">
+  </form>
+  <a class="btn btn-outline-secondary" href="/conciliaciones?fecha={{ fecha_siguiente }}&banco={{ banco_seleccionado }}"><i class="fas fa-chevron-right"></i></a>
+  <button type="button" class="btn btn-outline-primary" data-toggle="modal" data-target="#modalResumenDia"><i class="fas fa-th-large mr-1"></i>Ver resumen del dia</button>
 </div>
 
 {% if panel %}
@@ -228,7 +227,7 @@
 {% endif %}
 
 <details class="mb-4">
-  <summary class="text-muted small mb-2" style="cursor: pointer;">Ver historial completo de resumenes importados</summary>
+  <summary class="text-muted small mb-2" style="cursor: pointer;">Ver resumenes importados ({{ banco_seleccionado }} - {{ fecha.isoformat() }})</summary>
   <div class="card shadow mt-2">
     <div class="card-body">
       <div class="table-responsive">
@@ -266,7 +265,7 @@
               </td>
             </tr>
             {% else %}
-            <tr><td colspan="10">Todavia no se importo ningun resumen.</td></tr>
+            <tr><td colspan="10">No se importo ningun resumen para este banco/dia.</td></tr>
             {% endfor %}
           </tbody>
         </table>
@@ -285,14 +284,37 @@
     </form>
   </div>
   <div class="card-body">
+    {% if lineas_pendientes %}
+    <div class="form-row align-items-end mb-3" id="filtros-lineas-pendientes">
+      <div class="form-group col-6 col-md-2 mb-2">
+        <label class="small mb-1">Fecha desde</label>
+        <input type="date" class="form-control form-control-sm" id="filtro-linea-fecha-desde">
+      </div>
+      <div class="form-group col-6 col-md-2 mb-2">
+        <label class="small mb-1">Fecha hasta</label>
+        <input type="date" class="form-control form-control-sm" id="filtro-linea-fecha-hasta">
+      </div>
+      <div class="form-group col-6 col-md-2 mb-2">
+        <label class="small mb-1">Monto desde</label>
+        <input type="number" step="0.01" class="form-control form-control-sm" id="filtro-linea-monto-desde" placeholder="0">
+      </div>
+      <div class="form-group col-6 col-md-2 mb-2">
+        <label class="small mb-1">Monto hasta</label>
+        <input type="number" step="0.01" class="form-control form-control-sm" id="filtro-linea-monto-hasta" placeholder="0">
+      </div>
+      <div class="form-group col-12 col-md-2 mb-2">
+        <button type="button" class="btn btn-outline-secondary btn-sm" id="btn-limpiar-filtro-lineas">Limpiar filtros</button>
+      </div>
+    </div>
+    {% endif %}
     <div class="table-responsive">
-      <table class="table table-bordered table-sm small mb-0" width="100%" cellspacing="0">
+      <table class="table table-bordered table-sm small mb-0" width="100%" cellspacing="0" id="tabla-lineas-pendientes">
         <thead>
           <tr><th>Fecha</th><th class="num">Monto</th><th>Descripcion</th><th>Referencia</th><th>Emparejar</th><th></th></tr>
         </thead>
         <tbody>
           {% for linea in lineas_pendientes %}
-          <tr>
+          <tr data-fecha="{{ linea.fecha.strftime("%Y-%m-%d") }}" data-monto="{{ linea.monto }}">
             <td>{{ linea.fecha.strftime("%Y-%m-%d") }}</td>
             <td class="num">{{ monto_ars(linea.monto) }}</td>
             <td>{{ linea.descripcion or "-" }}</td>
@@ -323,6 +345,7 @@
           {% endfor %}
         </tbody>
       </table>
+      <div class="text-muted small mt-2" id="mensaje-sin-coincidencias-lineas" hidden>Ninguna linea coincide con los filtros.</div>
     </div>
   </div>
 </div>

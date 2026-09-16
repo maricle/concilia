@@ -145,13 +145,13 @@ class ConversationService:
             return self._handle_comando_reparto(operator, conversation, comando)
 
         if conversation.estado == ConversationState.ESPERANDO_DATOS_INICIO_REPARTO:
-            if conversation.movil_pendiente_numero is None:
-                conversation.movil_pendiente_numero = text.strip()
-            else:
+            if conversation.numero_reparto_pendiente is None:
                 numero_texto = text.strip()
                 if not numero_texto.isdigit():
                     return "Ese no es un numero de salida valido. Respondé solo con el numero."
                 conversation.numero_reparto_pendiente = int(numero_texto)
+            else:
+                conversation.movil_pendiente_numero = text.strip()
 
             if conversation.movil_pendiente_numero is None or conversation.numero_reparto_pendiente is None:
                 self.session.commit()
@@ -427,13 +427,11 @@ class ConversationService:
         conversation.movimiento_borrador_id = movement.id
         self.session.add(conversation)
 
-        if cuenta_bancaria is None:
-            # No se pudo identificar la cuenta sola -- se le pide al operador que
-            # elija entre las cargadas, en vez de rechazar el comprobante entero.
-            conversation.estado = ConversationState.ESPERANDO_CUENTA_BANCARIA
-            self.session.commit()
-            return self._prompt_elegir_cuenta_bancaria()
-
+        # Si no se pudo identificar la cuenta sola, el movimiento queda registrado
+        # con cuenta_bancaria_id null en vez de interrumpir al operador para que
+        # elija a mano -- un administrador la completa despues desde el panel
+        # (/comprobantes/{id}/editar, ver editar_movimiento.html), que para eso
+        # tiene el texto crudo extraido como referencia.
         # Se salta directo al paso de factura/cuenta -- mostrar el resumen y pedir
         # una confirmacion aparte antes de esto era una revision redundante, ya que
         # el resumen se vuelve a mostrar completo (con factura/cuenta ya cargada)
@@ -566,9 +564,9 @@ class ConversationService:
 
     @staticmethod
     def _prompt_dato_faltante_inicio_reparto(conversation: WhatsAppConversation) -> str:
-        if conversation.movil_pendiente_numero is None:
-            return "¿En que movil vas a iniciar la salida? Respondé con el numero del movil."
-        return "¿Que numero de salida es? Respondé solo con el numero."
+        if conversation.numero_reparto_pendiente is None:
+            return "¿Que numero de salida es? Respondé solo con el numero."
+        return "¿En que movil vas a iniciar la salida? Respondé con el numero del movil."
 
     def _iniciar_reparto(self, operator: Operator, comando: IniciarRepartoComando) -> str:
         movil = self._buscar_movil_activo(comando.movil_numero)

@@ -380,7 +380,10 @@ def test_cerrar_reparto_notifica_al_otro_operador_asociado(monkeypatch):
     _clean_operator(whatsapp_numero="777002")
 
 
-def test_cuenta_no_identificada_ofrece_botones_por_cada_cuenta_cargada(monkeypatch):
+def test_cuenta_no_identificada_no_pregunta_y_sigue_el_flujo(monkeypatch):
+    """El operador no tiene que elegir la cuenta a mano: el comprobante se registra
+    con cuenta_bancaria_id null y el flujo continua igual que si hubiera matcheado
+    -- un administrador la completa despues desde el panel."""
     _register_operator("333999")
     _clean_movement("OP-CUENTA-DESCONOCIDA")
     with SessionLocal() as session:
@@ -414,9 +417,11 @@ def test_cuenta_no_identificada_ofrece_botones_por_cada_cuenta_cargada(monkeypat
     assert response.status_code == 200
     chat_id, text, reply_markup = sent[-1]
     assert chat_id == "333999"
-    assert "No pudimos identificar a que cuenta corresponde este pago" in text
-    botones = [boton for fila in reply_markup["inline_keyboard"] for boton in fila]
-    assert {"text": "Mercado Pago", "callback_data": "empresa.mp"} in botones
-    assert reply_markup["inline_keyboard"][-1] == [{"text": "Cancelar", "callback_data": "cancelar"}]
+    assert "No pudimos identificar a que cuenta corresponde este pago" not in text
+    assert "factura o un numero de cuenta" in text
+    with SessionLocal() as session:
+        movimiento = session.scalar(select(Movement).where(Movement.numero_operacion == "OP-CUENTA-DESCONOCIDA"))
+        assert movimiento is not None
+        assert movimiento.cuenta_bancaria_id is None
 
     _clean_movement("OP-CUENTA-DESCONOCIDA")

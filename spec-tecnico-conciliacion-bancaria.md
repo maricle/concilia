@@ -4,6 +4,8 @@
 **Fecha:** 2026-08-20
 **Depende de:** `spec-funcional.md` (mismo proyecto) — este documento no repite las reglas de negocio ya definidas ahí, solo cómo se implementan.
 
+> **Nota sobre el canal (vigente):** el canal en uso hoy es **Telegram** (`POST /telegram/webhook`), no WhatsApp — el webhook de WhatsApp Business (Meta) descrito en la sección 3 está implementado pero el envío de respuestas reales nunca se conectó (más detalle en la sección 14). Todas las menciones a "WhatsApp"/"Meta" en el resto de este documento describen el diseño/objetivo original y deben leerse hoy como "Telegram" salvo que se indique lo contrario.
+
 ## 1. Arquitectura general
 
 La app sigue el mismo patrón que BridgeBot (la app de Kleba Dev para bots de WhatsApp/Instagram con Claude), adaptado a este caso de uso:
@@ -135,3 +137,39 @@ El formato de los resúmenes bancarios varía por banco — el parser de importa
 La extracción con Claude vision de comprobantes fotografiados (no escaneados) puede fallar con fotos de mala calidad, reflejos o comprobantes parcialmente cortados — el flujo ya contempla pedir reenvío, pero conviene medir la tasa de error real con comprobantes de ejemplo antes de dar por cerrado el pipeline de extracción.
 
 Los límites de tasa y de ventana de mensajes de la API de WhatsApp Business (Meta) aplican igual que en BridgeBot — no debería ser un problema al volumen esperado, pero conviene tenerlo presente si el número de operadores/comprobantes diarios crece mucho.
+
+## 14. Actualizaciones posteriores a este spec
+
+Este documento quedó como borrador desde su fecha original; varias decisiones cambiaron con la implementación real. Registro de los cambios técnicos relevantes, no exhaustivo:
+
+**Canal real: Telegram, no WhatsApp.** El webhook de WhatsApp Business (Meta, sección 3) está implementado pero el envío de respuestas reales nunca se conectó. El canal efectivamente en uso en producción es **Telegram** (`POST /telegram/webhook`), que reutiliza la misma máquina de estados de la sección 4 y tiene la extracción con Claude conectada.
+
+**Storage de archivos: PostgreSQL, no S3/R2.** Contra lo definido en la sección 2, los archivos de comprobantes recibidos no se guardan en un storage externo S3-compatible — se guardan directo en PostgreSQL (tabla `comprobantes_archivo`), dado que son archivos chicos (fotos/PDFs de comprobantes) y esto evita la dependencia de un servicio externo adicional.
+
+**Sin Alembic.** Los cambios de esquema (columnas nuevas, valores de enum) se aplican con `ALTER TABLE`/`ALTER TYPE` manuales en vez de una herramienta de migraciones. `_ensure_enum_values()` corre en cada arranque y agrega automáticamente los valores de enum de Postgres que falten (`ADD VALUE IF NOT EXISTS`), para que agregar un valor a un enum de `models.py` no rompa producción hasta que alguien corra el `ALTER TYPE` a mano.
+
+**Extracción (sección 5).** Además del reintento con Sonnet cuando falta el monto, el mismo reintento se dispara ahora si `cuenta_receptora` es una cadena numérica pero no tiene exactamente 22 dígitos (largo fijo de un CBU/CVU argentino) — señal de que Haiku transcribió el número incompleto. El prompt de extracción también resuelve explícitamente el caso de comprobantes que listan cuenta de origen y de destino bajo un único título sin etiquetas ("Origen y destino"): la primera entidad listada es siempre el origen, la segunda el destino.
+
+**Motor de conciliación (sección 6).** Formatos de resumen bancario soportados hasta ahora: **CSV y XLSX**; PDF sigue sin implementarse (es, como se anticipaba en la sección 13, el formato más difícil de parsear de forma confiable). El estado de una línea de resumen incluye además **no_corresponde** (el administrador la marca así cuando no corresponde a ningún movimiento, por ejemplo un depósito ajeno a la operación), sin agregar un estado equivalente a nivel `movimiento`. La pantalla de resolución manual (`/conciliaciones`) tiene además: filtro propio por fecha/monto sobre las líneas sin conciliar (una tabla ya renderizada completa server-side, sin volver a pegarle al backend); reintentar el emparejamiento automático sin resubir archivo; y un fix reciente de sincronización — cambiar de pestaña de banco es navegación normal (no una actualización parcial vía AJAX), porque varias secciones de esa pantalla (líneas pendientes, historial de resúmenes, modal de subir resumen) se renderizan server-side y quedaban mostrando el banco de la carga anterior si solo se refrescaban los KPIs y la tabla de movimientos.
+
+**Móviles y salidas de reparto.** Funcionalidad agregada fuera del alcance original (spec funcional, sección 2): tablas `moviles` (vehículo asignado a un operador) y `repartos` (turno de reparto o "salida", con hora de inicio/fin y número). Por Telegram, comandos de texto libre ("inicio movil M-01 reparto nro 5", "cerrar reparto nro 5") arrancan/cierran una salida; si falta un dato el bot lo pide en un paso aparte (número de salida primero, luego móvil). `Movement.movil_id` y `Movement.reparto_id` quedan fijos al momento de confirmarse el comprobante (no siguen al operador si después cambia de móvil). Al cerrar una salida se genera un PDF con el detalle de comprobantes y el desglose por cuenta bancaria.
+
+**Panel de administración (sección 9).** El filtro estándar (buscador + avanzados colapsables + Buscar/Limpiar/Exportar) vive en `partials/_filtros.html`, reutilizado por `/comprobantes` y `/repartos`. La exportación es a Excel (`.xlsx`) en toda la app, no CSV. `GET /comprobantes/nuevo` implementa la carga manual (antes solo prevista). La edición de un comprobante (`GET/POST /comprobantes/{id}/editar`) resuelve `cuenta_bancaria_id` con un `<select>` de las cuentas registradas (mostrando el ícono del banco) en vez de aceptar el CBU/CVU/alias como texto libre — el texto crudo extraído del comprobante se conserva como referencia de solo lectura.
+
+## 15. Mejoras solicitadas para la próxima iteración (diseño técnico)
+
+Contraparte técnica de la sección 12 del spec funcional. Ninguno de estos puntos está construido todavía salvo que se aclare lo contrario; son lineamientos de diseño, no una implementación cerrada.
+
+**Historial de cambios (auditoría general).** Nueva tabla, por ejemplo `historial_cambios` (`id`, `entidad` [ej. `"movimiento"`, `"reparto"`, `"cuenta_bancaria"`, `"usuario_panel"`...], `entidad_id`, `accion` [`"crear"`/`"editar"`/`"eliminar"`/`"reabrir"`...], `usuario_id` nullable (`PanelUser`, null si lo dispara un operador por Telegram), `detalle` (JSON o texto con campo/valor_anterior/valor_nuevo), `creado_en`). Alcance general, no solo `Movement`/`Reparto`. Implementación sugerida: un helper central (ej. `registrar_cambio(db, entidad, entidad_id, accion, usuario, detalle)`) llamado explícitamente desde cada endpoint que modifica algo, en vez de un mecanismo automático a nivel ORM/evento — más simple de razonar y de no perder contexto de qué cambió puntualmente en cada caso. `updated_at`/`updated_by` de una entidad se resuelven contra su último registro en esta tabla, sin duplicar el dato en cada modelo.
+
+**Bloqueo de edición de comprobantes conciliados.** En `POST /comprobantes/{id}/editar`: rechazar con 400 (mismo patrón que el resto de las validaciones de ese endpoint) si `movimiento.estado_conciliacion` está en `(CONCILIADO, CONCILIADO_MANUALMENTE)`. `PENDIENTE` y `CON_DIFERENCIA` siguen editables.
+
+**Extracción en carga manual.** `POST /comprobantes/nuevo` pasa a llamar `extract_transfer()` (mismo `app/extraction.py` que usa Telegram) sobre el archivo adjunto antes de guardar el movimiento, pre-completando los campos del formulario. Implica partir el alta en dos pasos (subir archivo → revisar/corregir los datos extraídos → confirmar) en vez del alta directa de un solo paso que tiene hoy.
+
+**Reporte de Mercado Pago por correo — diferido.** Requeriría una cuenta de correo dedicada, lectura vía IMAP (o un proveedor de email parsing) y un parser del formato de ese reporte. **Fuera de esta iteración**, queda solo como nota para más adelante.
+
+**Reabrir una salida cerrada.** No existe hoy la ruta. Agregar algo como `POST /repartos/{id}/reabrir` (`Reparto.hora_fin = None`), registrando el cambio en `historial_cambios`.
+
+**Móvil 0 / recaudador de sala fija.** Se crea un `Movil` especial (por ejemplo `numero="0"`, `nombre="Entrega y retiro"`) sin vehículo real asociado; el recaudador de esa sala se asocia a él igual que cualquier operador (`Operator.movil_id`), y el flujo de iniciar/cerrar salida (por Telegram o por la carga manual) funciona sin cambios de código más allá de dar de alta ese móvil especial.
+
+**Rol Recaudador.** `PanelUser.rol` hoy es texto libre (`String(50)`, sin enum) y **ningún endpoint del panel verifica el rol actualmente** — `require_user` solo valida que haya sesión iniciada. Falta: (a) opcionalmente convertir `rol` a un enum controlado (`Administrador` / `Contador` / `Recaudador`) para evitar valores libres inconsistentes, y (b) agregar una dependency de permisos (ej. `require_admin`, adicional a `require_user`) en las rutas de `/config/*`, en la eliminación de comprobantes (individual y en lote), y en todas las rutas de `/conciliaciones/*`.
