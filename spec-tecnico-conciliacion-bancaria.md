@@ -4,6 +4,8 @@
 **Fecha:** 2026-08-20
 **Depende de:** `spec-funcional.md` (mismo proyecto) — este documento no repite las reglas de negocio ya definidas ahí, solo cómo se implementan.
 
+> **Nota sobre el canal (vigente):** el canal en uso hoy es **Telegram** (`POST /telegram/webhook`), no WhatsApp — el webhook de WhatsApp Business (Meta) descrito en la sección 3 está implementado pero el envío de respuestas reales nunca se conectó (más detalle en la sección 14). Todas las menciones a "WhatsApp"/"Meta" en el resto de este documento describen el diseño/objetivo original y deben leerse hoy como "Telegram" salvo que se indique lo contrario.
+
 ## 1. Arquitectura general
 
 La app sigue el mismo patrón que BridgeBot (la app de Kleba Dev para bots de WhatsApp/Instagram con Claude), adaptado a este caso de uso:

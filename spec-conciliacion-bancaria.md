@@ -4,6 +4,8 @@
 **Fecha:** 2026-08-20
 **Fase de este documento:** especificación funcional (la especificación técnica/arquitectura se aborda en un documento separado, posterior a este)
 
+> **Nota sobre el canal (vigente):** el canal en uso hoy es **Telegram**, no WhatsApp — WhatsApp Business (Meta) es el canal originalmente planeado en este documento y se agrega más adelante, todavía no está conectado en producción (detalle técnico en `spec-tecnico-conciliacion-bancaria.md`, sección 14). Todas las menciones a "WhatsApp" en el resto de este documento describen el diseño/objetivo original y deben leerse hoy como "Telegram" salvo que se indique lo contrario.
+
 ## 1. Objetivo
 
 **Contexto del negocio.** La empresa reparte paquetes y cobra en el domicilio del cliente al momento de la entrega. El pago se recibe por transferencia bancaria, y cada repartidor manda por WhatsApp el comprobante de esa transferencia apenas la recibe.
