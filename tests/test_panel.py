@@ -10,6 +10,7 @@ from sqlalchemy.pool import StaticPool
 
 from app import panel
 from app.auth import hash_password
+from app.conversation import ExtractedTransfer
 from app.db import Base
 from app.main import app
 from app.models import (
@@ -488,6 +489,55 @@ def test_nuevo_movimiento_con_archivo_adjunto(monkeypatch):
     with test_session() as session:
         movimiento = session.query(Movement).one()
         assert movimiento.archivo_id == 42
+
+
+def test_extraer_datos_comprobante_completa_los_campos_y_matchea_cuenta(monkeypatch):
+    """La carga manual usa la misma extraccion con IA que el flujo de Telegram,
+    en vez de que el admin/recaudador tenga que tipear todo a mano."""
+    client, test_session = _client_with_admin()
+    with test_session() as session:
+        session.add(BankAccount(banco="Galicia", numero_cuenta="0070077120000014194391", alias="galicia.demonte"))
+        session.commit()
+
+    transfer = ExtractedTransfer(
+        monto=Decimal("13462.76"),
+        fecha_transaccion=datetime(2026, 9, 21, 12, 6),
+        numero_operacion="PDX4OGNY4LZDL14Q20L6EY",
+        banco_emisor="Naranja X",
+        cuenta_receptora="0070077120000014194391",
+        titular="Liliana Desiree Moray Dacunda",
+    )
+    monkeypatch.setattr(panel, "extract_transfer", lambda content_type, contenido: transfer)
+
+    client.post("/login", data={"email": "admin@concilia.test", "password": "secreta123"})
+    response = client.post(
+        "/comprobantes/nuevo/extraer", files={"archivo": ("comprobante.jpg", b"fake-bytes", "image/jpeg")}
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["ok"] is True
+    assert data["monto"] == "13462.76"
+    assert data["fecha_transaccion"] == "2026-09-21T12:06"
+    assert data["numero_operacion"] == "PDX4OGNY4LZDL14Q20L6EY"
+    assert data["banco_emisor"] == "Naranja X"
+    assert data["titular"] == "Liliana Desiree Moray Dacunda"
+    assert data["cuenta_bancaria_id"] == 1
+
+
+def test_extraer_datos_comprobante_no_legible_devuelve_error(monkeypatch):
+    client, _ = _client_with_admin()
+    monkeypatch.setattr(panel, "extract_transfer", lambda content_type, contenido: None)
+
+    client.post("/login", data={"email": "admin@concilia.test", "password": "secreta123"})
+    response = client.post(
+        "/comprobantes/nuevo/extraer", files={"archivo": ("comprobante.jpg", b"fake-bytes", "image/jpeg")}
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["ok"] is False
+    assert "no" in data["error"].lower()
 
 
 def test_nuevo_movimiento_rechaza_numero_operacion_duplicado():

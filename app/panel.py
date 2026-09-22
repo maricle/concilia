@@ -15,7 +15,9 @@ from sqlalchemy.orm import DeclarativeBase, InstrumentedAttribute, Session, sele
 
 from .auth import hash_password, verify_password
 from .bancos import icono_banco
+from .conversation import _find_cuenta_bancaria
 from .db import SessionLocal
+from .extraction import extract_transfer
 from .models import (
     BankAccount,
     CierreDiario,
@@ -1277,6 +1279,34 @@ def ver_archivo_movimiento(
         media_type=archivo.content_type,
         headers={"Content-Disposition": f'inline; filename="{archivo.nombre_archivo}"'},
     )
+
+
+@router.post("/comprobantes/nuevo/extraer")
+async def extraer_datos_comprobante(
+    archivo: UploadFile, db: Session = Depends(get_db), user: PanelUser = Depends(require_user)
+):
+    """Corre sobre el archivo adjunto la misma extraccion con IA que usa el flujo
+    de Telegram (app/extraction.py), para precompletar el formulario de carga
+    manual en vez de tipear todo a mano. Devuelve el resultado como JSON: el
+    formulario sigue siendo la fuente de verdad, esto solo lo pre-llena."""
+    contenido = await archivo.read()
+    if not contenido:
+        return {"ok": False, "error": "El archivo esta vacio."}
+
+    transfer = extract_transfer(archivo.content_type or "application/octet-stream", contenido)
+    if transfer is None:
+        return {"ok": False, "error": "No pudimos leer el comprobante. Completa los datos a mano."}
+
+    cuenta = _find_cuenta_bancaria(db, transfer.cuenta_receptora)
+    return {
+        "ok": True,
+        "monto": str(transfer.monto) if transfer.monto is not None else None,
+        "fecha_transaccion": transfer.fecha_transaccion.strftime("%Y-%m-%dT%H:%M"),
+        "numero_operacion": transfer.numero_operacion,
+        "banco_emisor": transfer.banco_emisor,
+        "titular": transfer.titular,
+        "cuenta_bancaria_id": cuenta.id if cuenta is not None else None,
+    }
 
 
 @router.get("/comprobantes/nuevo")
