@@ -2198,9 +2198,24 @@ def emparejar_linea(
     linea = db.get(StatementLine, linea_id)
     movimiento = db.get(Movement, movimiento_id)
     if linea is not None and movimiento is not None:
-        if _cierre_del_dia(db, linea.fecha.date()) is not None:
+        fecha_obj = linea.fecha.date()
+        if _cierre_del_dia(db, fecha_obj) is not None:
             return RedirectResponse(
-                f"/conciliaciones?fecha={fecha or linea.fecha.date().isoformat()}&banco={banco}", status_code=303
+                f"/conciliaciones?fecha={fecha or fecha_obj.isoformat()}&banco={banco}", status_code=303
+            )
+        # Un movimiento ya conciliado (con esta linea o con otra) no se puede
+        # volver a emparejar a mano -- si no se chequea esto aca, elegir del
+        # dropdown un movimiento que ya tenia otra linea vinculada lo reasigna
+        # en silencio y deja a la linea original con una referencia obsoleta
+        # (bug real, ver tambien _candidatos_iniciales en reconciliation.py).
+        if movimiento.estado_conciliacion != ReconciliationState.PENDIENTE:
+            return templates.TemplateResponse(
+                request,
+                "conciliaciones.html",
+                _construir_contexto_conciliaciones(
+                    db, user, fecha_obj, banco, error="Ese movimiento ya esta conciliado con otra linea."
+                ),
+                status_code=400,
             )
         linea.movimiento_id = movimiento.id
         linea.estado = StatementLineState.CONCILIADA

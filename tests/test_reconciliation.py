@@ -190,6 +190,39 @@ def test_matching_reference_with_different_amount_is_flagged_con_diferencia(sess
     assert movimiento.estado_conciliacion == ReconciliationState.CON_DIFERENCIA
 
 
+def test_movimiento_ya_vinculado_no_se_reasigna_a_otra_linea(session):
+    """Bug real: un movimiento que ya quedo CON_DIFERENCIA (vinculado a linea1, a la
+    espera de que un administrador lo resuelva a mano) no debe poder volver a
+    aparecer como candidato en una corrida posterior de match_statement -- si otra
+    linea (de otro resumen, ej. del dia siguiente) matchea por fecha+monto exacto
+    contra ese mismo movimiento, antes quedaba reasignado en silencio: linea1
+    seguia mostrando movimiento_id apuntando a un vinculo ya obsoleto."""
+    cuenta = BankAccount(banco="Nacion", numero_cuenta="1", alias="Principal")
+    session.add(cuenta)
+    session.flush()
+    movimiento = _crear_movimiento(
+        session, numero_operacion="OP-1", monto=Decimal("105.00"), fecha_transaccion=datetime(2026, 9, 10)
+    )
+    resumen1, linea1 = _crear_resumen_y_linea(
+        session, cuenta.id, monto=Decimal("100.00"), fecha=datetime(2026, 9, 10), referencia="OP-1"
+    )
+    match_statement(session, resumen1, [linea1])
+    assert movimiento.estado_conciliacion == ReconciliationState.CON_DIFERENCIA
+    assert linea1.movimiento_id == movimiento.id
+
+    resumen2, linea2 = _crear_resumen_y_linea(
+        session, cuenta.id, monto=Decimal("105.00"), fecha=datetime(2026, 9, 11), referencia=None
+    )
+
+    match_statement(session, resumen2, [linea2])
+
+    assert linea2.movimiento_id is None
+    assert linea2.estado == StatementLineState.PENDIENTE
+    # linea1 sigue siendo la unica duena de este movimiento.
+    assert linea1.movimiento_id == movimiento.id
+    assert movimiento.estado_conciliacion == ReconciliationState.CON_DIFERENCIA
+
+
 def test_matching_reference_with_far_off_date_is_flagged_con_diferencia_not_pending(session):
     """Reproduce un caso real: el comprobante quedo con la fecha (y el monto) mal
     cargados, pero el numero de operacion es identico al de la linea del banco. La

@@ -325,7 +325,7 @@
                 <input type="hidden" name="banco" value="{{ banco_seleccionado }}">
                 <select name="movimiento_id" class="form-control form-control-sm mr-2" required>
                   <option value="">Elegir movimiento...</option>
-                  {% for m in movimientos %}
+                  {% for m in movimientos if m.estado == "pendiente" %}
                   <option value="{{ m.id }}">{{ m.comprobante }} - {{ monto_ars(m.monto) }} - {{ m.operador }}</option>
                   {% endfor %}
                 </select>

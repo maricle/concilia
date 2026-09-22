@@ -151,6 +151,57 @@ def test_emparejar_linea_manualmente():
         assert movimiento.cuenta_bancaria_id == 1
 
 
+def test_emparejar_linea_rechaza_movimiento_ya_conciliado():
+    """Bug real: elegir del dropdown un movimiento que ya estaba conciliado con
+    otra linea lo reasignaba en silencio, dejando a la primera linea con una
+    referencia obsoleta. Ahora se rechaza con un error en vez de reasignar."""
+    client, test_session = _client_with_admin()
+    _login(client)
+
+    with test_session() as session:
+        session.add(
+            Movement(
+                operador_id=1,
+                monto=Decimal("500.00"),
+                fecha_transaccion=datetime(2026, 8, 24),
+                numero_operacion="OP-1",
+                estado_registro=RecordState.CONFIRMADO,
+            )
+        )
+        session.commit()
+
+    # Primer resumen: matchea y concilia automaticamente ese movimiento.
+    client.post(
+        "/conciliaciones/importar",
+        data={"cuenta_bancaria_id": "1", "fecha": "2026-08-24"},
+        files={"archivo": ("resumen.csv", "Fecha,Importe,Descripcion,Referencia\n24/08/2026,500.00,Pago,OP-1\n", "text/csv")},
+    )
+    # Segundo resumen: otra linea, sin candidato automatico -- queda pendiente.
+    client.post(
+        "/conciliaciones/importar",
+        data={"cuenta_bancaria_id": "1", "fecha": "2026-08-25"},
+        files={"archivo": ("resumen.csv", "Fecha,Importe,Descripcion,Referencia\n25/08/2026,999.00,Otro,\n", "text/csv")},
+    )
+
+    with test_session() as session:
+        movimiento_id = session.query(Movement).filter_by(numero_operacion="OP-1").one().id
+        linea_pendiente_id = session.query(StatementLine).filter_by(monto=Decimal("999.00")).one().id
+        linea_conciliada = session.query(StatementLine).filter_by(monto=Decimal("500.00")).one()
+        assert linea_conciliada.movimiento_id == movimiento_id
+
+    response = client.post(
+        f"/conciliaciones/lineas/{linea_pendiente_id}/emparejar",
+        data={"movimiento_id": movimiento_id, "fecha": "2026-08-25", "banco": "Nacion"},
+    )
+
+    assert response.status_code == 400
+    assert "ya esta conciliado" in response.text
+    with test_session() as session:
+        # La linea original conserva su match, la pendiente sigue sin uno.
+        assert session.get(StatementLine, linea_pendiente_id).movimiento_id is None
+        assert session.get(StatementLine, linea_conciliada.id).movimiento_id == movimiento_id
+
+
 def test_marcar_linea_no_corresponde():
     client, test_session = _client_with_admin()
     _login(client)

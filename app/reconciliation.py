@@ -144,11 +144,20 @@ def parse_statement_file(nombre_archivo: str, contenido: bytes) -> tuple[list[St
 
 def _candidatos_iniciales(session: Session, cuenta_bancaria_id: int) -> list[Movement]:
     """Movimientos que podrian matchear contra algun resumen de esta cuenta, consultados
-    una unica vez: por linea solo se filtra en memoria (ver match_statement)."""
+    una unica vez: por linea solo se filtra en memoria (ver match_statement).
+
+    Se excluye cualquier movimiento que ya tenga una StatementLine vinculada (via
+    match_statement en una corrida anterior, o emparejado a mano) -- sin este
+    filtro, un movimiento en CON_DIFERENCIA (esperando resolucion manual sobre esa
+    linea puntual) podia volver a aparecer como candidato en una corrida posterior
+    y quedar reasignado a otra linea, dejando la primera con una referencia obsoleta
+    (bug real, confirmado con un repro manual)."""
+    ya_vinculados = select(StatementLine.movimiento_id).where(StatementLine.movimiento_id.isnot(None))
     movimientos = session.scalars(
         select(Movement).where(
             Movement.estado_registro == RecordState.CONFIRMADO,
             Movement.estado_conciliacion.in_([ReconciliationState.PENDIENTE, ReconciliationState.CON_DIFERENCIA]),
+            Movement.id.notin_(ya_vinculados),
         )
     ).all()
     return [
