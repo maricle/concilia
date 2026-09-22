@@ -13,6 +13,7 @@ from app.main import app
 from app.models import (
     BankAccount,
     CierreDiario,
+    ImportedStatement,
     Movement,
     Movil,
     Operator,
@@ -108,6 +109,107 @@ def test_importar_resumen_with_bad_file_shows_error():
     )
     assert response.status_code == 400
     assert "columnas de fecha y monto" in response.text
+
+
+def test_importar_resumen_guarda_el_archivo_original_y_se_puede_descargar():
+    client, test_session = _client_with_admin()
+    _login(client)
+
+    csv_contenido = "Fecha,Importe,Descripcion,Referencia\n24/08/2026,500.00,Transferencia,OP-1\n"
+    client.post(
+        "/conciliaciones/importar",
+        data={"cuenta_bancaria_id": "1", "fecha": "2026-08-24"},
+        files={"archivo": ("resumen.csv", csv_contenido, "text/csv")},
+    )
+
+    with test_session() as session:
+        resumen = session.query(ImportedStatement).one()
+        assert resumen.archivo_id is not None
+        resumen_id = resumen.id
+
+    response = client.get(f"/conciliaciones/resumenes/{resumen_id}/descargar")
+
+    assert response.status_code == 200
+    assert response.text == csv_contenido
+    assert "resumen.csv" in response.headers["content-disposition"]
+
+
+def test_actualizar_resumen_reemplaza_el_archivo_guardado():
+    client, test_session = _client_with_admin()
+    _login(client)
+
+    client.post(
+        "/conciliaciones/importar",
+        data={"cuenta_bancaria_id": "1", "fecha": "2026-08-24"},
+        files={"archivo": ("v1.csv", "Fecha,Importe,Descripcion,Referencia\n24/08/2026,500.00,Uno,OP-1\n", "text/csv")},
+    )
+    with test_session() as session:
+        resumen_id = session.query(ImportedStatement).one().id
+
+    client.post(
+        f"/conciliaciones/resumenes/{resumen_id}/actualizar",
+        files={
+            "archivo": (
+                "v2.csv",
+                "Fecha,Importe,Descripcion,Referencia\n24/08/2026,500.00,Uno,OP-1\n25/08/2026,999.00,Dos,OP-2\n",
+                "text/csv",
+            )
+        },
+    )
+
+    response = client.get(f"/conciliaciones/resumenes/{resumen_id}/descargar")
+    assert response.status_code == 200
+    assert "v2.csv" in response.headers["content-disposition"]
+    assert "OP-2" in response.text
+
+
+def test_descargar_resumen_sin_archivo_guardado_redirige():
+    """Resumenes importados antes de que existiera esta columna no tienen archivo
+    guardado -- no debe romper, solo no ofrecer nada para descargar."""
+    client, test_session = _client_with_admin()
+    _login(client)
+
+    with test_session() as session:
+        resumen = ImportedStatement(
+            cuenta_bancaria_id=1, fecha=datetime(2026, 8, 24), archivo_nombre="viejo.csv", formato="csv", usuario_id=1
+        )
+        session.add(resumen)
+        session.commit()
+        resumen_id = resumen.id
+
+    response = client.get(f"/conciliaciones/resumenes/{resumen_id}/descargar", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/conciliaciones/resumenes"
+
+
+def test_listado_resumenes_muestra_los_mas_recientes_primero_y_filtra():
+    client, test_session = _client_with_admin()
+    _login(client)
+
+    with test_session() as session:
+        session.add(BankAccount(banco="Galicia", numero_cuenta="2", alias="galicia.demonte"))
+        session.commit()
+
+    client.post(
+        "/conciliaciones/importar",
+        data={"cuenta_bancaria_id": "1", "fecha": "2026-08-24"},
+        files={"archivo": ("primero.csv", "Fecha,Importe\n24/08/2026,100.00\n", "text/csv")},
+    )
+    client.post(
+        "/conciliaciones/importar",
+        data={"cuenta_bancaria_id": "2", "fecha": "2026-08-25"},
+        files={"archivo": ("segundo.csv", "Fecha,Importe\n25/08/2026,200.00\n", "text/csv")},
+    )
+
+    pagina = client.get("/conciliaciones/resumenes")
+    assert pagina.status_code == 200
+    # El importado despues (segundo.csv, Galicia) aparece antes en la pagina.
+    assert pagina.text.index("segundo.csv") < pagina.text.index("primero.csv")
+
+    filtrada = client.get("/conciliaciones/resumenes", params={"banco": "Galicia"})
+    assert "segundo.csv" in filtrada.text
+    assert "primero.csv" not in filtrada.text
 
 
 def test_emparejar_linea_manualmente():

@@ -32,6 +32,9 @@
     <li class="nav-item {{ 'active' if request.url.path == '/conciliaciones' }}">
       <a class="nav-link" href="/conciliaciones"><i class="fas fa-fw fa-balance-scale"></i><span>Conciliaciones</span></a>
     </li>
+    <li class="nav-item {{ 'active' if request.url.path == '/conciliaciones/resumenes' }}">
+      <a class="nav-link" href="/conciliaciones/resumenes"><i class="fas fa-fw fa-file-excel"></i><span>Resumenes importados</span></a>
+    </li>
     <hr class="sidebar-divider">
     <div class="sidebar-heading">Configuracion</div>
     <li class="nav-item {{ 'active' if request.url.path == '/config/usuarios' }}">

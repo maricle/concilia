@@ -197,8 +197,13 @@ class ImportedStatement(Base):
     formato: Mapped[str] = mapped_column(String(10))
     usuario_id: Mapped[int] = mapped_column(ForeignKey("usuarios_panel.id"))
     fecha_importacion: Mapped[datetime] = mapped_column(DateTime, default=ahora_argentina)
+    # El archivo original recien se empezo a guardar (reutiliza ComprobanteArchivo,
+    # es solo un blob generico pese al nombre) -- null en los resumenes importados
+    # antes de este campo, esos no se pueden descargar retroactivamente.
+    archivo_id: Mapped[int | None] = mapped_column(ForeignKey("comprobantes_archivo.id"))
 
     cuenta_bancaria: Mapped[BankAccount] = relationship()
+    archivo: Mapped["ComprobanteArchivo | None"] = relationship()
 
 
 class StatementLine(Base):

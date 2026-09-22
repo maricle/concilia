@@ -2080,12 +2080,18 @@ async def importar_resumen(
             status_code=400,
         )
 
+    content_type = archivo.content_type or (
+        "text/csv" if formato == "csv" else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+    archivo_id = save_comprobante_archivo(archivo.filename or "resumen", content_type, contenido)
+
     resumen = ImportedStatement(
         cuenta_bancaria_id=cuenta_bancaria_id,
         fecha=datetime.strptime(fecha, "%Y-%m-%d"),
         archivo_nombre=archivo.filename or "resumen",
         formato=formato,
         usuario_id=user.id,
+        archivo_id=archivo_id,
     )
     db.add(resumen)
     db.flush()
@@ -2146,6 +2152,14 @@ async def actualizar_resumen(
             status_code=400,
         )
 
+    # El archivo re-subido reemplaza al guardado (puede ser una version mas nueva
+    # y mas completa del mismo resumen) -- queda el ultimo, no se conservan los
+    # anteriores.
+    content_type = archivo.content_type or (
+        "text/csv" if _formato == "csv" else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+    resumen.archivo_id = save_comprobante_archivo(archivo.filename or resumen.archivo_nombre, content_type, contenido)
+
     lineas_existentes = db.scalars(select(StatementLine).where(StatementLine.resumen_id == resumen.id)).all()
     restantes = Counter((linea.fecha, linea.monto, linea.referencia, linea.descripcion) for linea in lineas_existentes)
 
@@ -2181,6 +2195,65 @@ async def actualizar_resumen(
     )
     return templates.TemplateResponse(
         request, "conciliaciones.html", _construir_contexto_conciliaciones(db, user, fecha_obj, banco, mensaje=mensaje)
+    )
+
+
+def _resumenes_query(banco: str, fecha_desde: str, fecha_hasta: str, q: str):
+    query = select(ImportedStatement).options(selectinload(ImportedStatement.cuenta_bancaria)).join(
+        BankAccount, ImportedStatement.cuenta_bancaria_id == BankAccount.id
+    )
+    if banco:
+        query = query.where(BankAccount.banco == banco)
+    if fecha_desde:
+        query = query.where(func.date(ImportedStatement.fecha) >= fecha_desde)
+    if fecha_hasta:
+        query = query.where(func.date(ImportedStatement.fecha) <= fecha_hasta)
+    if q.strip():
+        query = query.where(ImportedStatement.archivo_nombre.ilike(f"%{q.strip()}%"))
+    return query.order_by(ImportedStatement.fecha_importacion.desc())
+
+
+@router.get("/conciliaciones/resumenes")
+def list_resumenes(
+    request: Request,
+    banco: str = "",
+    fecha_desde: str = "",
+    fecha_hasta: str = "",
+    q: str = "",
+    db: Session = Depends(get_db),
+    user: PanelUser = Depends(require_user),
+):
+    resumenes = db.scalars(_resumenes_query(banco, fecha_desde, fecha_hasta, q)).all()
+    return templates.TemplateResponse(
+        request,
+        "resumenes.html",
+        {
+            "user": user,
+            "resumenes": resumenes,
+            "conteos_por_resumen": _conteos_por_resumen(db),
+            "bancos": _bancos_disponibles(db),
+            "banco": banco,
+            "fecha_desde": fecha_desde,
+            "fecha_hasta": fecha_hasta,
+            "q": q,
+        },
+    )
+
+
+@router.get("/conciliaciones/resumenes/{resumen_id}/descargar")
+def descargar_resumen(
+    resumen_id: int, db: Session = Depends(get_db), user: PanelUser = Depends(require_user)
+):
+    resumen = db.get(ImportedStatement, resumen_id)
+    if resumen is None or resumen.archivo_id is None:
+        return RedirectResponse("/conciliaciones/resumenes", status_code=303)
+    archivo = get_comprobante_archivo(resumen.archivo_id)
+    if archivo is None:
+        return RedirectResponse("/conciliaciones/resumenes", status_code=303)
+    return Response(
+        content=archivo.contenido,
+        media_type=archivo.content_type,
+        headers={"Content-Disposition": f'attachment; filename="{archivo.nombre_archivo}"'},
     )
 
 
