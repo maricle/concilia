@@ -69,11 +69,41 @@ class ExtractedTransfer:
     titular: str | None = None
 
 
+def _levenshtein(a: str, b: str) -> int:
+    if len(a) < len(b):
+        a, b = b, a
+    fila_previa = list(range(len(b) + 1))
+    for i, char_a in enumerate(a, 1):
+        fila_actual = [i] + [0] * len(b)
+        for j, char_b in enumerate(b, 1):
+            fila_actual[j] = min(
+                fila_previa[j] + 1,  # borrar
+                fila_actual[j - 1] + 1,  # insertar
+                fila_previa[j - 1] + (char_a != char_b),  # sustituir
+            )
+        fila_previa = fila_actual
+    return fila_previa[-1]
+
+
+_LARGO_CBU_CVU = 22
+_TOLERANCIA_DIGITOS_CBU_CVU = 2
+
+
 def _find_cuenta_bancaria(session: Session, cuenta_receptora: str | None) -> BankAccount | None:
     """Matchea el CBU/CVU/alias leido del comprobante contra las cuentas bancarias
     registradas en /config/cuentas. Compara el alias tal cual (sin distinguir
-    mayusculas) y el numero de cuenta solo por sus digitos, para tolerar espacios,
-    guiones u otro formato."""
+    mayusculas) y el numero de cuenta primero por sus digitos exactos (para
+    tolerar espacios, guiones u otro formato).
+
+    Si no hay match exacto pero el dato extraido tiene forma de CBU/CVU (22
+    digitos), se intenta un match aproximado por distancia de edicion --
+    confirmado con un caso real de produccion donde Claude leyo el CBU correcto
+    salvo por un digito insertado de mas en una tira de ceros y uno de menos al
+    final (mismo largo total, pero corrido): "...000001419439" en vez de
+    "...0000141943 91". Un umbral de 2 separa bien ese tipo de error de
+    transcripcion de una cuenta genuinamente distinta (que en la practica
+    difiere en muchos mas digitos), y solo se acepta si es la unica cuenta
+    registrada dentro de esa tolerancia -- si hay ambiguedad, no se adivina."""
     if not cuenta_receptora:
         return None
     normalizado = cuenta_receptora.strip().lower()
@@ -84,6 +114,18 @@ def _find_cuenta_bancaria(session: Session, cuenta_receptora: str | None) -> Ban
             return cuenta
         if digitos and digitos == re.sub(r"\D", "", cuenta.numero_cuenta):
             return cuenta
+
+    if digitos and len(digitos) == _LARGO_CBU_CVU:
+        candidatas = []
+        for cuenta in cuentas:
+            digitos_cuenta = re.sub(r"\D", "", cuenta.numero_cuenta)
+            if len(digitos_cuenta) != _LARGO_CBU_CVU:
+                continue
+            if _levenshtein(digitos, digitos_cuenta) <= _TOLERANCIA_DIGITOS_CBU_CVU:
+                candidatas.append(cuenta)
+        if len(candidatas) == 1:
+            return candidatas[0]
+
     logging.warning(
         "Cuenta receptora sin match: extraida=%r cuentas_registradas=%r",
         cuenta_receptora,

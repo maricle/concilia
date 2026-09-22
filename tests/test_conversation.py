@@ -279,6 +279,47 @@ def test_transfer_matches_cuenta_receptora_by_numero_cuenta_digits():
     assert db.query(Movement).one().cuenta_bancaria_id == 1
 
 
+def test_transfer_matches_cuenta_receptora_con_digitos_corridos_por_error_de_extraccion():
+    """Caso real de produccion: Claude leyo el CBU con un digito de mas en una
+    tira de ceros y uno de menos al final -- mismo largo (22 digitos) pero
+    corrido respecto al registrado, asi que el match exacto por digitos fallaba
+    y el comprobante quedaba 'Sin identificar' aunque la cuenta correcta ya
+    estaba cargada en /config/cuentas."""
+    db = session()
+    db.add(Operator(nombre="Ana", whatsapp_numero="5491112345678"))
+    db.add(BankAccount(banco="Galicia", numero_cuenta="0070077120000014194391", alias="el.paquete.llega"))
+    db.commit()
+    service = ConversationService(db)
+
+    transfer = ExtractedTransfer(
+        Decimal("13462.76"), datetime(2026, 9, 21), "PDX4OGNY4LZDL14Q20L6EY", cuenta_receptora="0070077120000001419439"
+    )
+    response = service.start_transfer("5491112345678", transfer)
+
+    assert "factura o un numero de cuenta" in response
+    assert db.query(Movement).one().cuenta_bancaria_id == 1
+
+
+def test_transfer_no_matchea_por_aproximacion_si_hay_ambiguedad():
+    """Si dos cuentas registradas quedan igual de cerca (dentro de la tolerancia)
+    del numero extraido, no se adivina entre ellas -- se deja sin identificar
+    para que un administrador lo resuelva a mano."""
+    db = session()
+    db.add(Operator(nombre="Ana", whatsapp_numero="5491112345678"))
+    db.add(BankAccount(banco="Galicia", numero_cuenta="0070077120000014194391", alias="cuenta-a"))
+    db.add(BankAccount(banco="Galicia", numero_cuenta="0070077120000014194392", alias="cuenta-b"))
+    db.commit()
+    service = ConversationService(db)
+
+    transfer = ExtractedTransfer(
+        Decimal("500"), datetime(2026, 8, 21), "OP-1", cuenta_receptora="0070077120000014194390"
+    )
+    response = service.start_transfer("5491112345678", transfer)
+
+    assert "factura o un numero de cuenta" in response
+    assert db.query(Movement).one().cuenta_bancaria_id is None
+
+
 def test_postgres_urls_use_psycopg_driver():
     assert _engine_url("postgres://user:pass@localhost/db") == "postgresql+psycopg://user:pass@localhost/db"
     assert _engine_url("postgresql://user:pass@localhost/db") == "postgresql+psycopg://user:pass@localhost/db"
