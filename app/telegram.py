@@ -12,7 +12,7 @@ from .config import get_settings
 from .conversation import ConversationService
 from .db import SessionLocal
 from .extraction import extract_transfer
-from .models import BankAccount, Operator
+from .models import Operator
 from .storage import save_comprobante_archivo
 
 router = APIRouter()
@@ -38,25 +38,11 @@ NUMERO_NO_HABILITADO_TEXTO = "Tu numero no esta habilitado. Contacta al administ
 NUMERO_VINCULADO_TEXTO = "Numero vinculado correctamente. Ya podes enviar tus comprobantes."
 
 
-def _cuenta_bancaria_markup(session: Session) -> dict:
-    """Un boton por cada cuenta cargada en /config/cuentas, mas uno de Cancelar --
-    se arma dinamico porque a diferencia de SI/NO o Factura/Cuenta la cantidad de
-    opciones depende de cuantas cuentas tenga la empresa. El boton muestra el
-    banco (lo que el operador reconoce del comprobante), pero manda el alias como
-    callback_data porque es el valor estable que espera ConversationService."""
-    cuentas = session.scalars(select(BankAccount)).all()
-    filas = [[{"text": cuenta.banco, "callback_data": cuenta.alias}] for cuenta in cuentas]
-    filas.append([{"text": "Cancelar", "callback_data": "cancelar"}])
-    return {"inline_keyboard": filas}
-
-
 def _reply_markup(service: ConversationService, numero: str) -> dict | None:
     if service.needs_confirmation_keyboard(numero):
         return SI_NO_MARKUP
     if service.needs_tipo_keyboard(numero):
         return TIPO_FACTURA_CUENTA_MARKUP
-    if service.needs_cuenta_keyboard(numero):
-        return _cuenta_bancaria_markup(service.session)
     return None
 
 

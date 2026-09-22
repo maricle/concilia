@@ -220,22 +220,6 @@ class ConversationService:
             # comando -- si llegamos aca es que mando otra cosa.
             return "Responde 'cerrar' para cerrar la salida abierta y arrancar la nueva, o 'continuar' para seguir con la que ya esta abierta."
 
-        if conversation.estado == ConversationState.ESPERANDO_CUENTA_BANCARIA:
-            movement = conversation.movimiento_borrador
-            if movement is None:
-                conversation.estado = ConversationState.ESPERANDO_COMPROBANTE
-                self.session.commit()
-                return "La sesion vencio. Reenvia el comprobante, por favor."
-            if normalized in _CANCELAR_TEXTO:
-                self._discard(conversation)
-                self.session.commit()
-                return "Registro descartado. Puedes reenviar el comprobante."
-            cuenta = self._buscar_cuenta_por_eleccion(text)
-            if cuenta is None:
-                return "Esa no es una de las opciones. " + self._prompt_elegir_cuenta_bancaria()
-            movement.cuenta_bancaria_id = cuenta.id
-            return self._avanzar_a_tipo_factura_cuenta(conversation, movement)
-
         if conversation.estado == ConversationState.ESPERANDO_MOVIL:
             movement = conversation.movimiento_borrador
             if movement is None:
@@ -374,13 +358,6 @@ class ConversationService:
         conversation = self.session.get(WhatsAppConversation, number)
         return conversation is not None and conversation.estado == ConversationState.ESPERANDO_TIPO_FACTURA_CUENTA
 
-    def needs_cuenta_keyboard(self, number: str) -> bool:
-        """True si el operador tiene que elegir a mano la cuenta bancaria del pago
-        (no se pudo identificar sola), para que el canal le muestre un boton por
-        cada cuenta cargada en vez de pedirle que la escriba."""
-        conversation = self.session.get(WhatsAppConversation, number)
-        return conversation is not None and conversation.estado == ConversationState.ESPERANDO_CUENTA_BANCARIA
-
     def pending_prompt(self, number: str) -> str | None:
         """Si el operador ya tiene un comprobante sin cerrar, devuelve el mensaje que
         corresponde re-mostrarle en vez de arrancar uno nuevo (para no dejar el
@@ -413,9 +390,6 @@ class ConversationService:
 
         if conversation.estado == ConversationState.ESPERANDO_NUMERO_REPARTO_NUEVO:
             return "¿Que numero de salida es? Respondé solo con el numero."
-
-        if conversation.estado == ConversationState.ESPERANDO_CUENTA_BANCARIA:
-            return self._prompt_elegir_cuenta_bancaria()
 
         movement = conversation.movimiento_borrador
         if movement is None:
@@ -479,30 +453,6 @@ class ConversationService:
         # el resumen se vuelve a mostrar completo (con factura/cuenta ya cargada)
         # en la confirmacion final antes de registrar.
         return self._avanzar_a_tipo_factura_cuenta(conversation, movement)
-
-    def _prompt_elegir_cuenta_bancaria(self) -> str:
-        # Se lista el banco primero -- es lo que el operador reconoce del
-        # comprobante (Galicia, Mercado Pago, etc.), el alias interno a veces no
-        # tiene nada que ver con el banco (ej. "el.paquete.llega").
-        cuentas = self.session.scalars(select(BankAccount)).all()
-        listado = "\n".join(f"- {c.banco} ({c.alias})" for c in cuentas)
-        return (
-            "No pudimos identificar a que cuenta corresponde este pago. ¿A cual de estas pertenece?\n\n"
-            f"{listado}\n\n"
-            "Respondé con el banco o el nombre de la cuenta, o 'cancelar' si no lo sabés."
-        )
-
-    def _buscar_cuenta_por_eleccion(self, texto: str) -> BankAccount | None:
-        """Matchea la eleccion del operador contra el alias (valor estable que
-        manda el boton de Telegram) o, si tipeo texto libre, contra el nombre del
-        banco (lo que reconoce del comprobante, no el alias interno)."""
-        elegido = texto.strip().lower()
-        cuentas = self.session.scalars(select(BankAccount)).all()
-        for cuenta in cuentas:
-            if cuenta.alias.strip().lower() == elegido:
-                return cuenta
-        coincidencias = [c for c in cuentas if c.banco.strip().lower() == elegido]
-        return coincidencias[0] if len(coincidencias) == 1 else None
 
     def _avanzar_a_tipo_factura_cuenta(self, conversation: WhatsAppConversation, movement: Movement) -> str:
         conversation.estado = ConversationState.ESPERANDO_TIPO_FACTURA_CUENTA
