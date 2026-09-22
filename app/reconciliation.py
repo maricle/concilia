@@ -171,6 +171,32 @@ def _dentro_de_fecha(movimiento: Movement, linea: StatementLine, tolerancia_dias
     return abs((movimiento.fecha_transaccion - linea.fecha).days) <= tolerancia_dias
 
 
+_STOPWORDS_EMISOR = {"de", "del", "la", "el", "los", "las", "sa", "srl", "sociedad", "anonima"}
+
+
+def _palabras_significativas(valor: str | None) -> set[str]:
+    if not valor:
+        return set()
+    normalizado = _normalize_header(valor)
+    return {palabra for palabra in normalizado.split() if len(palabra) >= 3 and palabra not in _STOPWORDS_EMISOR}
+
+
+def _emisor_coincide(movimiento: Movement, linea: StatementLine) -> bool | None:
+    """Compara el titular extraido del comprobante contra la descripcion/pagador
+    de la linea del resumen bancario -- son dos fuentes de texto libre distintas
+    (una la escribe el banco, la otra la interpreta el LLM), asi que la
+    comparacion es por superposicion de palabras significativas normalizadas, no
+    por igualdad exacta (ej. "Jose Maria Ramirez" vs "RAMIREZ JOSE MARIA" matchea
+    por compartir "ramirez"/"jose"/"maria"). Devuelve None (no concluyente) si a
+    alguno de los dos lados le falta texto para comparar -- la ausencia de dato no
+    debe invalidar un match que ya tiene referencia+importe+fecha a favor."""
+    palabras_movimiento = _palabras_significativas(movimiento.titular)
+    palabras_linea = _palabras_significativas(linea.descripcion)
+    if not palabras_movimiento or not palabras_linea:
+        return None
+    return bool(palabras_movimiento & palabras_linea)
+
+
 def match_statement(
     session: Session,
     resumen: ImportedStatement,
@@ -187,23 +213,39 @@ def match_statement(
         # ambos lados: un match exacto de referencia manda por encima de la fecha,
         # porque el monto/fecha extraidos del comprobante pueden venir mal (OCR,
         # error de tipeo del vendedor) sin que eso signifique que no es el mismo
-        # movimiento. Si el monto o la fecha no coinciden igual, queda "con diferencia"
+        # movimiento. Antes de confirmar igual se valida importe, fecha y emisor --
+        # si alguno no calza (el emisor solo cuenta cuando hay evidencia clara de
+        # que NO son la misma persona, no por falta de dato) queda "con diferencia"
         # en vez de "conciliado", para que el administrador lo revise.
         if linea.referencia:
             por_referencia = [m for m in candidatos if m.numero_operacion == linea.referencia]
             if len(por_referencia) == 1:
                 candidato = por_referencia[0]
-                coincide = candidato.monto == linea.monto and _dentro_de_fecha(candidato, linea, tolerancia_dias)
+                coincide = (
+                    candidato.monto == linea.monto
+                    and _dentro_de_fecha(candidato, linea, tolerancia_dias)
+                    and _emisor_coincide(candidato, linea) is not False
+                )
                 estado = ReconciliationState.CONCILIADO if coincide else ReconciliationState.CON_DIFERENCIA
                 _asignar(linea, candidato, estado, usados)
                 continue
             if len(por_referencia) > 1:
                 continue
 
+        # Sin numero de operacion: importe es el criterio principal, fecha el
+        # segundo. Si varios candidatos coinciden en ambos, el emisor desempata
+        # -- pero solo cuando hay una coincidencia positiva de palabras, no basta
+        # con que no se contradigan (a diferencia del caso de arriba), porque aca
+        # no hay ninguna referencia exacta que ya "avale" el match de entrada.
         por_fecha = [m for m in candidatos if _dentro_de_fecha(m, linea, tolerancia_dias)]
         exactos = [m for m in por_fecha if m.monto == linea.monto]
         if len(exactos) == 1:
             _asignar(linea, exactos[0], ReconciliationState.CONCILIADO, usados)
+            continue
+        if len(exactos) > 1:
+            por_emisor = [m for m in exactos if _emisor_coincide(m, linea) is True]
+            if len(por_emisor) == 1:
+                _asignar(linea, por_emisor[0], ReconciliationState.CONCILIADO, usados)
             continue
 
 
