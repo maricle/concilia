@@ -1,5 +1,6 @@
 import io
 import json
+import logging
 from collections import Counter
 from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
@@ -1293,7 +1294,16 @@ async def extraer_datos_comprobante(
     if not contenido:
         return {"ok": False, "error": "El archivo esta vacio."}
 
-    transfer = extract_transfer(archivo.content_type or "application/octet-stream", contenido)
+    try:
+        transfer = extract_transfer(archivo.content_type or "application/octet-stream", contenido)
+    except Exception:
+        # extract_transfer no atrapa errores de la API de Anthropic (ver mismo
+        # patron en telegram.py) -- aca si hace falta, porque el punto de este
+        # endpoint es degradar sin romper el alta manual (completar a mano sigue
+        # funcionando aunque la extraccion falle por un problema de red/API).
+        logging.exception("Fallo la extraccion de datos para la carga manual de comprobantes")
+        return {"ok": False, "error": "No pudimos leer el comprobante. Completa los datos a mano."}
+
     if transfer is None:
         return {"ok": False, "error": "No pudimos leer el comprobante. Completa los datos a mano."}
 

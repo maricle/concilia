@@ -540,6 +540,28 @@ def test_extraer_datos_comprobante_no_legible_devuelve_error(monkeypatch):
     assert "no" in data["error"].lower()
 
 
+def test_extraer_datos_comprobante_error_de_api_no_rompe_el_alta(monkeypatch):
+    """Si extract_transfer explota (ej. falla la API de Anthropic: sin API key,
+    red caida, rate limit) el endpoint tiene que degradar con el mismo aviso, no
+    devolver un 500 -- completar a mano sigue teniendo que funcionar."""
+    client, _ = _client_with_admin()
+
+    def _explota(content_type, contenido):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(panel, "extract_transfer", _explota)
+
+    client.post("/login", data={"email": "admin@concilia.test", "password": "secreta123"})
+    response = client.post(
+        "/comprobantes/nuevo/extraer", files={"archivo": ("comprobante.jpg", b"fake-bytes", "image/jpeg")}
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["ok"] is False
+    assert "no" in data["error"].lower()
+
+
 def test_nuevo_movimiento_rechaza_numero_operacion_duplicado():
     client, test_session = _client_with_admin()
     with test_session() as session:
