@@ -98,6 +98,28 @@ html, body { height: 100%; }
   border-radius: var(--radius);
 }
 .sidebar-divider { border-top-color: rgba(255, 255, 255, .08); }
+/* Submenus desplegables (Conciliaciones, Configuracion): SB Admin 2 los pinta
+   blancos por defecto, lo que desentona con el sidebar oscuro -- se pisa con el
+   mismo gris ya usado para el item activo (--sidebar-bg-soft), y la letra queda
+   un poco mas chica que el nivel principal para marcar la jerarquia. */
+.sidebar .collapse-inner {
+  background: var(--sidebar-bg-soft) !important;
+  box-shadow: none !important;
+}
+.sidebar .collapse-item {
+  color: var(--sidebar-text);
+  font-size: 12px;
+  font-weight: 500;
+}
+.sidebar .collapse-item:hover {
+  color: #d7d8e6;
+  background: rgba(255, 255, 255, .06);
+}
+.sidebar .collapse-item.active {
+  color: var(--sidebar-active);
+  font-weight: 600;
+  background: rgba(255, 255, 255, .08);
+}
 .sidebar-heading {
   color: var(--sidebar-text-dim) !important;
   font-size: 10.5px;
