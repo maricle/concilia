@@ -113,12 +113,11 @@ html, body { height: 100%; }
 }
 .sidebar .collapse-item:hover {
   color: #d7d8e6;
-  background: rgba(255, 255, 255, .06);
 }
 .sidebar .collapse-item.active {
   color: var(--sidebar-active);
   font-weight: 600;
-  background: rgba(255, 255, 255, .08);
+  box-shadow: inset 2px 0 0 var(--accent);
 }
 .sidebar-heading {
   color: var(--sidebar-text-dim) !important;
