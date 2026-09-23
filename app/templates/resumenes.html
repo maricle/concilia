@@ -47,7 +47,7 @@
             <td>{{ resumen.fecha_importacion.strftime("%Y-%m-%d %H:%M") }}</td>
             <td>{{ resumen.cuenta_bancaria.banco }} ({{ resumen.cuenta_bancaria.alias }})</td>
             <td>{{ resumen.fecha.strftime("%Y-%m-%d") }}</td>
-            <td>{{ resumen.archivo_nombre }}</td>
+            <td><span class="text-truncate d-inline-block align-middle" style="max-width: 220px;" title="{{ resumen.archivo_nombre }}">{{ resumen.archivo_nombre }}</span></td>
             <td>{{ conteo.conciliados }}</td>
             <td>{{ conteo.a_revisar }}</td>
             <td>{{ conteo.pendientes }}</td>
