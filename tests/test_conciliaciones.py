@@ -257,6 +257,69 @@ def test_descargar_resumen_sin_archivo_guardado_redirige():
     assert response.headers["location"] == "/conciliaciones/resumenes"
 
 
+def test_eliminar_resumen_revierte_los_movimientos_conciliados_a_pendiente():
+    """Pedido del usuario: eliminar un resumen tiene que volver atras el estado de
+    conciliacion de los movimientos que se hayan conciliado a traves de sus
+    lineas -- no tiene sentido que sigan "Conciliados" contra un resumen borrado."""
+    client, test_session = _client_with_admin()
+    _login(client)
+
+    with test_session() as session:
+        session.add(
+            Movement(
+                operador_id=1,
+                monto=Decimal("500.00"),
+                fecha_transaccion=datetime(2026, 8, 24),
+                numero_operacion="OP-1",
+                estado_registro=RecordState.CONFIRMADO,
+            )
+        )
+        session.commit()
+
+    client.post(
+        "/conciliaciones/importar",
+        data={"cuenta_bancaria_id": "1", "fecha": "2026-08-24"},
+        files={"archivo": ("resumen.csv", "Fecha,Importe,Descripcion,Referencia\n24/08/2026,500.00,Pago,OP-1\n", "text/csv")},
+    )
+
+    with test_session() as session:
+        movimiento = session.query(Movement).one()
+        assert movimiento.estado_conciliacion == ReconciliationState.CONCILIADO
+        resumen_id = session.query(ImportedStatement).one().id
+
+    response = client.post(
+        f"/conciliaciones/resumenes/{resumen_id}/eliminar",
+        data={"fecha": "2026-08-24", "banco": "Nacion"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    with test_session() as session:
+        assert session.query(ImportedStatement).count() == 0
+        assert session.query(StatementLine).count() == 0
+        movimiento = session.query(Movement).one()
+        assert movimiento.estado_conciliacion == ReconciliationState.PENDIENTE
+
+
+def test_eliminar_resumen_bloqueado_si_el_dia_esta_cerrado():
+    client, test_session = _client_with_admin()
+    _login(client)
+
+    with test_session() as session:
+        resumen = ImportedStatement(
+            cuenta_bancaria_id=1, fecha=datetime(2026, 8, 24), archivo_nombre="resumen.csv", formato="csv", usuario_id=1
+        )
+        session.add(resumen)
+        session.add(CierreDiario(fecha=datetime(2026, 8, 24).date(), cerrado_por_id=1))
+        session.commit()
+        resumen_id = resumen.id
+
+    client.post(f"/conciliaciones/resumenes/{resumen_id}/eliminar")
+
+    with test_session() as session:
+        assert session.query(ImportedStatement).count() == 1
+
+
 def test_listado_resumenes_muestra_los_mas_recientes_primero_y_filtra():
     client, test_session = _client_with_admin()
     _login(client)

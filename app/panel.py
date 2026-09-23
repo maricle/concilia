@@ -1520,6 +1520,40 @@ def _conteos_por_resumen(db: Session) -> dict[int, dict[str, int]]:
     return conteos
 
 
+def _eliminar_resumen(db: Session, resumen: ImportedStatement) -> None:
+    """Elimina un resumen importado junto con sus lineas. Los movimientos que
+    habian quedado conciliados (Conciliado, Con diferencia o Conciliado
+    manualmente) a traves de una linea de este resumen vuelven a Pendiente -- no
+    tiene sentido que sigan figurando como conciliados contra un resumen que ya
+    no existe, mismo criterio que _eliminar_movimiento usa en la otra direccion."""
+    lineas = db.scalars(select(StatementLine).where(StatementLine.resumen_id == resumen.id)).all()
+    for linea in lineas:
+        if linea.movimiento_id is not None:
+            movimiento = db.get(Movement, linea.movimiento_id)
+            if movimiento is not None:
+                movimiento.estado_conciliacion = ReconciliationState.PENDIENTE
+        db.delete(linea)
+    db.delete(resumen)
+
+
+@router.post("/conciliaciones/resumenes/{resumen_id}/eliminar")
+def eliminar_resumen(
+    resumen_id: int,
+    request: Request,
+    fecha: str = Form(""),
+    banco: str = Form(""),
+    db: Session = Depends(get_db),
+    user: PanelUser = Depends(require_user),
+):
+    resumen = db.get(ImportedStatement, resumen_id)
+    if resumen is not None and _cierre_del_dia(db, resumen.fecha.date()) is None:
+        _eliminar_resumen(db, resumen)
+        db.commit()
+    if fecha or banco:
+        return RedirectResponse(f"/conciliaciones?fecha={fecha}&banco={banco}", status_code=303)
+    return RedirectResponse("/conciliaciones/resumenes", status_code=303)
+
+
 def _parse_fecha_o_hoy(fecha: str) -> date:
     if fecha:
         try:

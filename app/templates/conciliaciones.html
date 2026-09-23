@@ -261,6 +261,11 @@
                 {% if resumen.archivo_id %}
                 <a href="/conciliaciones/resumenes/{{ resumen.id }}/descargar" class="btn btn-sm btn-outline-secondary" title="Descargar archivo original"><i class="fas fa-download"></i></a>
                 {% endif %}
+                <form class="d-inline" method="post" action="/conciliaciones/resumenes/{{ resumen.id }}/eliminar" onsubmit="return confirm('¿Eliminar este resumen? Los movimientos que se conciliaron a traves de sus lineas vuelven a quedar pendientes. Esta accion no se puede deshacer.');">
+                  <input type="hidden" name="fecha" value="{{ fecha.isoformat() }}">
+                  <input type="hidden" name="banco" value="{{ banco_seleccionado }}">
+                  <button type="submit" class="btn btn-sm btn-outline-danger" title="Eliminar resumen"><i class="fas fa-trash-alt"></i></button>
+                </form>
               </td>
               <td>
                 <form class="form-inline" method="post" action="/conciliaciones/resumenes/{{ resumen.id }}/actualizar" enctype="multipart/form-data" title="Volver a cargar este archivo (agrega solo las transacciones nuevas)">
