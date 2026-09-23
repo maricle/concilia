@@ -215,6 +215,9 @@ html, body { height: 100%; }
   border-color: var(--border-soft);
   white-space: nowrap;
 }
+/* Excepcion puntual: encabezados que se prefieren en dos lineas para achicar
+   una columna angosta en vez de ensancharla para que el titulo entre en una. */
+.table thead th.th-wrap { white-space: normal; max-width: 90px; }
 .table td, .table th { border-color: var(--border-soft); vertical-align: middle; }
 .th-sort-link {
   color: inherit;
