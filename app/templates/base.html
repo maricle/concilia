@@ -29,22 +29,34 @@
     <li class="nav-item {{ 'active' if request.url.path == '/repartos' }}">
       <a class="nav-link" href="/repartos"><i class="fas fa-fw fa-route"></i><span>Salidas</span></a>
     </li>
-    <li class="nav-item {{ 'active' if request.url.path == '/conciliaciones' }}">
-      <a class="nav-link" href="/conciliaciones"><i class="fas fa-fw fa-balance-scale"></i><span>Conciliaciones</span></a>
+    {% set en_conciliaciones = request.url.path in ['/conciliaciones', '/conciliaciones/resumenes'] %}
+    <li class="nav-item {{ 'active' if en_conciliaciones }}" id="menu-conciliaciones">
+      <a class="nav-link collapsed" href="#" data-toggle="collapse" data-target="#collapseConciliaciones"
+         aria-expanded="{{ 'true' if en_conciliaciones else 'false' }}" aria-controls="collapseConciliaciones">
+        <i class="fas fa-fw fa-balance-scale"></i><span>Conciliaciones</span>
+      </a>
+      <div id="collapseConciliaciones" class="collapse {{ 'show' if en_conciliaciones }}" data-parent="#accordionSidebar">
+        <div class="py-2 collapse-inner rounded">
+          <a class="collapse-item {{ 'active' if request.url.path == '/conciliaciones' }}" href="/conciliaciones">Conciliaciones</a>
+          <a class="collapse-item {{ 'active' if request.url.path == '/conciliaciones/resumenes' }}" href="/conciliaciones/resumenes">Resumenes importados</a>
+        </div>
+      </div>
     </li>
     <hr class="sidebar-divider">
-    <div class="sidebar-heading">Configuracion</div>
-    <li class="nav-item {{ 'active' if request.url.path == '/config/usuarios' }}">
-      <a class="nav-link" href="/config/usuarios"><i class="fas fa-fw fa-user-shield"></i><span>Usuarios</span></a>
-    </li>
-    <li class="nav-item {{ 'active' if request.url.path == '/config/operadores' }}">
-      <a class="nav-link" href="/config/operadores"><i class="fas fa-fw fa-users"></i><span>Operadores</span></a>
-    </li>
-    <li class="nav-item {{ 'active' if request.url.path == '/config/moviles' }}">
-      <a class="nav-link" href="/config/moviles"><i class="fas fa-fw fa-truck"></i><span>Moviles</span></a>
-    </li>
-    <li class="nav-item {{ 'active' if request.url.path == '/config/cuentas' }}">
-      <a class="nav-link" href="/config/cuentas"><i class="fas fa-fw fa-piggy-bank"></i><span>Cuentas bancarias</span></a>
+    {% set en_configuracion = request.url.path.startswith('/config/') %}
+    <li class="nav-item {{ 'active' if en_configuracion }}" id="menu-configuracion">
+      <a class="nav-link collapsed" href="#" data-toggle="collapse" data-target="#collapseConfiguracion"
+         aria-expanded="{{ 'true' if en_configuracion else 'false' }}" aria-controls="collapseConfiguracion">
+        <i class="fas fa-fw fa-cog"></i><span>Configuracion</span>
+      </a>
+      <div id="collapseConfiguracion" class="collapse {{ 'show' if en_configuracion }}" data-parent="#accordionSidebar">
+        <div class="py-2 collapse-inner rounded">
+          <a class="collapse-item {{ 'active' if request.url.path == '/config/usuarios' }}" href="/config/usuarios">Usuarios</a>
+          <a class="collapse-item {{ 'active' if request.url.path == '/config/operadores' }}" href="/config/operadores">Operadores</a>
+          <a class="collapse-item {{ 'active' if request.url.path == '/config/moviles' }}" href="/config/moviles">Moviles</a>
+          <a class="collapse-item {{ 'active' if request.url.path == '/config/cuentas' }}" href="/config/cuentas">Cuentas bancarias</a>
+        </div>
+      </div>
     </li>
     <hr class="sidebar-divider d-none d-md-block">
     <div class="text-center d-none d-md-inline">
@@ -85,6 +97,7 @@
 <script src="https://cdn.jsdelivr.net/gh/StartBootstrap/startbootstrap-sb-admin-2@4.1.4/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
 <script src="https://cdn.jsdelivr.net/gh/StartBootstrap/startbootstrap-sb-admin-2@4.1.4/vendor/jquery-easing/jquery.easing.min.js"></script>
 <script src="https://cdn.jsdelivr.net/gh/StartBootstrap/startbootstrap-sb-admin-2@4.1.4/js/sb-admin-2.min.js"></script>
+{% if user %}<script src="/static/js/sidebar.js"></script>{% endif %}
 {% block extra_js %}{% endblock %}
 </body>
 </html>

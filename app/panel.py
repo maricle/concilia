@@ -1,5 +1,6 @@
 import io
 import json
+import logging
 from collections import Counter
 from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
@@ -15,7 +16,9 @@ from sqlalchemy.orm import DeclarativeBase, InstrumentedAttribute, Session, sele
 
 from .auth import hash_password, verify_password
 from .bancos import icono_banco
+from .conversation import _find_cuenta_bancaria
 from .db import SessionLocal
+from .extraction import extract_transfer
 from .models import (
     BankAccount,
     CierreDiario,
@@ -1279,6 +1282,43 @@ def ver_archivo_movimiento(
     )
 
 
+@router.post("/comprobantes/nuevo/extraer")
+async def extraer_datos_comprobante(
+    archivo: UploadFile, db: Session = Depends(get_db), user: PanelUser = Depends(require_user)
+):
+    """Corre sobre el archivo adjunto la misma extraccion con IA que usa el flujo
+    de Telegram (app/extraction.py), para precompletar el formulario de carga
+    manual en vez de tipear todo a mano. Devuelve el resultado como JSON: el
+    formulario sigue siendo la fuente de verdad, esto solo lo pre-llena."""
+    contenido = await archivo.read()
+    if not contenido:
+        return {"ok": False, "error": "El archivo esta vacio."}
+
+    try:
+        transfer = extract_transfer(archivo.content_type or "application/octet-stream", contenido)
+    except Exception:
+        # extract_transfer no atrapa errores de la API de Anthropic (ver mismo
+        # patron en telegram.py) -- aca si hace falta, porque el punto de este
+        # endpoint es degradar sin romper el alta manual (completar a mano sigue
+        # funcionando aunque la extraccion falle por un problema de red/API).
+        logging.exception("Fallo la extraccion de datos para la carga manual de comprobantes")
+        return {"ok": False, "error": "No pudimos leer el comprobante. Completa los datos a mano."}
+
+    if transfer is None:
+        return {"ok": False, "error": "No pudimos leer el comprobante. Completa los datos a mano."}
+
+    cuenta = _find_cuenta_bancaria(db, transfer.cuenta_receptora)
+    return {
+        "ok": True,
+        "monto": str(transfer.monto) if transfer.monto is not None else None,
+        "fecha_transaccion": transfer.fecha_transaccion.strftime("%Y-%m-%dT%H:%M"),
+        "numero_operacion": transfer.numero_operacion,
+        "banco_emisor": transfer.banco_emisor,
+        "titular": transfer.titular,
+        "cuenta_bancaria_id": cuenta.id if cuenta is not None else None,
+    }
+
+
 @router.get("/comprobantes/nuevo")
 def nuevo_movimiento_form(request: Request, db: Session = Depends(get_db), user: PanelUser = Depends(require_user)):
     return templates.TemplateResponse(
@@ -1478,6 +1518,40 @@ def _conteos_por_resumen(db: Session) -> dict[int, dict[str, int]]:
         else:
             bucket["conciliados"] += 1
     return conteos
+
+
+def _eliminar_resumen(db: Session, resumen: ImportedStatement) -> None:
+    """Elimina un resumen importado junto con sus lineas. Los movimientos que
+    habian quedado conciliados (Conciliado, Con diferencia o Conciliado
+    manualmente) a traves de una linea de este resumen vuelven a Pendiente -- no
+    tiene sentido que sigan figurando como conciliados contra un resumen que ya
+    no existe, mismo criterio que _eliminar_movimiento usa en la otra direccion."""
+    lineas = db.scalars(select(StatementLine).where(StatementLine.resumen_id == resumen.id)).all()
+    for linea in lineas:
+        if linea.movimiento_id is not None:
+            movimiento = db.get(Movement, linea.movimiento_id)
+            if movimiento is not None:
+                movimiento.estado_conciliacion = ReconciliationState.PENDIENTE
+        db.delete(linea)
+    db.delete(resumen)
+
+
+@router.post("/conciliaciones/resumenes/{resumen_id}/eliminar")
+def eliminar_resumen(
+    resumen_id: int,
+    request: Request,
+    fecha: str = Form(""),
+    banco: str = Form(""),
+    db: Session = Depends(get_db),
+    user: PanelUser = Depends(require_user),
+):
+    resumen = db.get(ImportedStatement, resumen_id)
+    if resumen is not None and _cierre_del_dia(db, resumen.fecha.date()) is None:
+        _eliminar_resumen(db, resumen)
+        db.commit()
+    if fecha or banco:
+        return RedirectResponse(f"/conciliaciones?fecha={fecha}&banco={banco}", status_code=303)
+    return RedirectResponse("/conciliaciones/resumenes", status_code=303)
 
 
 def _parse_fecha_o_hoy(fecha: str) -> date:
@@ -2001,6 +2075,28 @@ def reabrir_dia(
     return RedirectResponse(f"/conciliaciones?fecha={fecha_obj.isoformat()}", status_code=303)
 
 
+def _reconciliar_pendientes_de_resumenes(db: Session, resumenes: list[ImportedStatement]) -> int:
+    """Reintenta el matching automatico sobre las lineas pendientes de cada resumen
+    dado, salteando los dias cerrados. Devuelve cuantas lineas quedaron conciliadas.
+    Compartido por el boton manual "Reintentar conciliacion" y por la carga de un
+    resumen nuevo (que tambien reintenta las lineas pendientes viejas de esa misma
+    cuenta, no solo las recien subidas)."""
+    conciliadas = 0
+    for resumen in resumenes:
+        if _cierre_del_dia(db, resumen.fecha.date()) is not None:
+            continue
+        lineas_pendientes = db.scalars(
+            select(StatementLine).where(
+                StatementLine.resumen_id == resumen.id, StatementLine.estado == StatementLineState.PENDIENTE
+            )
+        ).all()
+        if not lineas_pendientes:
+            continue
+        match_statement(db, resumen, lineas_pendientes)
+        conciliadas += sum(1 for linea in lineas_pendientes if linea.estado == StatementLineState.CONCILIADA)
+    return conciliadas
+
+
 @router.post("/conciliaciones/reconciliar")
 def reconciliar_pendientes(
     request: Request,
@@ -2021,19 +2117,7 @@ def reconciliar_pendientes(
     else:
         resumenes = db.scalars(select(ImportedStatement)).all()
 
-    conciliadas = 0
-    for resumen in resumenes:
-        if _cierre_del_dia(db, resumen.fecha.date()) is not None:
-            continue
-        lineas_pendientes = db.scalars(
-            select(StatementLine).where(
-                StatementLine.resumen_id == resumen.id, StatementLine.estado == StatementLineState.PENDIENTE
-            )
-        ).all()
-        if not lineas_pendientes:
-            continue
-        match_statement(db, resumen, lineas_pendientes)
-        conciliadas += sum(1 for linea in lineas_pendientes if linea.estado == StatementLineState.CONCILIADA)
+    conciliadas = _reconciliar_pendientes_de_resumenes(db, resumenes)
     db.commit()
 
     mensaje = (
@@ -2080,31 +2164,75 @@ async def importar_resumen(
             status_code=400,
         )
 
+    content_type = archivo.content_type or (
+        "text/csv" if formato == "csv" else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+    archivo_id = save_comprobante_archivo(archivo.filename or "resumen", content_type, contenido)
+
     resumen = ImportedStatement(
         cuenta_bancaria_id=cuenta_bancaria_id,
         fecha=datetime.strptime(fecha, "%Y-%m-%d"),
         archivo_nombre=archivo.filename or "resumen",
         formato=formato,
         usuario_id=user.id,
+        archivo_id=archivo_id,
     )
     db.add(resumen)
     db.flush()
 
-    lineas = [
-        StatementLine(
-            resumen_id=resumen.id,
-            resumen=resumen,
-            fecha=fila.fecha,
-            monto=fila.monto,
-            descripcion=fila.descripcion,
-            referencia=fila.referencia,
+    # No duplicar lineas ya cargadas en OTRO resumen de esta misma cuenta (ej. el
+    # mismo extracto subido dos veces sin querer, o un resumen nuevo que se
+    # superpone en fechas con uno anterior) -- mismo criterio que ya usaba
+    # actualizar_resumen para no duplicar dentro de un mismo resumen, extendido a
+    # toda la cuenta.
+    lineas_existentes = db.scalars(
+        select(StatementLine)
+        .join(ImportedStatement, StatementLine.resumen_id == ImportedStatement.id)
+        .where(ImportedStatement.cuenta_bancaria_id == cuenta_bancaria_id, ImportedStatement.id != resumen.id)
+    ).all()
+    restantes = Counter((linea.fecha, linea.monto, linea.referencia, linea.descripcion) for linea in lineas_existentes)
+
+    nuevas: list[StatementLine] = []
+    duplicadas = 0
+    for fila in filas:
+        clave = (fila.fecha, fila.monto, fila.referencia, fila.descripcion)
+        if restantes[clave] > 0:
+            restantes[clave] -= 1
+            duplicadas += 1
+            continue
+        nuevas.append(
+            StatementLine(
+                resumen_id=resumen.id,
+                resumen=resumen,
+                fecha=fila.fecha,
+                monto=fila.monto,
+                descripcion=fila.descripcion,
+                referencia=fila.referencia,
+            )
         )
-        for fila in filas
-    ]
-    db.add_all(lineas)
-    match_statement(db, resumen, lineas)
+    db.add_all(nuevas)
+    if nuevas:
+        match_statement(db, resumen, nuevas)
+
+    # Ademas de las lineas recien subidas, reintentar tambien contra las lineas
+    # pendientes de resumenes anteriores de esta misma cuenta -- un comprobante
+    # que quedo sin emparejar la vez pasada puede calzar con algo de este archivo,
+    # sin que el administrador tenga que apretar "Reintentar conciliacion" aparte.
+    resumenes_cuenta = db.scalars(
+        select(ImportedStatement).where(ImportedStatement.cuenta_bancaria_id == cuenta_bancaria_id)
+    ).all()
+    _reconciliar_pendientes_de_resumenes(db, resumenes_cuenta)
+
     db.commit()
-    return RedirectResponse(f"/conciliaciones?fecha={fecha}&banco={banco}", status_code=303)
+
+    partes = [f"Se importaron {len(nuevas)} transaccion{'es' if len(nuevas) != 1 else ''} nueva{'s' if len(nuevas) != 1 else ''}."]
+    if duplicadas:
+        partes.append(f"Se omitieron {duplicadas} duplicada{'s' if duplicadas != 1 else ''} (ya estaban cargadas).")
+    mensaje = " ".join(partes)
+
+    return templates.TemplateResponse(
+        request, "conciliaciones.html", _construir_contexto_conciliaciones(db, user, fecha_obj, banco, mensaje=mensaje)
+    )
 
 
 @router.post("/conciliaciones/resumenes/{resumen_id}/actualizar")
@@ -2146,6 +2274,14 @@ async def actualizar_resumen(
             status_code=400,
         )
 
+    # El archivo re-subido reemplaza al guardado (puede ser una version mas nueva
+    # y mas completa del mismo resumen) -- queda el ultimo, no se conservan los
+    # anteriores.
+    content_type = archivo.content_type or (
+        "text/csv" if _formato == "csv" else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+    resumen.archivo_id = save_comprobante_archivo(archivo.filename or resumen.archivo_nombre, content_type, contenido)
+
     lineas_existentes = db.scalars(select(StatementLine).where(StatementLine.resumen_id == resumen.id)).all()
     restantes = Counter((linea.fecha, linea.monto, linea.referencia, linea.descripcion) for linea in lineas_existentes)
 
@@ -2184,6 +2320,65 @@ async def actualizar_resumen(
     )
 
 
+def _resumenes_query(banco: str, fecha_desde: str, fecha_hasta: str, q: str):
+    query = select(ImportedStatement).options(selectinload(ImportedStatement.cuenta_bancaria)).join(
+        BankAccount, ImportedStatement.cuenta_bancaria_id == BankAccount.id
+    )
+    if banco:
+        query = query.where(BankAccount.banco == banco)
+    if fecha_desde:
+        query = query.where(func.date(ImportedStatement.fecha) >= fecha_desde)
+    if fecha_hasta:
+        query = query.where(func.date(ImportedStatement.fecha) <= fecha_hasta)
+    if q.strip():
+        query = query.where(ImportedStatement.archivo_nombre.ilike(f"%{q.strip()}%"))
+    return query.order_by(ImportedStatement.fecha_importacion.desc())
+
+
+@router.get("/conciliaciones/resumenes")
+def list_resumenes(
+    request: Request,
+    banco: str = "",
+    fecha_desde: str = "",
+    fecha_hasta: str = "",
+    q: str = "",
+    db: Session = Depends(get_db),
+    user: PanelUser = Depends(require_user),
+):
+    resumenes = db.scalars(_resumenes_query(banco, fecha_desde, fecha_hasta, q)).all()
+    return templates.TemplateResponse(
+        request,
+        "resumenes.html",
+        {
+            "user": user,
+            "resumenes": resumenes,
+            "conteos_por_resumen": _conteos_por_resumen(db),
+            "bancos": _bancos_disponibles(db),
+            "banco": banco,
+            "fecha_desde": fecha_desde,
+            "fecha_hasta": fecha_hasta,
+            "q": q,
+        },
+    )
+
+
+@router.get("/conciliaciones/resumenes/{resumen_id}/descargar")
+def descargar_resumen(
+    resumen_id: int, db: Session = Depends(get_db), user: PanelUser = Depends(require_user)
+):
+    resumen = db.get(ImportedStatement, resumen_id)
+    if resumen is None or resumen.archivo_id is None:
+        return RedirectResponse("/conciliaciones/resumenes", status_code=303)
+    archivo = get_comprobante_archivo(resumen.archivo_id)
+    if archivo is None:
+        return RedirectResponse("/conciliaciones/resumenes", status_code=303)
+    return Response(
+        content=archivo.contenido,
+        media_type=archivo.content_type,
+        headers={"Content-Disposition": f'attachment; filename="{archivo.nombre_archivo}"'},
+    )
+
+
 @router.post("/conciliaciones/lineas/{linea_id}/emparejar")
 def emparejar_linea(
     linea_id: int,
@@ -2198,9 +2393,24 @@ def emparejar_linea(
     linea = db.get(StatementLine, linea_id)
     movimiento = db.get(Movement, movimiento_id)
     if linea is not None and movimiento is not None:
-        if _cierre_del_dia(db, linea.fecha.date()) is not None:
+        fecha_obj = linea.fecha.date()
+        if _cierre_del_dia(db, fecha_obj) is not None:
             return RedirectResponse(
-                f"/conciliaciones?fecha={fecha or linea.fecha.date().isoformat()}&banco={banco}", status_code=303
+                f"/conciliaciones?fecha={fecha or fecha_obj.isoformat()}&banco={banco}", status_code=303
+            )
+        # Un movimiento ya conciliado (con esta linea o con otra) no se puede
+        # volver a emparejar a mano -- si no se chequea esto aca, elegir del
+        # dropdown un movimiento que ya tenia otra linea vinculada lo reasigna
+        # en silencio y deja a la linea original con una referencia obsoleta
+        # (bug real, ver tambien _candidatos_iniciales en reconciliation.py).
+        if movimiento.estado_conciliacion != ReconciliationState.PENDIENTE:
+            return templates.TemplateResponse(
+                request,
+                "conciliaciones.html",
+                _construir_contexto_conciliaciones(
+                    db, user, fecha_obj, banco, error="Ese movimiento ya esta conciliado con otra linea."
+                ),
+                status_code=400,
             )
         linea.movimiento_id = movimiento.id
         linea.estado = StatementLineState.CONCILIADA

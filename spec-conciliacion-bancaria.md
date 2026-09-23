@@ -60,8 +60,8 @@ Operador cancela o rechaza los datos mostrados: el sistema descarta el registro 
 Comprobante duplicado: si el número de operación/referencia ya existe en un movimiento previo, el sistema alerta al operador (y potencialmente al administrador) antes de registrar el duplicado, para evitar contarlo dos veces.
 
 Corrección de un movimiento ya confirmado: el vendedor no puede modificar un comprobante después de confirmado — por ejemplo, si se equivocó al indicar el número de cuenta o factura. Solo el administrador puede corregirlo, desde el panel web.
-
-*(Pendiente de confirmar con el usuario: qué pasa si el operador se equivoca de cuenta/factura después de haber confirmado — si hay una forma de corregir un movimiento ya confirmado, o si eso lo resuelve el administrador desde un panel.)*
+El administrador o usuario con permisos podra editar los datos mal cargagosde los usuarios operaores
+ 
 
 ## 5. Registro diario y rendición por operador
 

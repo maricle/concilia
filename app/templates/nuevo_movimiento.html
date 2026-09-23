@@ -6,7 +6,13 @@
 <div class="card shadow mb-4" style="max-width: 700px;">
   <div class="card-body">
     {% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
-    <form method="post" action="/comprobantes/nuevo" enctype="multipart/form-data">
+    <form method="post" action="/comprobantes/nuevo" enctype="multipart/form-data" id="form-nuevo-comprobante">
+      <div class="form-group">
+        <label>Archivo del comprobante</label>
+        <input type="file" class="form-control-file" name="archivo" id="input-archivo" accept="image/*,application/pdf">
+        <small class="form-text text-muted">Si adjuntas la imagen o PDF, completamos los datos automaticamente -- revisalos antes de guardar.</small>
+        <div id="extraccion-estado" class="small mt-1" hidden></div>
+      </div>
       <div class="form-row">
         <div class="form-group col-md-6">
           <label>Vendedor *</label>
@@ -19,7 +25,7 @@
         </div>
         <div class="form-group col-md-6">
           <label>Cuenta receptora *</label>
-          <select class="form-control" name="cuenta_bancaria_id" required>
+          <select class="form-control" name="cuenta_bancaria_id" id="input-cuenta-bancaria" required>
             <option value="">-- Elegir --</option>
             {% for cuenta in cuentas %}
             <option value="{{ cuenta.id }}">{{ cuenta.alias }} ({{ cuenta.banco }})</option>
@@ -30,24 +36,24 @@
       <div class="form-row">
         <div class="form-group col-md-6">
           <label>Fecha y hora de transaccion *</label>
-          <input type="datetime-local" class="form-control" name="fecha_transaccion" required>
+          <input type="datetime-local" class="form-control" name="fecha_transaccion" id="input-fecha-transaccion" required>
         </div>
         <div class="form-group col-md-6">
           <label>Monto *</label>
-          <input type="text" class="form-control" name="monto" placeholder="0.00" required>
+          <input type="text" class="form-control" name="monto" id="input-monto" placeholder="0.00" required>
         </div>
       </div>
       <div class="form-group">
         <label>Numero de operacion</label>
-        <input type="text" class="form-control" name="numero_operacion">
+        <input type="text" class="form-control" name="numero_operacion" id="input-numero-operacion">
       </div>
       <div class="form-group">
         <label>Banco emisor</label>
-        <input type="text" class="form-control" name="banco_emisor">
+        <input type="text" class="form-control" name="banco_emisor" id="input-banco-emisor">
       </div>
       <div class="form-group">
         <label>Titular / Emisor</label>
-        <input type="text" class="form-control" name="titular">
+        <input type="text" class="form-control" name="titular" id="input-titular">
       </div>
       <div class="form-row">
         <div class="form-group col-md-4">
@@ -63,13 +69,47 @@
           <input type="text" class="form-control" name="factura_o_cuenta_numero">
         </div>
       </div>
-      <div class="form-group">
-        <label>Archivo del comprobante (opcional)</label>
-        <input type="file" class="form-control-file" name="archivo" accept="image/*,application/pdf">
-      </div>
       <button type="submit" class="btn btn-primary">Crear comprobante</button>
       <a href="/comprobantes" class="btn btn-outline-secondary">Cancelar</a>
     </form>
   </div>
 </div>
+<script>
+  document.getElementById("input-archivo").addEventListener("change", function () {
+    var archivo = this.files[0];
+    var $estado = document.getElementById("extraccion-estado");
+    if (!archivo) {
+      $estado.hidden = true;
+      return;
+    }
+    $estado.hidden = false;
+    $estado.className = "small mt-1 text-muted";
+    $estado.textContent = "Leyendo comprobante...";
+
+    var formData = new FormData();
+    formData.append("archivo", archivo);
+
+    fetch("/comprobantes/nuevo/extraer", { method: "POST", body: formData })
+      .then(function (response) { return response.json(); })
+      .then(function (data) {
+        if (!data.ok) {
+          $estado.className = "small mt-1 text-warning";
+          $estado.textContent = data.error || "No pudimos leer el comprobante. Completa los datos a mano.";
+          return;
+        }
+        if (data.monto) document.getElementById("input-monto").value = data.monto;
+        if (data.fecha_transaccion) document.getElementById("input-fecha-transaccion").value = data.fecha_transaccion;
+        if (data.numero_operacion) document.getElementById("input-numero-operacion").value = data.numero_operacion;
+        if (data.banco_emisor) document.getElementById("input-banco-emisor").value = data.banco_emisor;
+        if (data.titular) document.getElementById("input-titular").value = data.titular;
+        if (data.cuenta_bancaria_id) document.getElementById("input-cuenta-bancaria").value = data.cuenta_bancaria_id;
+        $estado.className = "small mt-1 text-success";
+        $estado.textContent = "Datos completados -- revisalos antes de guardar.";
+      })
+      .catch(function () {
+        $estado.className = "small mt-1 text-warning";
+        $estado.textContent = "No pudimos leer el comprobante. Completa los datos a mano.";
+      });
+  });
+</script>
 {% endblock %}

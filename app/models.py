@@ -20,7 +20,6 @@ class ConversationState(StrEnum):
     ESPERANDO_DATOS_INICIO_REPARTO = "esperando_datos_inicio_reparto"
     ESPERANDO_CONFIRMACION_INICIO_REPARTO = "esperando_confirmacion_inicio_reparto"
     ESPERANDO_CONFIRMACION_CREAR_REPARTO = "esperando_confirmacion_crear_reparto"
-    ESPERANDO_CUENTA_BANCARIA = "esperando_cuenta_bancaria"
     ESPERANDO_NUMERO_REPARTO_NUEVO = "esperando_numero_reparto_nuevo"
 
 
@@ -197,8 +196,13 @@ class ImportedStatement(Base):
     formato: Mapped[str] = mapped_column(String(10))
     usuario_id: Mapped[int] = mapped_column(ForeignKey("usuarios_panel.id"))
     fecha_importacion: Mapped[datetime] = mapped_column(DateTime, default=ahora_argentina)
+    # El archivo original recien se empezo a guardar (reutiliza ComprobanteArchivo,
+    # es solo un blob generico pese al nombre) -- null en los resumenes importados
+    # antes de este campo, esos no se pueden descargar retroactivamente.
+    archivo_id: Mapped[int | None] = mapped_column(ForeignKey("comprobantes_archivo.id"))
 
     cuenta_bancaria: Mapped[BankAccount] = relationship()
+    archivo: Mapped["ComprobanteArchivo | None"] = relationship()
 
 
 class StatementLine(Base):

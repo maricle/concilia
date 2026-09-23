@@ -98,6 +98,27 @@ html, body { height: 100%; }
   border-radius: var(--radius);
 }
 .sidebar-divider { border-top-color: rgba(255, 255, 255, .08); }
+/* Submenus desplegables (Conciliaciones, Configuracion): SB Admin 2 los pinta
+   blancos por defecto, lo que desentona con el sidebar oscuro -- se pisa con el
+   mismo gris ya usado para el item activo (--sidebar-bg-soft), y la letra queda
+   un poco mas chica que el nivel principal para marcar la jerarquia. */
+.sidebar .collapse-inner {
+  background: var(--sidebar-bg-soft) !important;
+  box-shadow: none !important;
+}
+.sidebar .collapse-item {
+  color: var(--sidebar-text);
+  font-size: 12px;
+  font-weight: 500;
+}
+.sidebar .collapse-item:hover {
+  color: #d7d8e6;
+}
+.sidebar .collapse-item.active {
+  color: var(--sidebar-active);
+  font-weight: 600;
+  box-shadow: inset 2px 0 0 var(--accent);
+}
 .sidebar-heading {
   color: var(--sidebar-text-dim) !important;
   font-size: 10.5px;
@@ -194,6 +215,9 @@ html, body { height: 100%; }
   border-color: var(--border-soft);
   white-space: nowrap;
 }
+/* Excepcion puntual: encabezados que se prefieren en dos lineas para achicar
+   una columna angosta en vez de ensancharla para que el titulo entre en una. */
+.table thead th.th-wrap { white-space: normal; max-width: 90px; }
 .table td, .table th { border-color: var(--border-soft); vertical-align: middle; }
 .th-sort-link {
   color: inherit;

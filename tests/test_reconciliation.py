@@ -190,6 +190,165 @@ def test_matching_reference_with_different_amount_is_flagged_con_diferencia(sess
     assert movimiento.estado_conciliacion == ReconciliationState.CON_DIFERENCIA
 
 
+def test_matching_solo_considera_movimientos_de_la_misma_cuenta_bancaria(session):
+    cuenta_a = BankAccount(banco="Nacion", numero_cuenta="1", alias="Cuenta A")
+    cuenta_b = BankAccount(banco="Nacion", numero_cuenta="2", alias="Cuenta B")
+    session.add_all([cuenta_a, cuenta_b])
+    session.flush()
+    # Mismo numero de operacion, pero el movimiento esta asociado a otra cuenta.
+    _crear_movimiento(session, numero_operacion="OP-1", cuenta_bancaria_id=cuenta_b.id)
+    resumen, linea = _crear_resumen_y_linea(session, cuenta_a.id, referencia="OP-1")
+
+    match_statement(session, resumen, [linea])
+
+    assert linea.estado == StatementLineState.PENDIENTE
+    assert linea.movimiento_id is None
+
+
+def test_referencia_exacta_con_emisor_distinto_queda_con_diferencia(session):
+    """Nueva regla: importe, fecha Y emisor se validan antes de confirmar un match
+    por numero de operacion -- si el nombre del pagador del banco no tiene nada
+    que ver con el titular extraido del comprobante, no se da por bueno solo."""
+    cuenta = BankAccount(banco="Nacion", numero_cuenta="1", alias="Principal")
+    session.add(cuenta)
+    session.flush()
+    movimiento = _crear_movimiento(session, numero_operacion="OP-1", titular="Juan Perez")
+    resumen, linea = _crear_resumen_y_linea(session, cuenta.id, referencia="OP-1", descripcion="MARIA GOMEZ")
+
+    match_statement(session, resumen, [linea])
+
+    assert linea.movimiento_id == movimiento.id
+    assert linea.estado == StatementLineState.CONCILIADA
+    assert movimiento.estado_conciliacion == ReconciliationState.CON_DIFERENCIA
+
+
+def test_referencia_exacta_con_emisor_similar_normalizado_concilia(session):
+    """El nombre viene de dos fuentes de texto libre distintas (banco vs IA) --
+    tiene que tolerar mayusculas, tildes y orden nombre/apellido distinto."""
+    cuenta = BankAccount(banco="Nacion", numero_cuenta="1", alias="Principal")
+    session.add(cuenta)
+    session.flush()
+    movimiento = _crear_movimiento(session, numero_operacion="OP-1", titular="Jose Maria Ramirez")
+    resumen, linea = _crear_resumen_y_linea(session, cuenta.id, referencia="OP-1", descripcion="RAMIREZ, JOSE MARIA")
+
+    match_statement(session, resumen, [linea])
+
+    assert movimiento.estado_conciliacion == ReconciliationState.CONCILIADO
+
+
+def test_referencia_exacta_sin_dato_de_emisor_no_bloquea_conciliado(session):
+    """La falta de descripcion/titular no debe degradar un match que ya tiene
+    referencia+importe+fecha a favor -- muchas lineas de banco vienen sin
+    descripcion util (ej. "-")."""
+    cuenta = BankAccount(banco="Nacion", numero_cuenta="1", alias="Principal")
+    session.add(cuenta)
+    session.flush()
+    movimiento = _crear_movimiento(session, numero_operacion="OP-1", titular=None)
+    resumen, linea = _crear_resumen_y_linea(session, cuenta.id, referencia="OP-1", descripcion=None)
+
+    match_statement(session, resumen, [linea])
+
+    assert movimiento.estado_conciliacion == ReconciliationState.CONCILIADO
+
+
+def test_emisor_desambigua_candidatos_ambiguos_por_importe_y_fecha(session):
+    """Sin numero de operacion: importe y fecha dejan dos candidatos posibles,
+    pero el emisor coincide con uno solo -- ya no hace falta dejarlo pendiente."""
+    cuenta = BankAccount(banco="Nacion", numero_cuenta="1", alias="Principal")
+    session.add(cuenta)
+    session.flush()
+    _crear_movimiento(session, numero_operacion="OP-1", titular="Carlos Fernandez")
+    objetivo = _crear_movimiento(session, numero_operacion="OP-2", titular="Lucia Alvarez")
+    resumen, linea = _crear_resumen_y_linea(session, cuenta.id, referencia=None, descripcion="ALVAREZ LUCIA")
+
+    match_statement(session, resumen, [linea])
+
+    assert linea.movimiento_id == objetivo.id
+    assert objetivo.estado_conciliacion == ReconciliationState.CONCILIADO
+
+
+def test_emisor_no_desambigua_si_coincide_con_varios(session):
+    """Si el emisor no alcanza para elegir uno solo (o ninguno matchea), sigue
+    quedando pendiente -- no se adivina."""
+    cuenta = BankAccount(banco="Nacion", numero_cuenta="1", alias="Principal")
+    session.add(cuenta)
+    session.flush()
+    _crear_movimiento(session, numero_operacion="OP-1", titular="Ana Lopez")
+    _crear_movimiento(session, numero_operacion="OP-2", titular="Ana Lopez")
+    resumen, linea = _crear_resumen_y_linea(session, cuenta.id, referencia=None, descripcion="LOPEZ ANA")
+
+    match_statement(session, resumen, [linea])
+
+    assert linea.estado == StatementLineState.PENDIENTE
+    assert linea.movimiento_id is None
+
+
+def test_match_unico_solo_por_importe_y_fecha_queda_como_advertencia(session):
+    """Regla pedida por el usuario: sin numero de operacion que lo avale y sin
+    coincidencia de emisor (ni datos para compararlo), un match que solo verifico
+    fecha+monto no se da por confiable del todo -- queda Con diferencia como
+    advertencia de que falta corroboracion, aunque el candidato sea unico."""
+    cuenta = BankAccount(banco="Nacion", numero_cuenta="1", alias="Principal")
+    session.add(cuenta)
+    session.flush()
+    movimiento = _crear_movimiento(session, numero_operacion="OP-1", titular=None)
+    resumen, linea = _crear_resumen_y_linea(session, cuenta.id, referencia=None, descripcion=None)
+
+    match_statement(session, resumen, [linea])
+
+    assert linea.movimiento_id == movimiento.id
+    assert linea.estado == StatementLineState.CONCILIADA
+    assert movimiento.estado_conciliacion == ReconciliationState.CON_DIFERENCIA
+
+
+def test_match_unico_por_importe_fecha_y_emisor_si_concilia(session):
+    """Mismo escenario que arriba, pero el emisor SI corrobora -- ya no es "solo
+    fecha y monto", asi que se da por Conciliado."""
+    cuenta = BankAccount(banco="Nacion", numero_cuenta="1", alias="Principal")
+    session.add(cuenta)
+    session.flush()
+    movimiento = _crear_movimiento(session, numero_operacion="OP-1", titular="Marcos Diaz")
+    resumen, linea = _crear_resumen_y_linea(session, cuenta.id, referencia=None, descripcion="DIAZ MARCOS")
+
+    match_statement(session, resumen, [linea])
+
+    assert linea.movimiento_id == movimiento.id
+    assert movimiento.estado_conciliacion == ReconciliationState.CONCILIADO
+
+
+def test_movimiento_ya_vinculado_no_se_reasigna_a_otra_linea(session):
+    """Bug real: un movimiento que ya quedo CON_DIFERENCIA (vinculado a linea1, a la
+    espera de que un administrador lo resuelva a mano) no debe poder volver a
+    aparecer como candidato en una corrida posterior de match_statement -- si otra
+    linea (de otro resumen, ej. del dia siguiente) matchea por fecha+monto exacto
+    contra ese mismo movimiento, antes quedaba reasignado en silencio: linea1
+    seguia mostrando movimiento_id apuntando a un vinculo ya obsoleto."""
+    cuenta = BankAccount(banco="Nacion", numero_cuenta="1", alias="Principal")
+    session.add(cuenta)
+    session.flush()
+    movimiento = _crear_movimiento(
+        session, numero_operacion="OP-1", monto=Decimal("105.00"), fecha_transaccion=datetime(2026, 9, 10)
+    )
+    resumen1, linea1 = _crear_resumen_y_linea(
+        session, cuenta.id, monto=Decimal("100.00"), fecha=datetime(2026, 9, 10), referencia="OP-1"
+    )
+    match_statement(session, resumen1, [linea1])
+    assert movimiento.estado_conciliacion == ReconciliationState.CON_DIFERENCIA
+    assert linea1.movimiento_id == movimiento.id
+
+    resumen2, linea2 = _crear_resumen_y_linea(
+        session, cuenta.id, monto=Decimal("105.00"), fecha=datetime(2026, 9, 11), referencia=None
+    )
+
+    match_statement(session, resumen2, [linea2])
+
+    assert linea2.movimiento_id is None
+    assert linea2.estado == StatementLineState.PENDIENTE
+    # linea1 sigue siendo la unica duena de este movimiento.
+    assert linea1.movimiento_id == movimiento.id
+    assert movimiento.estado_conciliacion == ReconciliationState.CON_DIFERENCIA
+
+
 def test_matching_reference_with_far_off_date_is_flagged_con_diferencia_not_pending(session):
     """Reproduce un caso real: el comprobante quedo con la fecha (y el monto) mal
     cargados, pero el numero de operacion es identico al de la linea del banco. La

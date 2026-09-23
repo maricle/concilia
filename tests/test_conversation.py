@@ -30,30 +30,6 @@ def _con_cuenta_registrada(db: Session, alias: str = "empresa.mp") -> None:
     db.commit()
 
 
-def _conversacion_esperando_cuenta_bancaria(
-    db: Session, operador_id: int, numero: str = "5491112345678"
-) -> Movement:
-    """Simula una conversacion que haya quedado parada en ESPERANDO_CUENTA_BANCARIA
-    de antes de este cambio -- start_transfer ya no entra mas a este estado (ver
-    conversation.py), pero el manejo se mantiene por compatibilidad con
-    conversaciones que ya estuvieran ahi al deployarlo."""
-    movement = Movement(
-        operador_id=operador_id,
-        monto=Decimal("500"),
-        fecha_transaccion=datetime(2026, 8, 21),
-        numero_operacion="OP-1",
-        cuenta_receptora_extraida="no.coincide",
-    )
-    db.add(movement)
-    db.flush()
-    conversation = WhatsAppConversation(
-        numero=numero, estado=ConversationState.ESPERANDO_CUENTA_BANCARIA, movimiento_borrador_id=movement.id
-    )
-    db.add(conversation)
-    db.commit()
-    return movement
-
-
 def _asociar_a_reparto_abierto(db: Session, operador_id: int, movil_id: int, numero_reparto: int = 1) -> Reparto:
     """Atajo de test: crea un reparto abierto en el movil dado y asocia al
     operador, sin pasar por el intercambio de mensajes del comando 'iniciar'."""
@@ -179,90 +155,6 @@ def test_transfer_without_matching_cuenta_receptora_continua_sin_preguntar():
     assert movement.cuenta_receptora_extraida == "no.coincide"
 
 
-def test_legado_prompt_elegir_cuenta_bancaria_muestra_el_banco_no_solo_el_alias():
-    """Cobertura de compatibilidad: start_transfer ya no entra mas a
-    ESPERANDO_CUENTA_BANCARIA, pero una conversacion que ya hubiera quedado ahi al
-    deployar este cambio tiene que poder seguir resolviendose (ver
-    _conversacion_esperando_cuenta_bancaria)."""
-    db = session()
-    db.add(Operator(nombre="Ana", whatsapp_numero="5491112345678"))
-    db.add(BankAccount(banco="Galicia", numero_cuenta="0070077120000014194391", alias="el.paquete.llega"))
-    db.commit()
-    _conversacion_esperando_cuenta_bancaria(db, operador_id=1)
-    service = ConversationService(db)
-
-    prompt = service.pending_prompt("5491112345678")
-
-    # el alias interno puede no decir nada del banco -- tiene que listarse el banco.
-    assert prompt is not None
-    assert "Galicia (el.paquete.llega)" in prompt
-
-
-def test_legado_eleccion_de_cuenta_bancaria_se_puede_elegir_por_nombre_del_banco():
-    db = session()
-    db.add(Operator(nombre="Ana", whatsapp_numero="5491112345678"))
-    db.add(BankAccount(banco="Galicia", numero_cuenta="0070077120000014194391", alias="el.paquete.llega"))
-    db.commit()
-    _conversacion_esperando_cuenta_bancaria(db, operador_id=1)
-    service = ConversationService(db)
-
-    respuesta = service.handle_text("5491112345678", "galicia")
-
-    assert "factura o un numero de cuenta" in respuesta
-    assert db.query(Movement).one().cuenta_bancaria_id == 1
-
-
-def test_legado_eleccion_de_cuenta_bancaria_ambigua_por_banco_repetido_no_matchea():
-    db = session()
-    db.add(Operator(nombre="Ana", whatsapp_numero="5491112345678"))
-    db.add_all(
-        [
-            BankAccount(banco="Galicia", numero_cuenta="111", alias="galicia.pesos"),
-            BankAccount(banco="Galicia", numero_cuenta="222", alias="galicia.dolares"),
-        ]
-    )
-    db.commit()
-    _conversacion_esperando_cuenta_bancaria(db, operador_id=1)
-    service = ConversationService(db)
-
-    respuesta = service.handle_text("5491112345678", "galicia")
-
-    # hay dos cuentas de Galicia -- "galicia" solo no alcanza para elegir una.
-    assert "Esa no es una de las opciones" in respuesta
-    assert db.query(Movement).one().cuenta_bancaria_id is None
-
-    respuesta_ok = service.handle_text("5491112345678", "galicia.dolares")
-    assert "factura o un numero de cuenta" in respuesta_ok
-
-
-def test_legado_eleccion_de_cuenta_bancaria_invalida_vuelve_a_pedir():
-    db = session()
-    db.add(Operator(nombre="Ana", whatsapp_numero="5491112345678"))
-    _con_cuenta_registrada(db, alias="otra.cuenta")
-    db.commit()
-    _conversacion_esperando_cuenta_bancaria(db, operador_id=1)
-    service = ConversationService(db)
-
-    respuesta = service.handle_text("5491112345678", "cuenta que no existe")
-
-    assert "Esa no es una de las opciones" in respuesta
-    assert db.query(Movement).one().cuenta_bancaria_id is None
-
-
-def test_legado_eleccion_de_cuenta_bancaria_se_puede_cancelar():
-    db = session()
-    db.add(Operator(nombre="Ana", whatsapp_numero="5491112345678"))
-    _con_cuenta_registrada(db, alias="otra.cuenta")
-    db.commit()
-    _conversacion_esperando_cuenta_bancaria(db, operador_id=1)
-    service = ConversationService(db)
-
-    respuesta = service.handle_text("5491112345678", "cancelar")
-
-    assert "Registro descartado" in respuesta
-    assert db.query(Movement).count() == 0
-
-
 def test_transfer_matches_cuenta_receptora_by_numero_cuenta_digits():
     db = session()
     db.add(Operator(nombre="Ana", whatsapp_numero="5491112345678"))
@@ -277,6 +169,47 @@ def test_transfer_matches_cuenta_receptora_by_numero_cuenta_digits():
 
     assert "factura o un numero de cuenta" in response
     assert db.query(Movement).one().cuenta_bancaria_id == 1
+
+
+def test_transfer_matches_cuenta_receptora_con_digitos_corridos_por_error_de_extraccion():
+    """Caso real de produccion: Claude leyo el CBU con un digito de mas en una
+    tira de ceros y uno de menos al final -- mismo largo (22 digitos) pero
+    corrido respecto al registrado, asi que el match exacto por digitos fallaba
+    y el comprobante quedaba 'Sin identificar' aunque la cuenta correcta ya
+    estaba cargada en /config/cuentas."""
+    db = session()
+    db.add(Operator(nombre="Ana", whatsapp_numero="5491112345678"))
+    db.add(BankAccount(banco="Galicia", numero_cuenta="0070077120000014194391", alias="el.paquete.llega"))
+    db.commit()
+    service = ConversationService(db)
+
+    transfer = ExtractedTransfer(
+        Decimal("13462.76"), datetime(2026, 9, 21), "PDX4OGNY4LZDL14Q20L6EY", cuenta_receptora="0070077120000001419439"
+    )
+    response = service.start_transfer("5491112345678", transfer)
+
+    assert "factura o un numero de cuenta" in response
+    assert db.query(Movement).one().cuenta_bancaria_id == 1
+
+
+def test_transfer_no_matchea_por_aproximacion_si_hay_ambiguedad():
+    """Si dos cuentas registradas quedan igual de cerca (dentro de la tolerancia)
+    del numero extraido, no se adivina entre ellas -- se deja sin identificar
+    para que un administrador lo resuelva a mano."""
+    db = session()
+    db.add(Operator(nombre="Ana", whatsapp_numero="5491112345678"))
+    db.add(BankAccount(banco="Galicia", numero_cuenta="0070077120000014194391", alias="cuenta-a"))
+    db.add(BankAccount(banco="Galicia", numero_cuenta="0070077120000014194392", alias="cuenta-b"))
+    db.commit()
+    service = ConversationService(db)
+
+    transfer = ExtractedTransfer(
+        Decimal("500"), datetime(2026, 8, 21), "OP-1", cuenta_receptora="0070077120000014194390"
+    )
+    response = service.start_transfer("5491112345678", transfer)
+
+    assert "factura o un numero de cuenta" in response
+    assert db.query(Movement).one().cuenta_bancaria_id is None
 
 
 def test_postgres_urls_use_psycopg_driver():
