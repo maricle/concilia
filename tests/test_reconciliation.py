@@ -283,6 +283,39 @@ def test_emisor_no_desambigua_si_coincide_con_varios(session):
     assert linea.movimiento_id is None
 
 
+def test_match_unico_solo_por_importe_y_fecha_queda_como_advertencia(session):
+    """Regla pedida por el usuario: sin numero de operacion que lo avale y sin
+    coincidencia de emisor (ni datos para compararlo), un match que solo verifico
+    fecha+monto no se da por confiable del todo -- queda Con diferencia como
+    advertencia de que falta corroboracion, aunque el candidato sea unico."""
+    cuenta = BankAccount(banco="Nacion", numero_cuenta="1", alias="Principal")
+    session.add(cuenta)
+    session.flush()
+    movimiento = _crear_movimiento(session, numero_operacion="OP-1", titular=None)
+    resumen, linea = _crear_resumen_y_linea(session, cuenta.id, referencia=None, descripcion=None)
+
+    match_statement(session, resumen, [linea])
+
+    assert linea.movimiento_id == movimiento.id
+    assert linea.estado == StatementLineState.CONCILIADA
+    assert movimiento.estado_conciliacion == ReconciliationState.CON_DIFERENCIA
+
+
+def test_match_unico_por_importe_fecha_y_emisor_si_concilia(session):
+    """Mismo escenario que arriba, pero el emisor SI corrobora -- ya no es "solo
+    fecha y monto", asi que se da por Conciliado."""
+    cuenta = BankAccount(banco="Nacion", numero_cuenta="1", alias="Principal")
+    session.add(cuenta)
+    session.flush()
+    movimiento = _crear_movimiento(session, numero_operacion="OP-1", titular="Marcos Diaz")
+    resumen, linea = _crear_resumen_y_linea(session, cuenta.id, referencia=None, descripcion="DIAZ MARCOS")
+
+    match_statement(session, resumen, [linea])
+
+    assert linea.movimiento_id == movimiento.id
+    assert movimiento.estado_conciliacion == ReconciliationState.CONCILIADO
+
+
 def test_movimiento_ya_vinculado_no_se_reasigna_a_otra_linea(session):
     """Bug real: un movimiento que ya quedo CON_DIFERENCIA (vinculado a linea1, a la
     espera de que un administrador lo resuelva a mano) no debe poder volver a

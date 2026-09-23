@@ -23,6 +23,7 @@ from app.models import (
     Reparto,
     RepartoOperador,
     StatementLine,
+    StatementLineState,
 )
 
 
@@ -82,9 +83,9 @@ def test_importar_resumen_reconciles_matching_movement():
         "/conciliaciones/importar",
         data={"cuenta_bancaria_id": "1", "fecha": "2026-08-24"},
         files={"archivo": ("resumen.csv", csv_contenido, "text/csv")},
-        follow_redirects=False,
     )
-    assert response.status_code == 303
+    assert response.status_code == 200
+    assert "Se importaron 1 transaccion nueva" in response.text
 
     pagina = client.get("/conciliaciones", params={"fecha": "2026-08-24", "banco": "Nacion"})
     assert "OP-1" in pagina.text
@@ -109,6 +110,79 @@ def test_importar_resumen_with_bad_file_shows_error():
     )
     assert response.status_code == 400
     assert "columnas de fecha y monto" in response.text
+
+
+def test_importar_resumen_omite_lineas_duplicadas_de_otro_resumen():
+    """Pedido del usuario: si se sube un resumen nuevo (no "volver a revisar") con
+    lineas que ya estaban cargadas en OTRO resumen de la misma cuenta -- ej. el
+    mismo extracto subido dos veces por error -- no se duplican."""
+    client, test_session = _client_with_admin()
+    _login(client)
+
+    csv_contenido = "Fecha,Importe,Descripcion,Referencia\n24/08/2026,500.00,Pago,OP-1\n25/08/2026,999.00,Otro,OP-2\n"
+    client.post(
+        "/conciliaciones/importar",
+        data={"cuenta_bancaria_id": "1", "fecha": "2026-08-24"},
+        files={"archivo": ("resumen1.csv", csv_contenido, "text/csv")},
+    )
+
+    # Se sube "de nuevo" como resumen aparte (no via /actualizar): una linea
+    # repetida (OP-1) y una genuinamente nueva (OP-3).
+    csv_contenido_2 = "Fecha,Importe,Descripcion,Referencia\n24/08/2026,500.00,Pago,OP-1\n26/08/2026,111.00,Nuevo,OP-3\n"
+    response = client.post(
+        "/conciliaciones/importar",
+        data={"cuenta_bancaria_id": "1", "fecha": "2026-08-26"},
+        files={"archivo": ("resumen2.csv", csv_contenido_2, "text/csv")},
+    )
+
+    assert response.status_code == 200
+    assert "Se importaron 1 transaccion nueva" in response.text
+    assert "Se omitieron 1 duplicada" in response.text
+    with test_session() as session:
+        assert session.query(StatementLine).count() == 3
+
+
+def test_importar_resumen_reintenta_pendientes_viejas_de_la_cuenta():
+    """Pedido del usuario: subir un resumen nuevo tambien reintenta emparejar las
+    lineas pendientes de resumenes anteriores de esa cuenta, no solo las recien
+    subidas -- mismo efecto que apretar "Reintentar conciliacion" pero automatico."""
+    client, test_session = _client_with_admin()
+    _login(client)
+
+    # Primer resumen: una linea que en su momento no tenia con que matchear.
+    client.post(
+        "/conciliaciones/importar",
+        data={"cuenta_bancaria_id": "1", "fecha": "2026-08-24"},
+        files={"archivo": ("resumen1.csv", "Fecha,Importe,Descripcion,Referencia\n24/08/2026,500.00,Pago,OP-1\n", "text/csv")},
+    )
+    with test_session() as session:
+        assert session.query(StatementLine).one().estado == StatementLineState.PENDIENTE
+
+    # Recien ahora aparece el comprobante que le corresponde.
+    with test_session() as session:
+        session.add(
+            Movement(
+                operador_id=1,
+                monto=Decimal("500.00"),
+                fecha_transaccion=datetime(2026, 8, 24),
+                numero_operacion="OP-1",
+                estado_registro=RecordState.CONFIRMADO,
+            )
+        )
+        session.commit()
+
+    # Se sube un segundo resumen (de otro dia) -- no toca directamente la linea
+    # vieja, pero deberia reintentar el emparejamiento igual.
+    client.post(
+        "/conciliaciones/importar",
+        data={"cuenta_bancaria_id": "1", "fecha": "2026-08-25"},
+        files={"archivo": ("resumen2.csv", "Fecha,Importe,Descripcion,Referencia\n25/08/2026,50.00,Otro,OP-9\n", "text/csv")},
+    )
+
+    with test_session() as session:
+        linea_vieja = session.query(StatementLine).filter_by(referencia="OP-1").one()
+        assert linea_vieja.estado == StatementLineState.CONCILIADA
+        assert linea_vieja.movimiento_id is not None
 
 
 def test_importar_resumen_guarda_el_archivo_original_y_se_puede_descargar():

@@ -2041,6 +2041,28 @@ def reabrir_dia(
     return RedirectResponse(f"/conciliaciones?fecha={fecha_obj.isoformat()}", status_code=303)
 
 
+def _reconciliar_pendientes_de_resumenes(db: Session, resumenes: list[ImportedStatement]) -> int:
+    """Reintenta el matching automatico sobre las lineas pendientes de cada resumen
+    dado, salteando los dias cerrados. Devuelve cuantas lineas quedaron conciliadas.
+    Compartido por el boton manual "Reintentar conciliacion" y por la carga de un
+    resumen nuevo (que tambien reintenta las lineas pendientes viejas de esa misma
+    cuenta, no solo las recien subidas)."""
+    conciliadas = 0
+    for resumen in resumenes:
+        if _cierre_del_dia(db, resumen.fecha.date()) is not None:
+            continue
+        lineas_pendientes = db.scalars(
+            select(StatementLine).where(
+                StatementLine.resumen_id == resumen.id, StatementLine.estado == StatementLineState.PENDIENTE
+            )
+        ).all()
+        if not lineas_pendientes:
+            continue
+        match_statement(db, resumen, lineas_pendientes)
+        conciliadas += sum(1 for linea in lineas_pendientes if linea.estado == StatementLineState.CONCILIADA)
+    return conciliadas
+
+
 @router.post("/conciliaciones/reconciliar")
 def reconciliar_pendientes(
     request: Request,
@@ -2061,19 +2083,7 @@ def reconciliar_pendientes(
     else:
         resumenes = db.scalars(select(ImportedStatement)).all()
 
-    conciliadas = 0
-    for resumen in resumenes:
-        if _cierre_del_dia(db, resumen.fecha.date()) is not None:
-            continue
-        lineas_pendientes = db.scalars(
-            select(StatementLine).where(
-                StatementLine.resumen_id == resumen.id, StatementLine.estado == StatementLineState.PENDIENTE
-            )
-        ).all()
-        if not lineas_pendientes:
-            continue
-        match_statement(db, resumen, lineas_pendientes)
-        conciliadas += sum(1 for linea in lineas_pendientes if linea.estado == StatementLineState.CONCILIADA)
+    conciliadas = _reconciliar_pendientes_de_resumenes(db, resumenes)
     db.commit()
 
     mensaje = (
@@ -2136,21 +2146,59 @@ async def importar_resumen(
     db.add(resumen)
     db.flush()
 
-    lineas = [
-        StatementLine(
-            resumen_id=resumen.id,
-            resumen=resumen,
-            fecha=fila.fecha,
-            monto=fila.monto,
-            descripcion=fila.descripcion,
-            referencia=fila.referencia,
+    # No duplicar lineas ya cargadas en OTRO resumen de esta misma cuenta (ej. el
+    # mismo extracto subido dos veces sin querer, o un resumen nuevo que se
+    # superpone en fechas con uno anterior) -- mismo criterio que ya usaba
+    # actualizar_resumen para no duplicar dentro de un mismo resumen, extendido a
+    # toda la cuenta.
+    lineas_existentes = db.scalars(
+        select(StatementLine)
+        .join(ImportedStatement, StatementLine.resumen_id == ImportedStatement.id)
+        .where(ImportedStatement.cuenta_bancaria_id == cuenta_bancaria_id, ImportedStatement.id != resumen.id)
+    ).all()
+    restantes = Counter((linea.fecha, linea.monto, linea.referencia, linea.descripcion) for linea in lineas_existentes)
+
+    nuevas: list[StatementLine] = []
+    duplicadas = 0
+    for fila in filas:
+        clave = (fila.fecha, fila.monto, fila.referencia, fila.descripcion)
+        if restantes[clave] > 0:
+            restantes[clave] -= 1
+            duplicadas += 1
+            continue
+        nuevas.append(
+            StatementLine(
+                resumen_id=resumen.id,
+                resumen=resumen,
+                fecha=fila.fecha,
+                monto=fila.monto,
+                descripcion=fila.descripcion,
+                referencia=fila.referencia,
+            )
         )
-        for fila in filas
-    ]
-    db.add_all(lineas)
-    match_statement(db, resumen, lineas)
+    db.add_all(nuevas)
+    if nuevas:
+        match_statement(db, resumen, nuevas)
+
+    # Ademas de las lineas recien subidas, reintentar tambien contra las lineas
+    # pendientes de resumenes anteriores de esta misma cuenta -- un comprobante
+    # que quedo sin emparejar la vez pasada puede calzar con algo de este archivo,
+    # sin que el administrador tenga que apretar "Reintentar conciliacion" aparte.
+    resumenes_cuenta = db.scalars(
+        select(ImportedStatement).where(ImportedStatement.cuenta_bancaria_id == cuenta_bancaria_id)
+    ).all()
+    _reconciliar_pendientes_de_resumenes(db, resumenes_cuenta)
+
     db.commit()
-    return RedirectResponse(f"/conciliaciones?fecha={fecha}&banco={banco}", status_code=303)
+
+    partes = [f"Se importaron {len(nuevas)} transaccion{'es' if len(nuevas) != 1 else ''} nueva{'s' if len(nuevas) != 1 else ''}."]
+    if duplicadas:
+        partes.append(f"Se omitieron {duplicadas} duplicada{'s' if duplicadas != 1 else ''} (ya estaban cargadas).")
+    mensaje = " ".join(partes)
+
+    return templates.TemplateResponse(
+        request, "conciliaciones.html", _construir_contexto_conciliaciones(db, user, fecha_obj, banco, mensaje=mensaje)
+    )
 
 
 @router.post("/conciliaciones/resumenes/{resumen_id}/actualizar")

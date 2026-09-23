@@ -233,14 +233,23 @@ def match_statement(
                 continue
 
         # Sin numero de operacion: importe es el criterio principal, fecha el
-        # segundo. Si varios candidatos coinciden en ambos, el emisor desempata
-        # -- pero solo cuando hay una coincidencia positiva de palabras, no basta
-        # con que no se contradigan (a diferencia del caso de arriba), porque aca
-        # no hay ninguna referencia exacta que ya "avale" el match de entrada.
+        # segundo -- ambos son obligatorios, no hay match sin los dos. Con esos
+        # dos solos alcanza para vincular la linea (evita dejar todo pendiente),
+        # pero no para darlo por CONFIABLE: sin una referencia que lo avale, el
+        # emisor es la unica corroboracion posible, y si no hay coincidencia
+        # positiva de palabras (ya sea porque falta el dato o porque el nombre no
+        # tiene nada que ver) el match queda "con diferencia" como advertencia de
+        # que solo se verifico fecha+monto, para que el administrador lo confirme.
         por_fecha = [m for m in candidatos if _dentro_de_fecha(m, linea, tolerancia_dias)]
         exactos = [m for m in por_fecha if m.monto == linea.monto]
         if len(exactos) == 1:
-            _asignar(linea, exactos[0], ReconciliationState.CONCILIADO, usados)
+            candidato = exactos[0]
+            estado = (
+                ReconciliationState.CONCILIADO
+                if _emisor_coincide(candidato, linea) is True
+                else ReconciliationState.CON_DIFERENCIA
+            )
+            _asignar(linea, candidato, estado, usados)
             continue
         if len(exactos) > 1:
             por_emisor = [m for m in exactos if _emisor_coincide(m, linea) is True]
