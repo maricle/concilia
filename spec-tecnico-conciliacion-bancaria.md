@@ -4,7 +4,7 @@
 **Fecha:** 2026-08-20
 **Depende de:** `spec-funcional.md` (mismo proyecto) — este documento no repite las reglas de negocio ya definidas ahí, solo cómo se implementan.
 
-> **Nota sobre el canal (vigente):** el canal en uso hoy es **Telegram** (`POST /telegram/webhook`), no WhatsApp — el webhook de WhatsApp Business (Meta) descrito en la sección 3 está implementado pero el envío de respuestas reales nunca se conectó (más detalle en la sección 14). Todas las menciones a "WhatsApp"/"Meta" en el resto de este documento describen el diseño/objetivo original y deben leerse hoy como "Telegram" salvo que se indique lo contrario.
+> **Nota sobre el canal (vigente):** WhatsApp Business (Meta, `POST /webhook`) y **Telegram** (`POST /telegram/webhook`) están ambos conectados de punta a punta — bajan el archivo, corren la extracción y responden por el mismo canal. Ver la sección 14 para el detalle de cómo se comparte el estado de la conversación entre ambos.
 
 ## 1. Arquitectura general
 
@@ -142,7 +142,7 @@ Los límites de tasa y de ventana de mensajes de la API de WhatsApp Business (Me
 
 Este documento quedó como borrador desde su fecha original; varias decisiones cambiaron con la implementación real. Registro de los cambios técnicos relevantes, no exhaustivo:
 
-**Canal real: Telegram, no WhatsApp.** El webhook de WhatsApp Business (Meta, sección 3) está implementado pero el envío de respuestas reales nunca se conectó. El canal efectivamente en uso en producción es **Telegram** (`POST /telegram/webhook`), que reutiliza la misma máquina de estados de la sección 4 y tiene la extracción con Claude conectada.
+**Dos canales, un mismo hilo por operador.** El webhook de WhatsApp Business (Meta, sección 3, `POST /webhook`) pasó de ser solo un stub (recibía texto pero nunca bajaba archivos ni respondía) a estar conectado de punta a punta, igual que Telegram (`POST /telegram/webhook`): baja la imagen/PDF via la Graph API de Meta, corre la extracción con Claude, y responde por el mismo canal (texto plano o, cuando corresponde, botones interactivos — el equivalente de WhatsApp al `reply_markup`/inline keyboard de Telegram, limitado a 3 botones por mensaje, suficiente para los pasos Sí/No y Factura/Cuenta que ya existían). `ConversationService` identifica al operador por su `whatsapp_numero` en ambos casos, así que un comprobante empezado por un canal se puede terminar por el otro sin perder el estado. La diferencia entre canales: en Telegram el `chat_id` es opaco (no es el teléfono), así que hace falta un paso de "compartir contacto" para vincularlo la primera vez; en WhatsApp el `from` de cada mensaje ya es el teléfono real, así que no hace falta ningún paso de vinculación — se matchea directo contra `Operator.whatsapp_numero` comparando los últimos 10 dígitos (mismo criterio de tolerancia a formato que ya usaba Telegram).
 
 **Storage de archivos: PostgreSQL, no S3/R2.** Contra lo definido en la sección 2, los archivos de comprobantes recibidos no se guardan en un storage externo S3-compatible — se guardan directo en PostgreSQL (tabla `comprobantes_archivo`), dado que son archivos chicos (fotos/PDFs de comprobantes) y esto evita la dependencia de un servicio externo adicional.
 

@@ -4,7 +4,7 @@
 **Fecha:** 2026-08-20
 **Fase de este documento:** especificación funcional (la especificación técnica/arquitectura se aborda en un documento separado, posterior a este)
 
-> **Nota sobre el canal (vigente):** el canal en uso hoy es **Telegram**, no WhatsApp — WhatsApp Business (Meta) es el canal originalmente planeado en este documento y se agrega más adelante, todavía no está conectado en producción (detalle técnico en `spec-tecnico-conciliacion-bancaria.md`, sección 14). Todas las menciones a "WhatsApp" en el resto de este documento describen el diseño/objetivo original y deben leerse hoy como "Telegram" salvo que se indique lo contrario.
+> **Nota sobre el canal (vigente):** WhatsApp Business (Meta) — el canal descrito en el resto de este documento — y **Telegram** están ambos conectados de punta a punta, como dos caminos de carga en paralelo para el mismo operador (detalle técnico en `spec-tecnico-conciliacion-bancaria.md`, sección 14).
 
 ## 1. Objetivo
 
