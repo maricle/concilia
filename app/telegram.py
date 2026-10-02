@@ -268,7 +268,7 @@ async def receive_telegram_update(
     if transfer is None:
         await send_telegram_message(
             chat_id,
-            "No pude leer el comprobante. Reenvialo con mejor calidad o ingresa los datos manualmente.",
+            "No pude leer el comprobante. Reenvialo con mejor calidad, o pedile al administrador que lo cargue desde el panel.",
         )
         return {"status": "accepted"}
 

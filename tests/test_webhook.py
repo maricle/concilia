@@ -264,7 +264,7 @@ def test_imagen_no_legible_pide_reenviar(monkeypatch):
     response = client.post("/webhook", json=_mensaje_imagen("3794500333"))
 
     assert response.status_code == 200
-    assert sent == [("3794500333", "No pude leer el comprobante. Reenvialo con mejor calidad o ingresa los datos manualmente.", None)]
+    assert sent == [("3794500333", "No pude leer el comprobante. Reenvialo con mejor calidad, o pedile al administrador que lo cargue desde el panel.", None)]
 
 
 def test_segunda_imagen_mientras_hay_borrador_pendiente_no_huerfana_la_primera(monkeypatch):
@@ -448,3 +448,23 @@ def test_imagen_con_caption_de_factura_pide_solo_confirmar(monkeypatch):
     assert "Factura/cuenta: Factura: 4455" in texto
     assert "¿Registro el comprobante?" in texto
     assert botones == webhook.SI_NO_BOTONES
+
+
+def test_reintento_de_meta_con_el_mismo_id_no_se_procesa_dos_veces(monkeypatch):
+    # Meta reenvia el mismo mensaje si no recibio el 200 a tiempo: el segundo
+    # envio no tiene que volver a extraer ni a responder (cada respuesta se cobra).
+    _register_operator("3794500444")
+    _clean_conversation("3794500444")
+    sent: list[tuple[str, str, list | None]] = []
+
+    async def fake_send(to: str, text: str, botones=None) -> None:
+        sent.append((to, text, botones))
+
+    monkeypatch.setattr(webhook, "send_whatsapp_message", fake_send)
+    payload = _mensaje_texto("3794500444", "hola")
+    payload["entry"][0]["changes"][0]["value"]["messages"][0]["id"] = "wamid.REPETIDO"
+
+    assert client.post("/webhook", json=payload).status_code == 200
+    assert client.post("/webhook", json=payload).status_code == 200
+
+    assert len(sent) == 1

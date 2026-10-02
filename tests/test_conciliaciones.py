@@ -802,3 +802,75 @@ def test_legacy_resumen_id_redirige_a_fecha_banco():
     respuesta = client.get("/conciliaciones", params={"resumen_id": resumen_id}, follow_redirects=False)
     assert respuesta.status_code == 303
     assert respuesta.headers["location"] == "/conciliaciones?fecha=2026-08-24&banco=Nacion"
+
+
+def _movimiento_con_diferencia_de_emisor(client, test_session) -> int:
+    """Mismo numero de operacion, monto y fecha, pero el emisor del comprobante
+    no tiene nada que ver con el pagador del banco -> queda "con diferencia"."""
+    with test_session() as session:
+        movimiento = Movement(
+            operador_id=1,
+            monto=Decimal("1000.00"),
+            fecha_transaccion=datetime(2026, 8, 24, 10, 0),
+            numero_operacion="OP-DIF",
+            titular="Juan Perez",
+            cuenta_bancaria_id=1,
+            estado_registro=RecordState.CONFIRMADO,
+        )
+        session.add(movimiento)
+        session.commit()
+        movimiento_id = movimiento.id
+
+    csv_contenido = "Fecha,Importe,Descripcion,Referencia\n24/08/2026,1000.00,Maria Gomez,OP-DIF\n"
+    client.post(
+        "/conciliaciones/importar",
+        data={"cuenta_bancaria_id": "1", "fecha": "2026-08-24"},
+        files={"archivo": ("resumen.csv", csv_contenido, "text/csv")},
+    )
+    with test_session() as session:
+        assert session.get(Movement, movimiento_id).estado_conciliacion == ReconciliationState.CON_DIFERENCIA
+    return movimiento_id
+
+
+def test_aceptar_diferencia_pasa_a_conciliado_manualmente_y_habilita_el_cierre():
+    client, test_session = _client_with_admin()
+    _login(client)
+    movimiento_id = _movimiento_con_diferencia_de_emisor(client, test_session)
+    assert client.post("/conciliaciones/cierres", data={"fecha": "2026-08-24"}).status_code == 400
+
+    respuesta = client.post(
+        f"/conciliaciones/movimientos/{movimiento_id}/aceptar",
+        data={"fecha": "2026-08-24", "banco": "Nacion"},
+        follow_redirects=False,
+    )
+
+    assert respuesta.status_code == 303
+    assert respuesta.headers["location"] == "/conciliaciones?fecha=2026-08-24&banco=Nacion"
+    with test_session() as session:
+        assert session.get(Movement, movimiento_id).estado_conciliacion == ReconciliationState.CONCILIADO_MANUALMENTE
+    assert client.post("/conciliaciones/cierres", data={"fecha": "2026-08-24"}, follow_redirects=False).status_code == 303
+
+
+def test_aceptar_diferencia_bloqueado_si_el_dia_esta_cerrado():
+    client, test_session = _client_with_admin()
+    _login(client)
+    movimiento_id = _movimiento_con_diferencia_de_emisor(client, test_session)
+    with test_session() as session:
+        session.add(CierreDiario(fecha=datetime(2026, 8, 24).date(), cerrado_por_id=1))
+        session.commit()
+
+    client.post(f"/conciliaciones/movimientos/{movimiento_id}/aceptar", data={"fecha": "2026-08-24", "banco": "Nacion"})
+
+    with test_session() as session:
+        assert session.get(Movement, movimiento_id).estado_conciliacion == ReconciliationState.CON_DIFERENCIA
+
+
+def test_boton_aceptar_solo_aparece_en_movimientos_con_diferencia():
+    client, test_session = _client_with_admin()
+    _login(client)
+    movimiento_id = _movimiento_con_diferencia_de_emisor(client, test_session)
+
+    pagina = client.get("/conciliaciones?fecha=2026-08-24&banco=Nacion")
+
+    assert f"/conciliaciones/movimientos/{movimiento_id}/aceptar" in pagina.text
+    assert pagina.text.count("/aceptar") == 1

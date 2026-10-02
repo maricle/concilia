@@ -2425,6 +2425,31 @@ def emparejar_linea(
     return RedirectResponse(destino, status_code=303)
 
 
+@router.post("/conciliaciones/movimientos/{movimiento_id}/aceptar")
+def aceptar_diferencia(
+    movimiento_id: int,
+    fecha: str = Form(""),
+    banco: str = Form(""),
+    db: Session = Depends(get_db),
+    user: PanelUser = Depends(require_user),
+):
+    """El administrador reviso un movimiento "con diferencia" (emparejado con una
+    linea del banco, pero con monto, fecha o emisor que no coinciden del todo) y
+    confirma que el emparejamiento esta bien -- pasa a Conciliado manualmente.
+    Sin esta accion no habia forma de sacarlo de "con diferencia": editar el
+    comprobante no vuelve a correr el matching, y mientras quede uno asi el banco
+    sigue A REVISAR y el dia no se puede cerrar."""
+    movimiento = db.get(Movement, movimiento_id)
+    if (
+        movimiento is not None
+        and movimiento.estado_conciliacion == ReconciliationState.CON_DIFERENCIA
+        and _cierre_del_dia(db, movimiento.fecha_transaccion.date()) is None
+    ):
+        movimiento.estado_conciliacion = ReconciliationState.CONCILIADO_MANUALMENTE
+        db.commit()
+    return RedirectResponse(f"/conciliaciones?fecha={fecha}&banco={banco}", status_code=303)
+
+
 @router.post("/conciliaciones/lineas/{linea_id}/no-corresponde")
 def marcar_linea_no_corresponde(
     linea_id: int,

@@ -212,7 +212,7 @@ def test_photo_message_with_unreadable_receipt_asks_to_resend(monkeypatch):
     )
 
     assert response.status_code == 200
-    assert sent == [("333", "No pude leer el comprobante. Reenvialo con mejor calidad o ingresa los datos manualmente.")]
+    assert sent == [("333", "No pude leer el comprobante. Reenvialo con mejor calidad, o pedile al administrador que lo cargue desde el panel.")]
 
 
 def test_sharing_contact_links_operator_by_matching_local_phone_suffix(monkeypatch):

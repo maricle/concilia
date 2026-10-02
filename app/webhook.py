@@ -1,12 +1,14 @@
+import asyncio
 import hashlib
 import hmac
 import logging
 import re
+from collections import OrderedDict
 from datetime import datetime, timedelta
 from typing import Any
 
 import httpx
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request
 from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -168,15 +170,51 @@ def verify_webhook(
     raise HTTPException(status_code=403, detail="Token de verificacion invalido")
 
 
+# Meta reintenta la entrega si no recibe un 200 a tiempo. Procesar un comprobante
+# (bajar el archivo + extraccion con Claude, mas si hace fallback a Sonnet) puede
+# tardar varios segundos, asi que el 200 se devuelve apenas validada la firma y el
+# mensaje se procesa despues (BackgroundTasks). Igual se deduplica por el "id" del
+# mensaje: un reintento de Meta no tiene que crear un segundo borrador ni gastar
+# otra extraccion ni otra respuesta cobrada. En memoria del proceso: alcanza para
+# la ventana de reintentos de Meta (minutos), no hace falta persistirlo.
+_MAX_MENSAJES_RECORDADOS = 2000
+_mensajes_procesados: OrderedDict[str, None] = OrderedDict()
+# Un lock por numero: los mensajes de un mismo operador se procesan en orden (una
+# rafaga "foto + F 123" no puede cruzarse), los de operadores distintos en paralelo.
+_locks_por_numero: dict[str, asyncio.Lock] = {}
+
+
+def _es_mensaje_repetido(message_id: str | None) -> bool:
+    if not message_id:
+        return False
+    if message_id in _mensajes_procesados:
+        return True
+    _mensajes_procesados[message_id] = None
+    if len(_mensajes_procesados) > _MAX_MENSAJES_RECORDADOS:
+        _mensajes_procesados.popitem(last=False)
+    return False
+
+
+async def _handle_message_en_orden(message: dict[str, Any]) -> None:
+    lock = _locks_por_numero.setdefault(message.get("from") or "", asyncio.Lock())
+    async with lock:
+        try:
+            await _handle_message(message)
+        except Exception:
+            logging.exception("Error procesando mensaje de WhatsApp %s", message.get("id"))
+
+
 @router.post("/webhook")
-async def receive_webhook(request: Request) -> dict[str, str]:
+async def receive_webhook(request: Request, background_tasks: BackgroundTasks) -> dict[str, str]:
     body = await request.body()
     if not verify_signature(body, request.headers.get("x-hub-signature-256"), get_settings().meta_app_secret):
         raise HTTPException(status_code=403, detail="Firma invalida")
     payload: dict[str, Any] = await request.json()
 
     for message in _messages(payload):
-        await _handle_message(message)
+        if _es_mensaje_repetido(message.get("id")):
+            continue
+        background_tasks.add_task(_handle_message_en_orden, message)
     return {"status": "accepted"}
 
 
@@ -251,7 +289,7 @@ async def _handle_message(message: dict[str, Any]) -> None:
     transfer = await run_in_threadpool(extract_transfer, content_type, contenido)
     if transfer is None:
         await send_whatsapp_message(
-            numero, "No pude leer el comprobante. Reenvialo con mejor calidad o ingresa los datos manualmente."
+            numero, "No pude leer el comprobante. Reenvialo con mejor calidad, o pedile al administrador que lo cargue desde el panel."
         )
         return
 
