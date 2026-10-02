@@ -140,7 +140,9 @@ def test_photo_message_is_extracted_and_saved_to_test_store(monkeypatch):
         (
             "222",
             "Monto: $100.00\nFecha: 2026-08-24\nCuenta receptora: empresa.mp\nOperacion: OP-999\n"
-            "Factura/cuenta: pendiente\n\n¿El dato que vas a cargar es un numero de factura o un numero de cuenta del cliente?",
+            "Factura/cuenta: pendiente\n\nSi los datos estan bien, elegi si vas a cargar un numero de factura o un numero de cuenta del cliente. Si no, descartalo."
+            "\nTip: la proxima vez manda el comprobante con el texto \"F 12345\" o \"C 12345\" y te ahorras este paso."
+            "\n\nIndica el tipo y numero de comprobante (ej: F 12345 o C 987).",
         )
     ]
 
@@ -181,7 +183,7 @@ def test_second_photo_while_a_draft_is_pending_does_not_orphan_the_first(monkeyp
     assert len(extract_calls) == 1  # el segundo mensaje no debe llegar a extraer nada
     assert sent[-1] == (
         "888",
-        "Todavia estoy esperando que indiques si el dato que vas a cargar es un numero de factura o de cuenta.",
+        "Tenes movimientos pendientes. Indica el tipo y numero de comprobante (ej: F 12345) o descartalo.",
     )
 
     with SessionLocal() as session:
@@ -326,7 +328,7 @@ def test_callback_query_confirms_tipo_like_typing_factura(monkeypatch):
 
     assert response.status_code == 200
     assert answered == ["cbq1"]
-    assert sent == [("999", "Indica el numero de factura del cliente asociado a este pago.", None)]
+    assert sent == [("999", "Indica el numero de factura del cliente asociado a este pago.", telegram.DESCARTAR_MARKUP)]
 
 
 def test_already_linked_chat_skips_phone_request(monkeypatch):

@@ -2,6 +2,7 @@ import hashlib
 import hmac
 import logging
 import re
+from datetime import datetime, timedelta
 from typing import Any
 
 import httpx
@@ -22,7 +23,8 @@ router = APIRouter()
 GRAPH_API_BASE = "https://graph.facebook.com/v21.0"
 
 SI_NO_BOTONES = [("si", "Si"), ("no", "No")]
-TIPO_FACTURA_CUENTA_BOTONES = [("factura", "Factura"), ("cuenta", "Cuenta")]
+TIPO_FACTURA_CUENTA_BOTONES = [("factura", "Factura"), ("cuenta", "Cuenta"), ("descartar", "Descartar")]
+DESCARTAR_BOTONES = [("descartar", "Descartar")]
 
 NUMERO_NO_HABILITADO_TEXTO = (
     "Este numero no esta habilitado para registrar comprobantes. Contacta al administrador para que te registre."
@@ -43,6 +45,8 @@ def _reply_buttons(service: ConversationService, numero: str) -> list[tuple[str,
         return SI_NO_BOTONES
     if service.needs_tipo_keyboard(numero):
         return TIPO_FACTURA_CUENTA_BOTONES
+    if service.needs_descartar_keyboard(numero):
+        return DESCARTAR_BOTONES
     return None
 
 
@@ -110,6 +114,23 @@ async def _download_whatsapp_media(media_id: str) -> tuple[bytes, str]:
     return archivo.content, datos.get("mime_type", "application/octet-stream")
 
 
+# Desde octubre de 2026 Meta cobra cada respuesta del bot, asi que a un numero
+# no registrado (o a alguien que escribe por error) se le avisa una sola vez por
+# ventana de 24h en vez de contestarle cada mensaje. En memoria del proceso: si
+# se reinicia, a lo sumo se repite el aviso una vez, no hace falta persistirlo.
+_AVISO_NO_HABILITADO_CADA = timedelta(hours=24)
+_avisos_no_habilitado: dict[str, datetime] = {}
+
+
+def _debe_avisar_no_habilitado(numero: str) -> bool:
+    ahora = datetime.now()
+    ultimo = _avisos_no_habilitado.get(numero)
+    if ultimo is not None and ahora - ultimo < _AVISO_NO_HABILITADO_CADA:
+        return False
+    _avisos_no_habilitado[numero] = ahora
+    return True
+
+
 def _ultimos_digitos(numero: str, cantidad: int = 10) -> str | None:
     digitos = re.sub(r"\D", "", numero)
     if len(digitos) < cantidad:
@@ -167,7 +188,8 @@ async def _handle_message(message: dict[str, Any]) -> None:
     with SessionLocal() as session:
         operador = _find_operator_by_numero(session, from_numero)
     if operador is None:
-        await send_whatsapp_message(from_numero, NUMERO_NO_HABILITADO_TEXTO)
+        if _debe_avisar_no_habilitado(from_numero):
+            await send_whatsapp_message(from_numero, NUMERO_NO_HABILITADO_TEXTO)
         return
     # Clave canonica compartida con Telegram (ConversationService.handle_text ya
     # identifica al operador por este mismo numero alla) -- un comprobante
@@ -200,17 +222,20 @@ async def _handle_message(message: dict[str, Any]) -> None:
         return
 
     media_id = None
+    caption = None
     file_name = "comprobante"
     content_type = "application/octet-stream"
     if tipo == "image":
         media_id = message["image"]["id"]
         content_type = message["image"].get("mime_type", "image/jpeg")
+        caption = message["image"].get("caption")
         file_name = f"{media_id}.jpg"
     elif tipo == "document":
         document = message["document"]
         media_id = document["id"]
         content_type = document.get("mime_type", content_type)
         file_name = document.get("filename", file_name)
+        caption = document.get("caption")
 
     if media_id is None:
         await send_whatsapp_message(numero, "Envia una imagen o PDF del comprobante de transferencia.")
@@ -238,7 +263,7 @@ async def _handle_message(message: dict[str, Any]) -> None:
 
     with SessionLocal() as session:
         service = ConversationService(session)
-        reply = service.start_transfer(numero, transfer, archivo_id)
+        reply = service.start_transfer(numero, transfer, archivo_id, caption=caption)
         botones = _reply_buttons(service, numero)
     await send_whatsapp_message(numero, reply, botones)
 

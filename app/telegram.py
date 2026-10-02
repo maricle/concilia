@@ -30,8 +30,16 @@ SI_NO_MARKUP = {
 }
 
 TIPO_FACTURA_CUENTA_MARKUP = {
-    "inline_keyboard": [[{"text": "Factura", "callback_data": "factura"}, {"text": "Cuenta", "callback_data": "cuenta"}]]
+    "inline_keyboard": [
+        [
+            {"text": "Factura", "callback_data": "factura"},
+            {"text": "Cuenta", "callback_data": "cuenta"},
+            {"text": "Descartar", "callback_data": "descartar"},
+        ]
+    ]
 }
+
+DESCARTAR_MARKUP = {"inline_keyboard": [[{"text": "Descartar", "callback_data": "descartar"}]]}
 
 PEDIR_TELEFONO_TEXTO = "Para registrar comprobantes primero compartinos tu numero de telefono con el boton de abajo."
 NUMERO_NO_HABILITADO_TEXTO = "Tu numero no esta habilitado. Contacta al administrador para que te registre."
@@ -43,6 +51,8 @@ def _reply_markup(service: ConversationService, numero: str) -> dict | None:
         return SI_NO_MARKUP
     if service.needs_tipo_keyboard(numero):
         return TIPO_FACTURA_CUENTA_MARKUP
+    if service.needs_descartar_keyboard(numero):
+        return DESCARTAR_MARKUP
     return None
 
 
@@ -274,7 +284,7 @@ async def receive_telegram_update(
 
     with SessionLocal() as session:
         service = ConversationService(session)
-        reply = service.start_transfer(numero, transfer, archivo_id)
+        reply = service.start_transfer(numero, transfer, archivo_id, caption=message.get("caption"))
         markup = _reply_markup(service, numero)
     await send_telegram_message(chat_id, reply, reply_markup=markup)
     return {"status": "accepted"}

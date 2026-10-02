@@ -78,7 +78,10 @@ def _mensaje_texto(numero_from: str, texto: str) -> dict:
     }
 
 
-def _mensaje_imagen(numero_from: str, media_id: str = "media-abc") -> dict:
+def _mensaje_imagen(numero_from: str, media_id: str = "media-abc", caption: str | None = None) -> dict:
+    image = {"id": media_id, "mime_type": "image/jpeg"}
+    if caption is not None:
+        image["caption"] = caption
     return {
         "entry": [
             {
@@ -86,7 +89,7 @@ def _mensaje_imagen(numero_from: str, media_id: str = "media-abc") -> dict:
                     {
                         "value": {
                             "messages": [
-                                {"from": numero_from, "type": "image", "image": {"id": media_id, "mime_type": "image/jpeg"}}
+                                {"from": numero_from, "type": "image", "image": image}
                             ]
                         }
                     }
@@ -97,6 +100,7 @@ def _mensaje_imagen(numero_from: str, media_id: str = "media-abc") -> dict:
 
 
 def test_texto_de_numero_no_registrado_es_rechazado(monkeypatch):
+    monkeypatch.setattr(webhook, "_avisos_no_habilitado", {})
     sent: list[tuple[str, str, list | None]] = []
 
     async def fake_send(to: str, text: str, botones=None) -> None:
@@ -184,7 +188,9 @@ def test_imagen_se_extrae_y_guarda(monkeypatch):
         (
             "3794500222",
             "Monto: $100.00\nFecha: 2026-08-24\nCuenta receptora: empresa.mp\nOperacion: OP-999\n"
-            "Factura/cuenta: pendiente\n\n¿El dato que vas a cargar es un numero de factura o un numero de cuenta del cliente?",
+            "Factura/cuenta: pendiente\n\nSi los datos estan bien, elegi si vas a cargar un numero de factura o un numero de cuenta del cliente. Si no, descartalo."
+            "\nTip: la proxima vez manda el comprobante con el texto \"F 12345\" o \"C 12345\" y te ahorras este paso."
+            "\n\nIndica el tipo y numero de comprobante (ej: F 12345 o C 987).",
             webhook.TIPO_FACTURA_CUENTA_BOTONES,
         )
     ]
@@ -297,7 +303,7 @@ def test_segunda_imagen_mientras_hay_borrador_pendiente_no_huerfana_la_primera(m
     assert len(extract_calls) == 1  # el segundo mensaje no debe llegar a extraer nada
     assert sent[-1] == (
         "3794500888",
-        "Todavia estoy esperando que indiques si el dato que vas a cargar es un numero de factura o de cuenta.",
+        "Tenes movimientos pendientes. Indica el tipo y numero de comprobante (ej: F 12345) o descartalo.",
         webhook.TIPO_FACTURA_CUENTA_BOTONES,
     )
 
@@ -350,7 +356,7 @@ def test_boton_interactive_responde_igual_que_texto_libre(monkeypatch):
     response = client.post("/webhook", json=payload)
 
     assert response.status_code == 200
-    assert sent == [("3794500999", "Indica el numero de factura del cliente asociado a este pago.", None)]
+    assert sent == [("3794500999", "Indica el numero de factura del cliente asociado a este pago.", webhook.DESCARTAR_BOTONES)]
 
     _clean_movement("OP-BOTON")
 
@@ -391,3 +397,54 @@ def test_cerrar_reparto_notifica_al_otro_operador_asociado_directo_por_whatsapp(
     _clean_movil("M-TEST-CIERRE-WA")
     _clean_operator("3794577001")
     _clean_operator("3794577002")
+
+
+def test_numero_no_registrado_recibe_el_aviso_una_sola_vez(monkeypatch):
+    # Cada respuesta del bot se cobra: a un numero desconocido se le avisa una
+    # vez, no en cada mensaje que mande.
+    monkeypatch.setattr(webhook, "_avisos_no_habilitado", {})
+    sent: list[tuple[str, str, list | None]] = []
+
+    async def fake_send(to: str, text: str, botones=None) -> None:
+        sent.append((to, text, botones))
+
+    monkeypatch.setattr(webhook, "send_whatsapp_message", fake_send)
+
+    client.post("/webhook", json=_mensaje_texto("5493794500001", "hola"))
+    client.post("/webhook", json=_mensaje_texto("5493794500001", "hola?"))
+    client.post("/webhook", json=_mensaje_texto("5493794500001", "alguien?"))
+
+    assert sent == [("5493794500001", webhook.NUMERO_NO_HABILITADO_TEXTO, None)]
+
+
+def test_imagen_con_caption_de_factura_pide_solo_confirmar(monkeypatch):
+    _register_operator("3794500333")
+    _clean_movement("OP-CAPTION")
+    with SessionLocal() as session:
+        if session.scalar(select(BankAccount).where(BankAccount.alias == "empresa.mp")) is None:
+            session.add(BankAccount(banco="Mercado Pago", numero_cuenta="1", alias="empresa.mp"))
+            session.commit()
+
+    sent: list[tuple[str, str, list | None]] = []
+
+    async def fake_send(to: str, text: str, botones=None) -> None:
+        sent.append((to, text, botones))
+
+    async def fake_download(media_id: str) -> tuple[bytes, str]:
+        return b"fake-photo-bytes", "image/jpeg"
+
+    def fake_extract(content_type: str, data: bytes) -> ExtractedTransfer:
+        return ExtractedTransfer(Decimal("100.00"), datetime(2026, 8, 24), "OP-CAPTION", cuenta_receptora="empresa.mp")
+
+    monkeypatch.setattr(webhook, "send_whatsapp_message", fake_send)
+    monkeypatch.setattr(webhook, "_download_whatsapp_media", fake_download)
+    monkeypatch.setattr(webhook, "extract_transfer", fake_extract)
+    monkeypatch.setattr(webhook, "save_comprobante_archivo", lambda **kwargs: 1)
+
+    client.post("/webhook", json=_mensaje_imagen("3794500333", caption="F 4455"))
+
+    assert len(sent) == 1
+    numero, texto, botones = sent[0]
+    assert "Factura/cuenta: Factura: 4455" in texto
+    assert "¿Registro el comprobante?" in texto
+    assert botones == webhook.SI_NO_BOTONES

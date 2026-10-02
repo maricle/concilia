@@ -28,7 +28,11 @@ NO_CUENTA_RECEPTORA_TEXTO = (
     "Reenvia el comprobante, o si el problema persiste contacta al administrador para cargarlo manualmente."
 )
 
-_CANCELAR_TEXTO = {"no", "cancelar", "cancelo"}
+SIN_SALIDA_ABIERTA_TEXTO = "No tenes una salida abierta. Indica el numero de salida para registrar el comprobante."
+
+PENDIENTE_TEXTO = "Tenes movimientos pendientes."
+
+_CANCELAR_TEXTO = {"no", "cancelar", "cancelo", "descartar"}
 
 _TIPO_POR_TEXTO = {
     "factura": TipoIdentificador.FACTURA,
@@ -44,6 +48,29 @@ _TIPO_POR_TEXTO = {
 
 def _parse_tipo_identificador(normalized: str) -> TipoIdentificador | None:
     return _TIPO_POR_TEXTO.get(normalized)
+
+
+_CAPTION_FACTURA_CUENTA = re.compile(
+    r"^\s*(factura|fact|fac|fc|f|cuenta|cta|c)(?![a-z])[\s.:#nº°-]*(\S+)\s*$", re.IGNORECASE
+)
+
+
+def _parse_caption_factura_cuenta(caption: str | None) -> tuple[TipoIdentificador, str] | None:
+    """Lee el texto que el operador manda junto a la foto/PDF del comprobante
+    (ej. "F 12345", "factura 12345", "C 987", "cta: 987"). Si viene, se ahorran
+    los dos pasos de preguntar tipo y numero por separado -- desde octubre de
+    2026 Meta cobra cada respuesta del bot por WhatsApp, asi que cada paso menos
+    es un mensaje menos. Sin prefijo reconocible devuelve None y se sigue el
+    flujo de preguntas normal (un numero suelto no alcanza: no se sabe si es
+    factura o cuenta)."""
+    if not caption:
+        return None
+    match = _CAPTION_FACTURA_CUENTA.match(caption)
+    if match is None:
+        return None
+    prefijo = match.group(1).lower()
+    tipo = TipoIdentificador.FACTURA if prefijo.startswith("f") else TipoIdentificador.CUENTA
+    return tipo, match.group(2)
 
 
 def _etiqueta_tipo(tipo: TipoIdentificador | None) -> str:
@@ -226,6 +253,10 @@ class ConversationService:
                 conversation.estado = ConversationState.ESPERANDO_COMPROBANTE
                 self.session.commit()
                 return "La sesion vencio. Reenvia el comprobante, por favor."
+            if normalized in _CANCELAR_TEXTO:
+                self._discard(conversation)
+                self.session.commit()
+                return "Registro descartado. Puedes reenviar el comprobante."
             movil = self._buscar_movil_activo(text)
             if movil is None:
                 return f"No encontramos un movil activo con el numero {text.strip()}. Respondé con el numero correcto."
@@ -233,17 +264,14 @@ class ConversationService:
             reparto_abierto = self._reparto_abierto(movil.id)
             if reparto_abierto is not None:
                 self._asociar_operador(reparto_abierto, operator)
-                movement.movil_id = movil.id
-                movement.reparto_id = reparto_abierto.id
-                movement.estado_registro = RecordState.CONFIRMADO
-                conversation.movimiento_borrador_id = None
-                conversation.estado = ConversationState.ESPERANDO_COMPROBANTE
-                self.session.commit()
-                numero_abierto = reparto_abierto.numero_reparto if reparto_abierto.numero_reparto is not None else "sin numero"
-                return f"Comprobante registrado correctamente. Salida Nº {numero_abierto} en el movil {movil.numero}."
+                return self._confirmar_en_reparto(conversation, movement, reparto_abierto, movil)
 
-            conversation.estado = ConversationState.ESPERANDO_CONFIRMACION_CREAR_REPARTO
             conversation.movil_pendiente_numero = movil.numero
+            if conversation.numero_reparto_pendiente is not None:
+                return self._crear_reparto_y_confirmar_comprobante(
+                    operator, conversation, conversation.numero_reparto_pendiente
+                )
+            conversation.estado = ConversationState.ESPERANDO_CONFIRMACION_CREAR_REPARTO
             self.session.commit()
             return (
                 f"No hay ninguna salida abierta en el movil {movil.numero}. ¿Queres iniciar una? "
@@ -271,6 +299,8 @@ class ConversationService:
             numero_texto = text.strip()
             if not numero_texto.isdigit():
                 return "Ese no es un numero de salida valido. Respondé solo con el numero."
+            if conversation.movil_pendiente_numero is None:
+                return self._resolver_salida_por_numero(operator, conversation, int(numero_texto))
             return self._crear_reparto_y_confirmar_comprobante(operator, conversation, int(numero_texto))
 
         if conversation.estado == ConversationState.ESPERANDO_CONFIRMACION_DATOS:
@@ -294,6 +324,12 @@ class ConversationService:
                 self._discard(conversation)
                 self.session.commit()
                 return "Registro descartado. Puedes reenviar el comprobante."
+            factura_cuenta = _parse_caption_factura_cuenta(text)
+            if factura_cuenta is not None:
+                # Tipo y numero en un solo mensaje ("F 12345"): se registra
+                # directo, sin el paso intermedio de pedir el numero.
+                movement.factura_o_cuenta_tipo, movement.factura_o_cuenta_numero = factura_cuenta
+                return self._registrar(operator, conversation, movement)
             tipo = _parse_tipo_identificador(normalized)
             if tipo is None:
                 return "Respondé 'factura' o 'cuenta' para indicar que numero vas a cargar."
@@ -308,30 +344,26 @@ class ConversationService:
                 conversation.estado = ConversationState.ESPERANDO_COMPROBANTE
                 self.session.commit()
                 return "La sesion vencio. Reenvia el comprobante, por favor."
+            if normalized in _CANCELAR_TEXTO:
+                self._discard(conversation)
+                self.session.commit()
+                return "Registro descartado. Puedes reenviar el comprobante."
             movement.factura_o_cuenta_numero = text.strip()
-            conversation.estado = ConversationState.ESPERANDO_CONFIRMACION_FINAL
-            self.session.commit()
-            return self._summary(movement) + "\n\nConfirma la operacion respondiendo SI para que se registre el movimiento, o NO para descartarlo."
+            # Sin una segunda confirmacion con el resumen repetido: el operador ya
+            # vio los datos extraidos al elegir factura/cuenta, y el mensaje de
+            # "registrado" le muestra el numero cargado -- si se equivoco, un
+            # administrador lo corrige desde el panel (/comprobantes/{id}/editar).
+            # Es un mensaje de WhatsApp (pago) menos por comprobante.
+            return self._registrar(operator, conversation, movement)
 
         if conversation.estado == ConversationState.ESPERANDO_CONFIRMACION_FINAL:
-            if normalized in {"si", "sí", "ok", "confirmo", "registrar"}:
+            if normalized in {"si", "sí", "ok", "confirmo", "confirmar", "registrar"}:
                 movement = conversation.movimiento_borrador
                 if movement is None:
                     conversation.estado = ConversationState.ESPERANDO_COMPROBANTE
                     self.session.commit()
                     return "La sesion vencio. Reenvia el comprobante, por favor."
-                reparto_propio = self._reparto_abierto_de_operador(operator.id)
-                if reparto_propio is None:
-                    conversation.estado = ConversationState.ESPERANDO_MOVIL
-                    self.session.commit()
-                    return "¿En que movil estas? Respondé con el numero del movil."
-                movement.movil_id = reparto_propio.movil_id
-                movement.reparto_id = reparto_propio.id
-                movement.estado_registro = RecordState.CONFIRMADO
-                conversation.movimiento_borrador_id = None
-                conversation.estado = ConversationState.ESPERANDO_COMPROBANTE
-                self.session.commit()
-                return "Comprobante registrado correctamente."
+                return self._registrar(operator, conversation, movement)
             if normalized in _CANCELAR_TEXTO:
                 self._discard(conversation)
                 self.session.commit()
@@ -358,6 +390,19 @@ class ConversationService:
         conversation = self.session.get(WhatsAppConversation, number)
         return conversation is not None and conversation.estado == ConversationState.ESPERANDO_TIPO_FACTURA_CUENTA
 
+    def needs_descartar_keyboard(self, number: str) -> bool:
+        """True si el operador tiene que escribir un dato (numero de factura/cuenta,
+        de salida o movil) de un comprobante a medio cargar -- se le ofrece un
+        boton para descartarlo sin tener que escribir "descartar"."""
+        conversation = self.session.get(WhatsAppConversation, number)
+        if conversation is None or conversation.movimiento_borrador_id is None:
+            return False
+        return conversation.estado in {
+            ConversationState.ESPERANDO_NUMERO_FACTURA_CUENTA,
+            ConversationState.ESPERANDO_NUMERO_REPARTO_NUEVO,
+            ConversationState.ESPERANDO_MOVIL,
+        }
+
     def pending_prompt(self, number: str) -> str | None:
         """Si el operador ya tiene un comprobante sin cerrar, devuelve el mensaje que
         corresponde re-mostrarle en vez de arrancar uno nuevo (para no dejar el
@@ -368,7 +413,7 @@ class ConversationService:
             return None
 
         if conversation.estado == ConversationState.ESPERANDO_TIPO_FACTURA_CUENTA:
-            return "Todavia estoy esperando que indiques si el dato que vas a cargar es un numero de factura o de cuenta."
+            return f"{PENDIENTE_TEXTO} Indica el tipo y numero de comprobante (ej: F 12345) o descartalo."
 
         if conversation.estado == ConversationState.ESPERANDO_DECISION_REPARTO_ABIERTO:
             return "Todavia estoy esperando que respondas 'cerrar' o 'continuar' sobre la salida que ya tenes abierta."
@@ -389,6 +434,8 @@ class ConversationService:
             )
 
         if conversation.estado == ConversationState.ESPERANDO_NUMERO_REPARTO_NUEVO:
+            if conversation.movil_pendiente_numero is None:
+                return f"{PENDIENTE_TEXTO} Indica el numero de salida o descartalo."
             return "¿Que numero de salida es? Respondé solo con el numero."
 
         movement = conversation.movimiento_borrador
@@ -400,17 +447,16 @@ class ConversationService:
         if conversation.estado == ConversationState.ESPERANDO_CONFIRMACION_DATOS:
             return self._summary(movement) + "\n\nResponde SI para confirmar o NO para descartar."
         if conversation.estado == ConversationState.ESPERANDO_NUMERO_FACTURA_CUENTA:
-            return f"Todavia estoy esperando el numero de {_etiqueta_tipo(movement.factura_o_cuenta_tipo)} del comprobante anterior."
+            return f"{PENDIENTE_TEXTO} Indica el numero de {_etiqueta_tipo(movement.factura_o_cuenta_tipo)} o descartalo."
         if conversation.estado == ConversationState.ESPERANDO_CONFIRMACION_FINAL:
-            return (
-                self._summary(movement)
-                + "\n\nConfirma la operacion respondiendo SI para que se registre el movimiento, o NO para descartarlo."
-            )
+            return f"{PENDIENTE_TEXTO} {self._resumen_corto(movement)}. ¿Lo registro? Respondé SI, o NO para descartarlo."
         if conversation.estado == ConversationState.ESPERANDO_MOVIL:
-            return "Todavia estoy esperando que me digas en que movil estas para poder registrar el comprobante."
+            return f"{PENDIENTE_TEXTO} Indica en que movil estas o descartalo."
         return None
 
-    def start_transfer(self, number: str, transfer: ExtractedTransfer, archivo_id: int | None = None) -> str:
+    def start_transfer(
+        self, number: str, transfer: ExtractedTransfer, archivo_id: int | None = None, caption: str | None = None
+    ) -> str:
         operator = self.session.scalar(select(Operator).where(Operator.whatsapp_numero == number, Operator.activo.is_(True)))
         if operator is None:
             return "Este numero no esta habilitado para registrar comprobantes."
@@ -448,24 +494,112 @@ class ConversationService:
         # elija a mano -- un administrador la completa despues desde el panel
         # (/comprobantes/{id}/editar, ver editar_movimiento.html), que para eso
         # tiene el texto crudo extraido como referencia.
-        # Se salta directo al paso de factura/cuenta -- mostrar el resumen y pedir
-        # una confirmacion aparte antes de esto era una revision redundante, ya que
-        # el resumen se vuelve a mostrar completo (con factura/cuenta ya cargada)
-        # en la confirmacion final antes de registrar.
-        return self._avanzar_a_tipo_factura_cuenta(conversation, movement)
+        # El resumen va junto con la pregunta de factura/cuenta: elegir una de las
+        # dos es la confirmacion de que los datos extraidos estan bien (o
+        # "Descartar" si no), sin un paso de SI/NO aparte.
+        factura_cuenta = _parse_caption_factura_cuenta(caption)
+        if factura_cuenta is None:
+            return self._avanzar_a_tipo_factura_cuenta(conversation, movement)
+        # El operador ya mando factura/cuenta en el texto del comprobante: un solo
+        # mensaje con el resumen completo para confirmar, y listo.
+        movement.factura_o_cuenta_tipo, movement.factura_o_cuenta_numero = factura_cuenta
+        conversation.estado = ConversationState.ESPERANDO_CONFIRMACION_FINAL
+        self.session.commit()
+        return self._summary(movement) + "\n\n¿Registro el comprobante? Respondé SI o NO."
 
     def _avanzar_a_tipo_factura_cuenta(self, conversation: WhatsAppConversation, movement: Movement) -> str:
         conversation.estado = ConversationState.ESPERANDO_TIPO_FACTURA_CUENTA
         self.session.commit()
         return (
             self._summary(movement)
-            + "\n\n¿El dato que vas a cargar es un numero de factura o un numero de cuenta del cliente?"
+            + "\n\nSi los datos estan bien, elegi si vas a cargar un numero de factura o un numero de cuenta del cliente. "
+            "Si no, descartalo."
+            "\nTip: la proxima vez manda el comprobante con el texto \"F 12345\" o \"C 12345\" y te ahorras este paso."
+            "\n\nIndica el tipo y numero de comprobante (ej: F 12345 o C 987)."
+        )
+
+    def _registrar(self, operator: Operator, conversation: WhatsAppConversation, movement: Movement) -> str:
+        reparto_propio = self._reparto_abierto_de_operador(operator.id)
+        if reparto_propio is None:
+            conversation.estado = ConversationState.ESPERANDO_NUMERO_REPARTO_NUEVO
+            conversation.movil_pendiente_numero = None
+            self.session.commit()
+            return SIN_SALIDA_ABIERTA_TEXTO
+        movement.movil_id = reparto_propio.movil_id
+        movement.reparto_id = reparto_propio.id
+        movement.estado_registro = RecordState.CONFIRMADO
+        conversation.movimiento_borrador_id = None
+        conversation.estado = ConversationState.ESPERANDO_COMPROBANTE
+        self.session.commit()
+        return f"Comprobante registrado correctamente.\n{self._resumen_corto(movement)}"
+
+    @staticmethod
+    def _resumen_corto(movement: Movement) -> str:
+        monto = f"${movement.monto}" if movement.monto is not None else "monto no detectado"
+        return f"{_etiqueta_tipo(movement.factura_o_cuenta_tipo).capitalize()}: {movement.factura_o_cuenta_numero} · {monto}"
+
+    def _resolver_salida_por_numero(
+        self, operator: Operator, conversation: WhatsAppConversation, numero_reparto: int
+    ) -> str:
+        """El operador sin salida abierta indico solo el numero de salida: se
+        deduce el movil sin hacerle mas preguntas (cada respuesta del bot por
+        WhatsApp se cobra). Si hay una unica salida abierta con ese numero, se
+        suma a ella; si no hay ninguna, se crea en el movil que el operador tiene
+        asignado. Solo si eso no alcanza (sin movil asignado, o mas de una salida
+        abierta con el mismo numero) se le pregunta el movil."""
+        movement = conversation.movimiento_borrador
+        if movement is None:
+            conversation.estado = ConversationState.ESPERANDO_COMPROBANTE
+            self.session.commit()
+            return "La sesion vencio. Reenvia el comprobante, por favor."
+
+        abiertas = self.session.scalars(
+            select(Reparto).where(Reparto.numero_reparto == numero_reparto, Reparto.hora_fin.is_(None))
+        ).all()
+        if len(abiertas) == 1:
+            reparto = abiertas[0]
+            self._asociar_operador(reparto, operator)
+            return self._confirmar_en_reparto(conversation, movement, reparto, self.session.get(Movil, reparto.movil_id))
+
+        movil = self.session.get(Movil, operator.movil_id) if operator.movil_id is not None else None
+        if not abiertas and movil is not None and movil.activo:
+            otra_abierta = self._reparto_abierto(movil.id)
+            if otra_abierta is not None:
+                return (
+                    f"El movil {movil.numero} ya tiene abierta la Salida Nº {otra_abierta.numero_reparto}. "
+                    "Indica ese numero de salida."
+                )
+            conversation.movil_pendiente_numero = movil.numero
+            return self._crear_reparto_y_confirmar_comprobante(operator, conversation, numero_reparto)
+
+        conversation.numero_reparto_pendiente = numero_reparto
+        conversation.estado = ConversationState.ESPERANDO_MOVIL
+        self.session.commit()
+        return "¿En que movil estas? Respondé con el numero del movil."
+
+    def _confirmar_en_reparto(
+        self, conversation: WhatsAppConversation, movement: Movement, reparto: Reparto, movil: Movil
+    ) -> str:
+        movement.movil_id = movil.id
+        movement.reparto_id = reparto.id
+        movement.estado_registro = RecordState.CONFIRMADO
+        conversation.movimiento_borrador_id = None
+        conversation.numero_reparto_pendiente = None
+        conversation.movil_pendiente_numero = None
+        conversation.estado = ConversationState.ESPERANDO_COMPROBANTE
+        self.session.commit()
+        numero = reparto.numero_reparto if reparto.numero_reparto is not None else "sin numero"
+        return (
+            f"Comprobante registrado correctamente. Salida Nº {numero} en el movil {movil.numero}."
+            f"\n{self._resumen_corto(movement)}"
         )
 
     def _discard(self, conversation: WhatsAppConversation) -> None:
         if conversation.movimiento_borrador is not None:
             self.session.delete(conversation.movimiento_borrador)
         conversation.movimiento_borrador_id = None
+        conversation.numero_reparto_pendiente = None
+        conversation.movil_pendiente_numero = None
         conversation.estado = ConversationState.ESPERANDO_COMPROBANTE
 
     def _reparto_abierto(self, movil_id: int) -> Reparto | None:
@@ -742,11 +876,12 @@ class ConversationService:
         movement.estado_registro = RecordState.CONFIRMADO
         conversation.movimiento_borrador_id = None
         conversation.movil_pendiente_numero = None
+        conversation.numero_reparto_pendiente = None
         conversation.estado = ConversationState.ESPERANDO_COMPROBANTE
         self.session.commit()
         return (
             f"Comprobante registrado correctamente. Se inicio la Salida Nº {numero_reparto} en el movil "
-            f"{movil.numero}."
+            f"{movil.numero}.\n{self._resumen_corto(movement)}"
         )
 
     @staticmethod
