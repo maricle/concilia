@@ -1,7 +1,7 @@
 """Comprobantes: listado, exportacion, carga manual, correccion y eliminacion."""
 
 import logging
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 
 from fastapi import APIRouter, Depends, Form, Request, UploadFile
@@ -24,7 +24,9 @@ from ..models import (
     TipoIdentificador,
 )
 from ..storage import get_comprobante_archivo, save_comprobante_archivo
+from ..zona_horaria import hoy_argentina
 from .comun import (
+    del_dia,
     existe_duplicado,
     get_db,
     obtener_o_redirigir,
@@ -38,6 +40,20 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 COMPROBANTES_POR_PAGINA = 50
+TODOS_LOS_DIAS = "todos"
+
+
+def _dia_seleccionado(fecha: str, hay_rango_de_fechas: bool) -> date | None:
+    """Dia por el que se filtra el listado (fecha de transaccion), igual que en
+    /conciliaciones: hoy por defecto, `fecha=todos` para ver todos los dias.
+    Si se usa un rango de fechas de los filtros avanzados, manda el rango y no
+    se filtra por dia (si no, los dos filtros se pisarian)."""
+    if fecha == TODOS_LOS_DIAS or hay_rango_de_fechas:
+        return None
+    try:
+        return datetime.strptime(fecha, "%Y-%m-%d").date()
+    except ValueError:
+        return hoy_argentina()
 
 _COLUMNAS_ORDENABLES = {
     "fecha_transaccion": Movement.fecha_transaccion,
@@ -60,6 +76,7 @@ def _comprobantes_query(
     sort: str = "",
     order: str = "asc",
     movil_id: str = "",
+    dia: date | None = None,
 ):
     query = (
         select(Movement)
@@ -79,6 +96,8 @@ def _comprobantes_query(
         query = query.where(Movement.operador_id == int(operador_id))
     if movil_id:
         query = query.where(Movement.movil_id == int(movil_id))
+    if dia is not None:
+        query = query.where(del_dia(Movement.fecha_transaccion, dia))
     if fecha_transaccion_desde:
         query = query.where(Movement.fecha_transaccion >= datetime.strptime(fecha_transaccion_desde, "%Y-%m-%d"))
     if fecha_transaccion_hasta:
@@ -126,14 +145,18 @@ def list_movimientos(
     sort: str = "",
     order: str = "asc",
     movil_id: str = "",
+    fecha: str = "",
     page: int = 1,
     db: Session = Depends(get_db),
     user: PanelUser = Depends(require_user),
 ):
+    dia = _dia_seleccionado(
+        fecha, any((fecha_transaccion_desde, fecha_transaccion_hasta, fecha_subida_desde, fecha_subida_hasta))
+    )
     query = _comprobantes_query(
         banco, estado_conciliacion, operador_id,
         fecha_transaccion_desde, fecha_transaccion_hasta, fecha_subida_desde, fecha_subida_hasta, q,
-        sort, order, movil_id,
+        sort, order, movil_id, dia,
     )
     # Paginado: el listado crece todos los dias y antes se traia entero (con sus
     # relaciones) en cada visita. Exportar sigue bajando todo lo filtrado.
@@ -151,6 +174,13 @@ def list_movimientos(
         {
             "user": user,
             "movimientos": movimientos,
+            "dia": dia,
+            "fecha": fecha,
+            "hay_rango_de_fechas": any(
+                (fecha_transaccion_desde, fecha_transaccion_hasta, fecha_subida_desde, fecha_subida_hasta)
+            ),
+            "dia_anterior": (dia - timedelta(days=1)).isoformat() if dia else None,
+            "dia_siguiente": (dia + timedelta(days=1)).isoformat() if dia else None,
             "pagina": pagina,
             "total_paginas": total_paginas,
             "total_movimientos": total,
@@ -185,14 +215,18 @@ def comprobantes_exportar(
     sort: str = "",
     order: str = "asc",
     movil_id: str = "",
+    fecha: str = "",
     db: Session = Depends(get_db),
     user: PanelUser = Depends(require_user),
 ):
+    dia = _dia_seleccionado(
+        fecha, any((fecha_transaccion_desde, fecha_transaccion_hasta, fecha_subida_desde, fecha_subida_hasta))
+    )
     movimientos = db.scalars(
         _comprobantes_query(
             banco, estado_conciliacion, operador_id,
             fecha_transaccion_desde, fecha_transaccion_hasta, fecha_subida_desde, fecha_subida_hasta, q,
-            sort, order, movil_id,
+            sort, order, movil_id, dia,
         )
     ).all()
 

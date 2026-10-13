@@ -64,14 +64,19 @@ def del_dia(columna, dia: date):
     return and_(columna >= inicio, columna < inicio + timedelta(days=1))
 
 
-def page_url(request: Request, pagina: int) -> str:
-    """URL de otra pagina de un listado, conservando filtros y orden."""
+def url_con(request: Request, **cambios: object) -> str:
+    """La URL actual con algunos parametros cambiados (None los saca),
+    conservando el resto: filtros, orden, pagina."""
     parametros = dict(request.query_params)
-    parametros["page"] = str(pagina)
+    for clave, valor in cambios.items():
+        if valor is None:
+            parametros.pop(clave, None)
+        else:
+            parametros[clave] = str(valor)
     return f"{request.url.path}?{urlencode(parametros)}"
 
 
-templates.env.globals["page_url"] = page_url
+templates.env.globals["url_con"] = url_con
 
 
 def respuesta_xlsx(headers: list[str], filas: list[list], filename: str) -> Response:

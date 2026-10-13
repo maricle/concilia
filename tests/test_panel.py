@@ -198,7 +198,7 @@ def test_movimientos_list_shows_only_confirmed():
         session.commit()
 
     client.post("/login", data={"email": "admin@concilia.test", "password": "secreta123"})
-    response = client.get("/comprobantes")
+    response = client.get("/comprobantes", params={"fecha": "todos"})
 
     assert response.status_code == 200
     assert "OP-CONFIRMADO" in response.text
@@ -239,7 +239,7 @@ def test_comprobantes_muestra_logo_del_banco_receptor():
         session.commit()
 
     client.post("/login", data={"email": "admin@concilia.test", "password": "secreta123"})
-    response = client.get("/comprobantes")
+    response = client.get("/comprobantes", params={"fecha": "todos"})
 
     assert response.status_code == 200
     assert "banco-dia-icon" in response.text
@@ -612,7 +612,7 @@ def test_comprobantes_fila_es_clickeable_y_sin_boton_editar():
         session.commit()
 
     client.post("/login", data={"email": "admin@concilia.test", "password": "secreta123"})
-    response = client.get("/comprobantes")
+    response = client.get("/comprobantes", params={"fecha": "todos"})
 
     assert response.status_code == 200
     assert 'class="fila-comprobante" data-href="/comprobantes/1/editar"' in response.text
@@ -997,7 +997,7 @@ def test_comprobantes_filtra_por_movil():
         session.commit()
 
     client.post("/login", data={"email": "admin@concilia.test", "password": "secreta123"})
-    response = client.get("/comprobantes", params={"movil_id": "1"})
+    response = client.get("/comprobantes", params={"movil_id": "1", "fecha": "todos"})
 
     assert response.status_code == 200
     assert "OP-M1" in response.text
@@ -1024,7 +1024,7 @@ def test_comprobantes_exportar_incluye_columna_movil():
         session.commit()
 
     client.post("/login", data={"email": "admin@concilia.test", "password": "secreta123"})
-    response = client.get("/comprobantes/exportar")
+    response = client.get("/comprobantes/exportar", params={"fecha": "todos"})
 
     assert response.status_code == 200
     libro = load_workbook(io.BytesIO(response.content))
@@ -1058,12 +1058,12 @@ def test_comprobantes_muestra_nro_de_reparto():
         session.commit()
 
     client.post("/login", data={"email": "admin@concilia.test", "password": "secreta123"})
-    response = client.get("/comprobantes")
+    response = client.get("/comprobantes", params={"fecha": "todos"})
 
     assert response.status_code == 200
     assert "Nro. Salida" in response.text
 
-    export = client.get("/comprobantes/exportar")
+    export = client.get("/comprobantes/exportar", params={"fecha": "todos"})
     libro = load_workbook(io.BytesIO(export.content))
     filas = [[celda.value for celda in fila] for fila in libro.active.iter_rows()]
     encabezado, fila = filas[0], filas[1]
@@ -1612,9 +1612,9 @@ def test_listado_de_comprobantes_paginado():
             )
         session.commit()
 
-    primera = client.get("/comprobantes").text
-    segunda = client.get("/comprobantes?page=2").text
-    fuera_de_rango = client.get("/comprobantes?page=99").text
+    primera = client.get("/comprobantes?fecha=2026-08-24").text
+    segunda = client.get("/comprobantes?fecha=2026-08-24&page=2").text
+    fuera_de_rango = client.get("/comprobantes?fecha=2026-08-24&page=99").text
 
     assert primera.count('class="fila-comprobante"') == 50
     assert "Mostrando 50 de 55 comprobantes" in primera
@@ -1647,3 +1647,62 @@ def test_del_dia_incluye_la_medianoche_y_excluye_el_dia_siguiente():
         ).all()
 
     assert sorted(del_24) == ["OP-00", "OP-2359"]
+
+
+def _comprobantes_en_dias(test_session) -> None:
+    with test_session() as session:
+        session.add(Operator(nombre="Ana", whatsapp_numero="111"))
+        session.flush()
+        for numero, momento in [
+            ("OP-HOY", datetime.combine(hoy_argentina(), datetime.min.time()).replace(hour=10)),
+            ("OP-AYER", datetime.combine(hoy_argentina() - timedelta(days=1), datetime.min.time()).replace(hour=10)),
+        ]:
+            session.add(
+                Movement(
+                    operador_id=1, monto=Decimal("10"), numero_operacion=numero,
+                    fecha_transaccion=momento, estado_registro=RecordState.CONFIRMADO,
+                )
+            )
+        session.commit()
+
+
+def test_comprobantes_muestra_por_defecto_los_del_dia():
+    client, test_session = _client_with_admin()
+    client.post("/login", data={"email": "admin@concilia.test", "password": "secreta123"})
+    _comprobantes_en_dias(test_session)
+
+    hoy = client.get("/comprobantes").text
+    ayer = client.get("/comprobantes", params={"fecha": (hoy_argentina() - timedelta(days=1)).isoformat()}).text
+    todos = client.get("/comprobantes", params={"fecha": "todos"}).text
+
+    assert "OP-HOY" in hoy and "OP-AYER" not in hoy
+    assert f'value="{hoy_argentina().isoformat()}"' in hoy  # el selector arranca en hoy
+    assert "OP-AYER" in ayer and "OP-HOY" not in ayer
+    assert "OP-HOY" in todos and "OP-AYER" in todos
+
+
+def test_rango_de_fechas_tiene_prioridad_sobre_el_dia():
+    client, test_session = _client_with_admin()
+    client.post("/login", data={"email": "admin@concilia.test", "password": "secreta123"})
+    _comprobantes_en_dias(test_session)
+    ayer = (hoy_argentina() - timedelta(days=1)).isoformat()
+
+    pagina = client.get(
+        "/comprobantes",
+        params={"fecha": hoy_argentina().isoformat(), "fecha_transaccion_desde": ayer, "fecha_transaccion_hasta": ayer},
+    ).text
+
+    assert "OP-AYER" in pagina and "OP-HOY" not in pagina
+    assert "Filtrando por rango de fechas" in pagina
+
+
+def test_exportar_respeta_el_dia_elegido():
+    client, test_session = _client_with_admin()
+    client.post("/login", data={"email": "admin@concilia.test", "password": "secreta123"})
+    _comprobantes_en_dias(test_session)
+
+    export = client.get("/comprobantes/exportar", params={"fecha": hoy_argentina().isoformat()})
+    hoja = load_workbook(io.BytesIO(export.content)).active
+    numeros = {fila[7] for fila in hoja.iter_rows(min_row=2, values_only=True)}
+
+    assert "OP-HOY" in str(numeros) and "OP-AYER" not in str(numeros)
