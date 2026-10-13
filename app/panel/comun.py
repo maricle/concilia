@@ -3,7 +3,7 @@ filtros, dependencias de sesion y permisos, excepciones y helpers."""
 
 import io
 import logging
-from datetime import datetime
+from datetime import date, datetime, time, timedelta
 from typing import TypeVar
 from urllib.parse import urlencode
 
@@ -11,7 +11,7 @@ from fastapi import Depends, Request
 from fastapi.responses import Response
 from fastapi.templating import Jinja2Templates
 from openpyxl import Workbook
-from sqlalchemy import select
+from sqlalchemy import and_, select
 from sqlalchemy.orm import DeclarativeBase, InstrumentedAttribute, Session
 
 from ..bancos import icono_banco
@@ -53,6 +53,25 @@ def _sort_url(request: Request, campo: str) -> str:
 
 templates.env.globals["sort_url"] = _sort_url
 templates.env.globals["icono_banco"] = icono_banco
+
+
+def del_dia(columna, dia: date):
+    """Condicion "columna cae en `dia`" como rango [00:00, 00:00 del dia siguiente).
+    Es equivalente a func.date(columna) == dia, pero esa forma obliga a la base a
+    calcular la fecha de cada fila y no puede usar el indice de la columna; con
+    el rango, las consultas por dia (conciliaciones, resumen) usan el indice."""
+    inicio = datetime.combine(dia, time.min)
+    return and_(columna >= inicio, columna < inicio + timedelta(days=1))
+
+
+def page_url(request: Request, pagina: int) -> str:
+    """URL de otra pagina de un listado, conservando filtros y orden."""
+    parametros = dict(request.query_params)
+    parametros["page"] = str(pagina)
+    return f"{request.url.path}?{urlencode(parametros)}"
+
+
+templates.env.globals["page_url"] = page_url
 
 
 def respuesta_xlsx(headers: list[str], filas: list[list], filename: str) -> Response:

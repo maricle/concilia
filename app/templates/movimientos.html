@@ -160,6 +160,18 @@
       </table>
     </div>
     </form>
+    <div class="d-flex justify-content-between align-items-center mt-2">
+      <span class="text-muted small">Mostrando {{ movimientos|length }} de {{ total_movimientos }} comprobantes</span>
+      {% if total_paginas > 1 %}
+      <nav><ul class="pagination pagination-sm mb-0">
+        {% if pagina > 1 %}<li class="page-item"><a class="page-link" href="{{ page_url(request, pagina - 1) }}">&laquo;</a></li>{% endif %}
+        {% for p in range([1, pagina - 3]|max, [total_paginas, pagina + 3]|min + 1) %}
+        <li class="page-item{{ ' active' if p == pagina }}"><a class="page-link" href="{{ page_url(request, p) }}">{{ p }}</a></li>
+        {% endfor %}
+        {% if pagina < total_paginas %}<li class="page-item"><a class="page-link" href="{{ page_url(request, pagina + 1) }}">&raquo;</a></li>{% endif %}
+      </ul></nav>
+      {% endif %}
+    </div>
   </div>
 </div>
 <script>

@@ -6,7 +6,7 @@ from decimal import Decimal, InvalidOperation
 
 from fastapi import APIRouter, Depends, Form, Request, UploadFile
 from fastapi.responses import RedirectResponse, Response
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from ..conversation import buscar_cuenta_bancaria
@@ -36,6 +36,8 @@ from .comun import (
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+COMPROBANTES_POR_PAGINA = 50
 
 _COLUMNAS_ORDENABLES = {
     "fecha_transaccion": Movement.fecha_transaccion,
@@ -124,16 +126,21 @@ def list_movimientos(
     sort: str = "",
     order: str = "asc",
     movil_id: str = "",
+    page: int = 1,
     db: Session = Depends(get_db),
     user: PanelUser = Depends(require_user),
 ):
-    movimientos = db.scalars(
-        _comprobantes_query(
-            banco, estado_conciliacion, operador_id,
-            fecha_transaccion_desde, fecha_transaccion_hasta, fecha_subida_desde, fecha_subida_hasta, q,
-            sort, order, movil_id,
-        )
-    ).all()
+    query = _comprobantes_query(
+        banco, estado_conciliacion, operador_id,
+        fecha_transaccion_desde, fecha_transaccion_hasta, fecha_subida_desde, fecha_subida_hasta, q,
+        sort, order, movil_id,
+    )
+    # Paginado: el listado crece todos los dias y antes se traia entero (con sus
+    # relaciones) en cada visita. Exportar sigue bajando todo lo filtrado.
+    total = db.scalar(select(func.count()).select_from(query.order_by(None).subquery())) or 0
+    total_paginas = max((total + COMPROBANTES_POR_PAGINA - 1) // COMPROBANTES_POR_PAGINA, 1)
+    pagina = min(max(page, 1), total_paginas)
+    movimientos = db.scalars(query.limit(COMPROBANTES_POR_PAGINA).offset((pagina - 1) * COMPROBANTES_POR_PAGINA)).all()
     cuentas = db.scalars(select(BankAccount).order_by(BankAccount.id)).all()
     operadores = db.scalars(select(Operator).order_by(Operator.nombre)).all()
     moviles = db.scalars(select(Movil).order_by(Movil.nombre)).all()
@@ -144,6 +151,9 @@ def list_movimientos(
         {
             "user": user,
             "movimientos": movimientos,
+            "pagina": pagina,
+            "total_paginas": total_paginas,
+            "total_movimientos": total,
             "cuentas": cuentas,
             "operadores": operadores,
             "moviles": moviles,

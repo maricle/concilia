@@ -92,12 +92,16 @@ class Movement(Base):
     __table_args__ = (
         UniqueConstraint("numero_operacion", name="uq_movimiento_operacion"),
         Index("ix_movimientos_movil_fecha_transaccion", "movil_id", "fecha_transaccion"),
+        # Conciliaciones y resumen filtran confirmados por dia, y por cuenta y dia.
+        Index("ix_movimientos_estado_fecha_transaccion", "estado_registro", "fecha_transaccion"),
+        Index("ix_movimientos_cuenta_fecha_transaccion", "cuenta_bancaria_id", "fecha_transaccion"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    operador_id: Mapped[int] = mapped_column(ForeignKey("operadores.id"))
+    operador_id: Mapped[int] = mapped_column(ForeignKey("operadores.id"), index=True)
     fecha_transaccion: Mapped[datetime | None] = mapped_column(DateTime)
-    fecha_subida: Mapped[datetime] = mapped_column(DateTime, default=ahora_argentina)
+    # Orden por defecto del listado de comprobantes.
+    fecha_subida: Mapped[datetime] = mapped_column(DateTime, default=ahora_argentina, index=True)
     monto: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
     banco_emisor: Mapped[str | None] = mapped_column(String(120))
     cuenta_receptora_extraida: Mapped[str | None] = mapped_column(String(150))
@@ -199,6 +203,7 @@ class ComprobanteArchivo(Base):
 
 class ImportedStatement(Base):
     __tablename__ = "resumenes_importados"
+    __table_args__ = (Index("ix_resumenes_importados_cuenta_fecha", "cuenta_bancaria_id", "fecha"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     cuenta_bancaria_id: Mapped[int] = mapped_column(ForeignKey("cuentas_bancarias.id"))
@@ -220,12 +225,12 @@ class StatementLine(Base):
     __tablename__ = "lineas_resumen"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    resumen_id: Mapped[int] = mapped_column(ForeignKey("resumenes_importados.id"))
+    resumen_id: Mapped[int] = mapped_column(ForeignKey("resumenes_importados.id"), index=True)
     fecha: Mapped[datetime] = mapped_column(DateTime)
     monto: Mapped[Decimal] = mapped_column(Numeric(14, 2))
     descripcion: Mapped[str | None] = mapped_column(String(255))
     referencia: Mapped[str | None] = mapped_column(String(120))
-    movimiento_id: Mapped[int | None] = mapped_column(ForeignKey("movimientos.id"))
+    movimiento_id: Mapped[int | None] = mapped_column(ForeignKey("movimientos.id"), index=True)
     estado: Mapped[StatementLineState] = mapped_column(default=StatementLineState.PENDIENTE)
 
     resumen: Mapped[ImportedStatement] = relationship()

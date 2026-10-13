@@ -21,7 +21,7 @@ from ..models import (
     RepartoOperador,
 )
 from ..zona_horaria import hoy_argentina
-from .comun import get_db, require_user, respuesta_xlsx, templates
+from .comun import del_dia, get_db, require_user, respuesta_xlsx, templates
 from .conciliaciones import bancos_disponibles, panel_banco
 
 router = APIRouter()
@@ -164,7 +164,7 @@ def _kpis_hoy(db: Session, bancos_del_dia: list[dict]) -> dict:
         cantidad, monto = db.execute(
             select(func.count(Movement.id), func.coalesce(func.sum(Movement.monto), 0)).where(
                 Movement.estado_registro == RecordState.CONFIRMADO,
-                func.date(Movement.fecha_transaccion) == dia,
+                del_dia(Movement.fecha_transaccion, dia),
             )
         ).one()
         return cantidad or 0, monto or Decimal("0")
@@ -235,7 +235,7 @@ def _comprobantes_por_banco_hoy(db: Session) -> list[dict]:
         select(BankAccount.banco, func.count(Movement.id))
         .select_from(Movement)
         .outerjoin(BankAccount, Movement.cuenta_bancaria_id == BankAccount.id)
-        .where(Movement.estado_registro == RecordState.CONFIRMADO, func.date(Movement.fecha_transaccion) == hoy)
+        .where(Movement.estado_registro == RecordState.CONFIRMADO, del_dia(Movement.fecha_transaccion, hoy))
         .group_by(BankAccount.banco)
     ).all()
     total = sum(cantidad for _, cantidad in filas) or 1

@@ -1591,3 +1591,59 @@ def test_webhooks_no_exigen_origen():
     respuesta = client.post("/webhook", json={"entry": []}, headers={"origin": "https://graph.facebook.com"})
 
     assert respuesta.status_code == 200
+
+
+def test_listado_de_comprobantes_paginado():
+    client, test_session = _client_with_admin()
+    client.post("/login", data={"email": "admin@concilia.test", "password": "secreta123"})
+    with test_session() as session:
+        session.add(Operator(nombre="Ana", whatsapp_numero="111"))
+        session.flush()
+        for i in range(55):
+            session.add(
+                Movement(
+                    operador_id=1,
+                    monto=Decimal("10"),
+                    numero_operacion=f"OP-PAG-{i:02d}",
+                    fecha_transaccion=datetime(2026, 8, 24),
+                    fecha_subida=datetime(2026, 8, 24, 8, 0) + timedelta(minutes=i),
+                    estado_registro=RecordState.CONFIRMADO,
+                )
+            )
+        session.commit()
+
+    primera = client.get("/comprobantes").text
+    segunda = client.get("/comprobantes?page=2").text
+    fuera_de_rango = client.get("/comprobantes?page=99").text
+
+    assert primera.count('class="fila-comprobante"') == 50
+    assert "Mostrando 50 de 55 comprobantes" in primera
+    assert "OP-PAG-54" in primera  # orden por defecto: los ultimos subidos primero
+    assert segunda.count('class="fila-comprobante"') == 5
+    assert "OP-PAG-00" in segunda
+    assert fuera_de_rango.count('class="fila-comprobante"') == 5  # se ajusta a la ultima pagina
+
+
+def test_del_dia_incluye_la_medianoche_y_excluye_el_dia_siguiente():
+    from sqlalchemy import select
+
+    from app.panel.comun import del_dia
+
+    client, test_session = _client_with_admin()
+    with test_session() as session:
+        session.add(Operator(nombre="Ana", whatsapp_numero="111"))
+        session.flush()
+        for numero, momento in [
+            ("OP-ANTES", datetime(2026, 8, 23, 23, 59)),
+            ("OP-00", datetime(2026, 8, 24, 0, 0)),
+            ("OP-2359", datetime(2026, 8, 24, 23, 59, 59)),
+            ("OP-DESPUES", datetime(2026, 8, 25, 0, 0)),
+        ]:
+            session.add(Movement(operador_id=1, monto=Decimal("1"), numero_operacion=numero, fecha_transaccion=momento))
+        session.commit()
+
+        del_24 = session.scalars(
+            select(Movement.numero_operacion).where(del_dia(Movement.fecha_transaccion, date(2026, 8, 24)))
+        ).all()
+
+    assert sorted(del_24) == ["OP-00", "OP-2359"]

@@ -31,7 +31,7 @@ from ..numeros import parse_monto_ar
 from ..reconciliation import StatementParseError, match_statement, parse_statement_file
 from ..storage import get_comprobante_archivo, save_comprobante_archivo
 from ..zona_horaria import hoy_argentina
-from .comun import get_db, require_admin, respuesta_xlsx, templates
+from .comun import del_dia, get_db, require_admin, respuesta_xlsx, templates
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -39,21 +39,21 @@ logger = logging.getLogger(__name__)
 def _conteos_por_resumen(db: Session) -> dict[int, dict[str, int]]:
     """Cantidad de lineas por estado de conciliacion, agrupadas por resumen importado."""
     filas = db.execute(
-        select(StatementLine.resumen_id, StatementLine.estado, Movement.estado_conciliacion).outerjoin(
-            Movement, StatementLine.movimiento_id == Movement.id
-        )
+        select(StatementLine.resumen_id, StatementLine.estado, Movement.estado_conciliacion, func.count())
+        .outerjoin(Movement, StatementLine.movimiento_id == Movement.id)
+        .group_by(StatementLine.resumen_id, StatementLine.estado, Movement.estado_conciliacion)
     ).all()
     conteos: dict[int, dict[str, int]] = {}
-    for resumen_id, estado_linea, estado_conciliacion in filas:
+    for resumen_id, estado_linea, estado_conciliacion, cantidad in filas:
         bucket = conteos.setdefault(resumen_id, {"conciliados": 0, "a_revisar": 0, "pendientes": 0, "no_corresponde": 0})
         if estado_linea == StatementLineState.PENDIENTE:
-            bucket["pendientes"] += 1
+            bucket["pendientes"] += cantidad
         elif estado_linea == StatementLineState.NO_CORRESPONDE:
-            bucket["no_corresponde"] += 1
+            bucket["no_corresponde"] += cantidad
         elif estado_conciliacion == ReconciliationState.CON_DIFERENCIA:
-            bucket["a_revisar"] += 1
+            bucket["a_revisar"] += cantidad
         else:
-            bucket["conciliados"] += 1
+            bucket["conciliados"] += cantidad
     return conteos
 
 
@@ -131,7 +131,7 @@ def _salidas_por_banco_del_dia(db: Session, fecha: date) -> dict[str, int]:
         select(BankAccount.banco, func.count(func.distinct(Movement.reparto_id)))
         .select_from(Movement)
         .join(BankAccount, Movement.cuenta_bancaria_id == BankAccount.id)
-        .where(Movement.estado_registro == RecordState.CONFIRMADO, func.date(Movement.fecha_transaccion) == fecha)
+        .where(Movement.estado_registro == RecordState.CONFIRMADO, del_dia(Movement.fecha_transaccion, fecha))
         .group_by(BankAccount.banco)
     ).all()
     return dict(filas)
@@ -141,7 +141,7 @@ def _sin_banco_identificado_del_dia(db: Session, fecha: date) -> tuple[int, Deci
     cantidad, total = db.execute(
         select(func.count(Movement.id), func.coalesce(func.sum(Movement.monto), 0)).where(
             Movement.estado_registro == RecordState.CONFIRMADO,
-            func.date(Movement.fecha_transaccion) == fecha,
+            del_dia(Movement.fecha_transaccion, fecha),
             Movement.cuenta_bancaria_id.is_(None),
         )
     ).one()
@@ -154,7 +154,7 @@ def panel_banco(db: Session, fecha: date, banco: str) -> dict:
     cuenta_ids = _cuenta_ids_por_banco(db, banco)
     filtro_movimientos_dia = (
         Movement.estado_registro == RecordState.CONFIRMADO,
-        func.date(Movement.fecha_transaccion) == fecha,
+        del_dia(Movement.fecha_transaccion, fecha),
         Movement.cuenta_bancaria_id.in_(cuenta_ids),
     )
 
@@ -169,7 +169,7 @@ def panel_banco(db: Session, fecha: date, banco: str) -> dict:
 
     resumenes = db.scalars(
         select(ImportedStatement).where(
-            ImportedStatement.cuenta_bancaria_id.in_(cuenta_ids), func.date(ImportedStatement.fecha) == fecha
+            ImportedStatement.cuenta_bancaria_id.in_(cuenta_ids), del_dia(ImportedStatement.fecha, fecha)
         )
     ).all()
 
@@ -232,7 +232,7 @@ def _dia_puede_cerrarse(db: Session, fecha: date, bancos: list[str]) -> bool:
 def _movimientos_del_dia_query(fecha: date, cuenta_ids: list[int], estado: str, search: str, operador_id: str, reparto_id: str):
     query = select(Movement).where(
         Movement.estado_registro == RecordState.CONFIRMADO,
-        func.date(Movement.fecha_transaccion) == fecha,
+        del_dia(Movement.fecha_transaccion, fecha),
         Movement.cuenta_bancaria_id.in_(cuenta_ids),
     )
     if estado:
@@ -283,7 +283,7 @@ def _salidas_del_dia(db: Session, fecha: date, banco: str) -> list[dict]:
         )
         .where(
             Movement.estado_registro == RecordState.CONFIRMADO,
-            func.date(Movement.fecha_transaccion) == fecha,
+            del_dia(Movement.fecha_transaccion, fecha),
             Movement.cuenta_bancaria_id.in_(cuenta_ids),
             Movement.reparto_id.is_not(None),
         )
@@ -851,9 +851,9 @@ def _resumenes_query(banco: str, fecha_desde: str, fecha_hasta: str, q: str):
     if banco:
         query = query.where(BankAccount.banco == banco)
     if fecha_desde:
-        query = query.where(func.date(ImportedStatement.fecha) >= fecha_desde)
+        query = query.where(ImportedStatement.fecha >= datetime.strptime(fecha_desde, "%Y-%m-%d"))
     if fecha_hasta:
-        query = query.where(func.date(ImportedStatement.fecha) <= fecha_hasta)
+        query = query.where(ImportedStatement.fecha < datetime.strptime(fecha_hasta, "%Y-%m-%d") + timedelta(days=1))
     if q.strip():
         query = query.where(ImportedStatement.archivo_nombre.ilike(f"%{q.strip()}%"))
     return query.order_by(ImportedStatement.fecha_importacion.desc())

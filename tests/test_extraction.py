@@ -145,6 +145,15 @@ class _FakeMessages:
         return _FakeResponse(content=[_FakeBlock(type="tool_use", input=resultado)])
 
 
+@pytest.fixture(autouse=True)
+def _cliente_anthropic_nuevo_en_cada_test():
+    # extraction reutiliza un unico cliente por proceso; cada test inyecta su
+    # propio cliente falso, asi que hay que olvidar el anterior.
+    extraction._cliente_anthropic.cache_clear()
+    yield
+    extraction._cliente_anthropic.cache_clear()
+
+
 class _FakeAnthropic:
     def __init__(self, responses: list[dict | None]):
         self.messages = _FakeMessages(responses)

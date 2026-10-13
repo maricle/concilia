@@ -315,13 +315,20 @@ def _parse_fecha_o_actual(valor: object) -> datetime:
     return ahora_argentina()
 
 
+@lru_cache(maxsize=1)
+def _cliente_anthropic(api_key: str) -> Anthropic:
+    """Un solo cliente por proceso: reutiliza las conexiones HTTP a la API en vez
+    de abrir una nueva (handshake TLS incluido) en cada comprobante."""
+    return Anthropic(api_key=api_key)
+
+
 def extract_transfer(content_type: str, data: bytes) -> ExtractedTransfer | None:
     """Interpreta un comprobante con Claude. Devuelve None si no se pudo leer el monto
     con confianza (el unico dato que bloquea el registro). cuenta_receptora se
     transcribe en texto libre (CBU/CVU/alias); el matching contra las cuentas
     bancarias registradas se hace en Python (ver buscar_cuenta_bancaria en
     conversation.py)."""
-    client = Anthropic(api_key=get_settings().anthropic_api_key)
+    client = _cliente_anthropic(get_settings().anthropic_api_key)
     tool = _build_tool()
 
     result = _call_model(client, HAIKU_MODEL, content_type, data, tool)
