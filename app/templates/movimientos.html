@@ -118,6 +118,7 @@
   </div>
   <div class="card-body">
     <form method="post" id="form-comprobantes">
+    <input type="hidden" name="volver" value="{{ url_actual(request) }}">
     <div class="table-responsive">
       <table class="table table-bordered table-sm small mb-0" width="100%" cellspacing="0">
         <thead>
@@ -138,7 +139,7 @@
         </thead>
         <tbody>
           {% for movimiento in movimientos %}
-          <tr class="fila-comprobante"{% if es_admin(user) %} data-href="/comprobantes/{{ movimiento.id }}/editar"{% endif %}>
+          <tr class="fila-comprobante"{% if es_admin(user) %} data-href="/comprobantes/{{ movimiento.id }}/editar?volver={{ url_actual(request)|urlencode }}"{% endif %}>
             <td><input type="checkbox" name="movimiento_ids" value="{{ movimiento.id }}" class="chk-comprobante"></td>
             <td>{{ movimiento.fecha_transaccion|fecha_transaccion }}</td>
             <td>

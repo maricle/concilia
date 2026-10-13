@@ -36,6 +36,11 @@
     return $("<div>").text(texto == null ? "" : texto).html();
   }
 
+  // A donde vuelve la pantalla de edicion de un comprobante: este mismo dia y banco.
+  function urlVolver() {
+    return "/conciliaciones?" + $.param({ fecha: estado.fecha, banco: estado.banco });
+  }
+
   // Mismo form que arma conciliaciones.html server-side para "Aceptar diferencia".
   function botonAceptar(m) {
     if (m.estado !== "con_diferencia") return "";
@@ -83,7 +88,7 @@
             '<td class="num">' + formatoMonto(m.monto) + "</td>" +
             "<td>" + escapeHtml(m.reparto_label) + "</td>" +
             "<td>" + badgeMovimiento(m.estado) + "</td>" +
-            '<td class="text-nowrap"><a href="/comprobantes/' + m.id + '/editar" class="btn btn-sm btn-outline-primary" title="Editar"><i class="fas fa-pencil-alt"></i></a>' +
+            '<td class="text-nowrap"><a href="/comprobantes/' + m.id + '/editar?volver=' + encodeURIComponent(urlVolver()) + '" class="btn btn-sm btn-outline-primary" title="Editar"><i class="fas fa-pencil-alt"></i></a>' +
             botonAceptar(m) +
             "</td>" +
             "</tr>"

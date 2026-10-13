@@ -1,7 +1,10 @@
 {% extends "base.html" %}
 {% block title %}Editar comprobante - Concilia{% endblock %}
 {% block content %}
-<h1 class="h3 mb-4 text-gray-800">Editar comprobante</h1>
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h1 class="h3 mb-0 text-gray-800">Editar comprobante</h1>
+  <a href="{{ volver }}" class="btn btn-outline-secondary btn-sm"><i class="fas fa-arrow-left mr-1"></i>Volver al listado</a>
+</div>
 
 <div class="row">
   <div class="col-lg-6 mb-4">
@@ -10,6 +13,7 @@
         {% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
         <p class="text-muted small">Fecha de creacion: {{ movimiento.fecha_subida.strftime("%Y-%m-%d %H:%M") }}</p>
         <form method="post" action="/comprobantes/{{ movimiento.id }}/editar">
+          <input type="hidden" name="volver" value="{{ volver }}">
           <div class="form-row">
             <div class="form-group col-md-6">
               <label>Fecha y hora de transaccion</label>
@@ -72,6 +76,7 @@
             </div>
           </div>
           <button type="submit" class="btn btn-primary">Guardar cambios</button>
+          <a href="{{ volver }}" class="btn btn-outline-secondary">Cancelar</a>
         </form>
       </div>
     </div>

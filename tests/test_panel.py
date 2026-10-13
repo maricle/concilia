@@ -615,7 +615,7 @@ def test_comprobantes_fila_es_clickeable_y_sin_boton_editar():
     response = client.get("/comprobantes", params={"fecha": "todos"})
 
     assert response.status_code == 200
-    assert 'class="fila-comprobante" data-href="/comprobantes/1/editar"' in response.text
+    assert 'class="fila-comprobante" data-href="/comprobantes/1/editar?volver=' in response.text
     assert "Nuevo comprobante" in response.text
     assert "fa-pencil-alt" not in response.text
 
@@ -1706,3 +1706,50 @@ def test_exportar_respeta_el_dia_elegido():
     numeros = {fila[7] for fila in hoja.iter_rows(min_row=2, values_only=True)}
 
     assert "OP-HOY" in str(numeros) and "OP-AYER" not in str(numeros)
+
+
+def test_editar_comprobante_vuelve_al_listado_con_los_mismos_filtros():
+    from urllib.parse import quote
+
+    client, test_session = _client_with_admin()
+    client.post("/login", data={"email": "admin@concilia.test", "password": "secreta123"})
+    _comprobantes_en_dias(test_session)
+    vista = "/comprobantes?fecha=todos&q=OP-HOY&sort=monto&order=desc&page=1"
+
+    listado = client.get(vista).text
+    assert f'/comprobantes/1/editar?volver={quote(vista, safe="/")}' in listado
+
+    formulario = client.get("/comprobantes/1/editar", params={"volver": vista}).text
+    assert f'name="volver" value="{vista.replace("&", "&amp;")}"' in formulario
+
+    guardado = client.post(
+        "/comprobantes/1/editar",
+        data={"fecha_transaccion": "2026-10-13T10:00", "monto": "10", "numero_operacion": "OP-HOY", "volver": vista},
+        follow_redirects=False,
+    )
+    assert guardado.status_code == 303
+    assert guardado.headers["location"] == vista
+
+
+def test_volver_solo_acepta_rutas_internas():
+    from app.panel.comun import destino_seguro
+
+    assert destino_seguro("/comprobantes?fecha=todos", "/comprobantes") == "/comprobantes?fecha=todos"
+    assert destino_seguro("https://otro-sitio.test", "/comprobantes") == "/comprobantes"
+    assert destino_seguro("//otro-sitio.test", "/comprobantes") == "/comprobantes"
+    assert destino_seguro("/\otro-sitio.test", "/comprobantes") == "/comprobantes"
+    assert destino_seguro("", "/comprobantes") == "/comprobantes"
+
+
+def test_eliminar_seleccionados_vuelve_al_listado_filtrado():
+    client, test_session = _client_with_admin()
+    client.post("/login", data={"email": "admin@concilia.test", "password": "secreta123"})
+    _comprobantes_en_dias(test_session)
+
+    respuesta = client.post(
+        "/comprobantes/eliminar-lote",
+        data={"movimiento_ids": ["1"], "volver": "/comprobantes?fecha=todos&q=OP"},
+        follow_redirects=False,
+    )
+
+    assert respuesta.headers["location"] == "/comprobantes?fecha=todos&q=OP"

@@ -79,6 +79,25 @@ def url_con(request: Request, **cambios: object) -> str:
 templates.env.globals["url_con"] = url_con
 
 
+def url_actual(request: Request) -> str:
+    """Ruta + query de la pagina actual, para pasarla como `volver` a una
+    pantalla de edicion y regresar despues a la misma vista (filtros, dia,
+    orden, pagina)."""
+    return request.url.path + (f"?{request.url.query}" if request.url.query else "")
+
+
+def destino_seguro(volver: str, por_defecto: str) -> str:
+    """`volver` viene del navegador: solo se acepta una ruta interna del panel
+    ("/algo"), nunca "//otro-sitio" ni una URL absoluta, para que un link armado
+    no pueda mandar al usuario a otro sitio despues de guardar."""
+    if volver.startswith("/") and not volver.startswith(("//", "/\\")):
+        return volver
+    return por_defecto
+
+
+templates.env.globals["url_actual"] = url_actual
+
+
 def respuesta_xlsx(headers: list[str], filas: list[list], filename: str) -> Response:
     """Arma un .xlsx descargable a partir de un encabezado y filas de valores --
     usado por todos los botones "Exportar" del panel, en vez de CSV."""

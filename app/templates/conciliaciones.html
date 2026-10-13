@@ -177,7 +177,7 @@
                 <td>{{ m.reparto_label }}</td>
                 <td>{{ badge_estado_movimiento(m.estado) }}</td>
                 <td class="text-nowrap">
-                  <a href="/comprobantes/{{ m.id }}/editar" class="btn btn-sm btn-outline-primary" title="Editar"><i class="fas fa-pencil-alt"></i></a>
+                  <a href="/comprobantes/{{ m.id }}/editar?volver={{ url_actual(request)|urlencode }}" class="btn btn-sm btn-outline-primary" title="Editar"><i class="fas fa-pencil-alt"></i></a>
                   {% if m.estado == "con_diferencia" %}
                   <form method="post" action="/conciliaciones/movimientos/{{ m.id }}/aceptar" class="d-inline">
                     <input type="hidden" name="fecha" value="{{ fecha.isoformat() }}">
