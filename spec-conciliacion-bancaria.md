@@ -133,7 +133,6 @@ El sistema debe operar en español, dado que es el idioma de los operadores.
 Con las últimas definiciones, el spec funcional queda cerrado en sus puntos principales. Quedan como preguntas abiertas, sin bloquear la operación:
 
 - Si en el futuro se prevén otros medios de pago además de transferencia bancaria.
-- Qué puede hacer el rol **Contador** que menciona la sección 12 (hoy solo se dice que accede a Conciliaciones): ¿accede también a Configuración y puede eliminar comprobantes, como el Administrador?
 - Si los comprobantes que un operador dejó sin confirmar (sección 11) deben verse en el panel y, en ese caso, si el administrador puede completarlos o descartarlos desde ahí.
 
 ## 10. Fuera de alcance (por ahora)
@@ -164,7 +163,7 @@ Este documento quedó como borrador desde su fecha original; el sistema siguió 
 
 ## 12. Mejoras solicitadas para la próxima iteración
 
-Pedido directo del usuario, a implementar después de este punto. Ninguno de estos puntos está construido todavía salvo que se aclare lo contrario (hoy, solo la extracción automática en la carga manual).
+Pedido directo del usuario, a implementar después de este punto. Ninguno de estos puntos está construido todavía salvo que se aclare lo contrario (hoy: la extracción automática en la carga manual y el rol Recaudador).
 
 **Historial de cambios (auditoría).** Alcance general, no solo comprobantes: cualquier cambio relevante sobre cualquier entidad del sistema (movimientos, salidas, cuentas bancarias, operadores, móviles, usuarios de panel) debe quedar registrado con quién lo hizo y cuándo. Hoy no existe ninguna tabla de auditoría en la app.
 
@@ -178,4 +177,4 @@ Pedido directo del usuario, a implementar después de este punto. Ninguno de est
 
 **Actor nuevo: recaudador de sala "Entrega y retiro".** Además de los operadores que reparten y cobran en el domicilio del cliente, hay un rol que cobra en un mostrador fijo (sala de "entrega y retiro" del depósito/local), sin vehículo asignado. Como la app hoy exige siempre un móvil y una salida para todo comprobante confirmado (sección 11), se define un **móvil "0"**: un móvil especial sin vehículo real que representa esa área fija. El recaudador de esa sala abre y cierra sus propias salidas sobre el móvil 0, igual que cualquier otro operador sobre su móvil real.
 
-**Nuevo rol de panel: Recaudador.** Además del rol Administrador (acceso total), se agrega el rol **Recaudador**: puede cargar comprobantes desde el panel (carga manual, sección 4.1), pero no puede eliminarlos ni modificar ninguna pantalla de Configuración (operadores, cuentas bancarias, usuarios, móviles). La sección de Conciliaciones queda reservada exclusivamente a los roles Administrador/Contador — un Recaudador no la ve ni puede operarla.
+**Nuevo rol de panel: Recaudador — implementado.** Roles del panel: **Administrador** y **Contador**, ambos con acceso total (el Contador es igual al Administrador; el nombre es solo informativo), y **Recaudador**: ve el resumen, los comprobantes y las salidas, y puede cargar comprobantes desde el panel (carga manual, sección 4.1), pero no puede corregirlos ni eliminarlos, ni entrar a Configuración ni a Conciliaciones (no las ve en el menú y, si entra por la dirección, recibe un aviso de que no tiene permiso). El rol se elige de una lista al crear o editar un usuario; un usuario anterior con un rol escrito a mano que no sea uno de los tres queda con los permisos de Recaudador hasta que un administrador lo corrija.

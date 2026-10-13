@@ -87,7 +87,9 @@
   <div class="card-header py-3 d-flex justify-content-between align-items-center">
     <h6 class="m-0 font-weight-bold text-primary">Movimientos confirmados</h6>
     <div class="d-flex" style="gap: 8px;">
+      {% if es_admin(user) %}
       <button type="submit" form="form-comprobantes" formaction="/comprobantes/eliminar-lote" class="btn btn-sm btn-outline-danger" onclick="return confirm('¿Eliminar los comprobantes seleccionados? Esta accion no se puede deshacer.');"><i class="fas fa-trash-alt mr-1"></i>Eliminar seleccionados</button>
+      {% endif %}
       <a href="/comprobantes/nuevo" class="btn btn-sm btn-primary"><i class="fas fa-plus mr-1"></i>Nuevo comprobante</a>
     </div>
   </div>
@@ -113,7 +115,7 @@
         </thead>
         <tbody>
           {% for movimiento in movimientos %}
-          <tr class="fila-comprobante" data-href="/comprobantes/{{ movimiento.id }}/editar">
+          <tr class="fila-comprobante"{% if es_admin(user) %} data-href="/comprobantes/{{ movimiento.id }}/editar"{% endif %}>
             <td><input type="checkbox" name="movimiento_ids" value="{{ movimiento.id }}" class="chk-comprobante"></td>
             <td>{{ movimiento.fecha_transaccion|fecha_transaccion }}</td>
             <td>
@@ -168,7 +170,7 @@
   });
   document.querySelectorAll(".fila-comprobante").forEach(function (fila) {
     fila.addEventListener("click", function (e) {
-      if (e.target.closest("a, button, input")) return;
+      if (!fila.dataset.href || e.target.closest("a, button, input")) return;
       window.location.href = fila.dataset.href;
     });
   });

@@ -129,6 +129,43 @@ def require_user(request: Request, db: Session = Depends(get_db)) -> PanelUser:
     return user
 
 
+ROLES_PANEL = ("Administrador", "Contador", "Recaudador")
+_ROLES_CON_ACCESO_TOTAL = {"administrador", "contador"}
+
+
+class SinPermiso(Exception):
+    """Se levanta cuando un usuario logueado entra a una ruta que su rol no permite."""
+
+    def __init__(self, user: PanelUser):
+        self.user = user
+
+
+def es_admin(user: PanelUser | None) -> bool:
+    """Administrador y Contador tienen acceso total. Cualquier otro valor de rol
+    (Recaudador, o un texto viejo cargado a mano antes de que el rol fuera una
+    lista cerrada) queda con los permisos de Recaudador: puede ver el resumen,
+    los comprobantes y las salidas, y cargar comprobantes, pero no corregirlos
+    ni eliminarlos, ni entrar a Conciliaciones ni a Configuracion."""
+    return user is not None and (user.rol or "").strip().lower() in _ROLES_CON_ACCESO_TOTAL
+
+
+templates.env.globals["es_admin"] = es_admin
+
+
+def require_admin(user: PanelUser = Depends(require_user)) -> PanelUser:
+    if not es_admin(user):
+        raise SinPermiso(user)
+    return user
+
+
+def _rol_valido(rol: str) -> str | None:
+    """Devuelve el rol con su nombre canonico, o None si no es uno de ROLES_PANEL."""
+    for nombre in ROLES_PANEL:
+        if rol.strip().lower() == nombre.lower():
+            return nombre
+    return None
+
+
 def _get_or_redirect(db: Session, model: type[_Model], id_: int, redirect_to: str) -> _Model:
     obj = db.get(model, id_)
     if obj is None:
@@ -195,13 +232,13 @@ def logout(request: Request):
 
 
 @router.get("/config/usuarios")
-def list_usuarios(request: Request, db: Session = Depends(get_db), user: PanelUser = Depends(require_user)):
+def list_usuarios(request: Request, db: Session = Depends(get_db), user: PanelUser = Depends(require_admin)):
     usuarios = db.scalars(select(PanelUser).order_by(PanelUser.id)).all()
     return templates.TemplateResponse(request, "usuarios.html", {"user": user, "usuarios": usuarios, "error": None})
 
 
 @router.get("/config/usuarios/exportar")
-def usuarios_exportar(db: Session = Depends(get_db), user: PanelUser = Depends(require_user)):
+def usuarios_exportar(db: Session = Depends(get_db), user: PanelUser = Depends(require_admin)):
     usuarios = db.scalars(select(PanelUser).order_by(PanelUser.id)).all()
     filas = [[u.nombre, u.email, u.rol, "Activo" if u.activo else "Inactivo"] for u in usuarios]
     return _xlsx_response(["Nombre", "Email", "Rol", "Estado"], filas, "usuarios.xlsx")
@@ -215,7 +252,7 @@ def create_usuario(
     password: str = Form(...),
     rol: str = Form("Administrador"),
     db: Session = Depends(get_db),
-    user: PanelUser = Depends(require_user),
+    user: PanelUser = Depends(require_admin),
 ):
     email = email.strip().lower()
     error = None
@@ -223,6 +260,8 @@ def create_usuario(
         error = f"Ya existe un usuario con el email {email}."
     elif len(password) < 8:
         error = "La contrasena tiene que tener al menos 8 caracteres."
+    elif _rol_valido(rol) is None:
+        error = "El rol tiene que ser Administrador, Contador o Recaudador."
 
     if error:
         usuarios = db.scalars(select(PanelUser).order_by(PanelUser.id)).all()
@@ -230,14 +269,14 @@ def create_usuario(
             request, "usuarios.html", {"user": user, "usuarios": usuarios, "error": error}, status_code=400
         )
 
-    db.add(PanelUser(nombre=nombre, email=email, password_hash=hash_password(password), rol=rol))
+    db.add(PanelUser(nombre=nombre, email=email, password_hash=hash_password(password), rol=_rol_valido(rol)))
     db.commit()
     return RedirectResponse("/config/usuarios", status_code=303)
 
 
 @router.post("/config/usuarios/{usuario_id}/toggle")
 def toggle_usuario(
-    usuario_id: int, request: Request, db: Session = Depends(get_db), user: PanelUser = Depends(require_user)
+    usuario_id: int, request: Request, db: Session = Depends(get_db), user: PanelUser = Depends(require_admin)
 ):
     usuario = db.get(PanelUser, usuario_id)
     if usuario is not None and usuario.id != user.id:
@@ -250,7 +289,7 @@ def toggle_usuario(
 
 @router.get("/config/usuarios/{usuario_id}/editar")
 def editar_usuario_form(
-    usuario_id: int, request: Request, db: Session = Depends(get_db), user: PanelUser = Depends(require_user)
+    usuario_id: int, request: Request, db: Session = Depends(get_db), user: PanelUser = Depends(require_admin)
 ):
     usuario = _get_or_redirect(db, PanelUser, usuario_id, "/config/usuarios")
     return templates.TemplateResponse(
@@ -267,7 +306,7 @@ def editar_usuario_submit(
     rol: str = Form("Administrador"),
     password: str = Form(""),
     db: Session = Depends(get_db),
-    user: PanelUser = Depends(require_user),
+    user: PanelUser = Depends(require_admin),
 ):
     usuario = _get_or_redirect(db, PanelUser, usuario_id, "/config/usuarios")
 
@@ -277,6 +316,8 @@ def editar_usuario_submit(
         error = f"Ya existe otro usuario con el email {email}."
     elif password and len(password) < 8:
         error = "La contrasena tiene que tener al menos 8 caracteres."
+    elif _rol_valido(rol) is None:
+        error = "El rol tiene que ser Administrador, Contador o Recaudador."
 
     if error:
         return templates.TemplateResponse(
@@ -285,7 +326,7 @@ def editar_usuario_submit(
 
     usuario.nombre = nombre
     usuario.email = email
-    usuario.rol = rol
+    usuario.rol = _rol_valido(rol)
     if password:
         usuario.password_hash = hash_password(password)
     db.commit()
@@ -294,7 +335,7 @@ def editar_usuario_submit(
 
 @router.get("/config/operadores")
 def list_operadores(
-    request: Request, error: str = "", db: Session = Depends(get_db), user: PanelUser = Depends(require_user)
+    request: Request, error: str = "", db: Session = Depends(get_db), user: PanelUser = Depends(require_admin)
 ):
     operadores = db.scalars(select(Operator).order_by(Operator.id)).all()
     moviles = db.scalars(select(Movil).where(Movil.activo.is_(True)).order_by(Movil.nombre)).all()
@@ -304,7 +345,7 @@ def list_operadores(
 
 
 @router.get("/config/operadores/exportar")
-def operadores_exportar(db: Session = Depends(get_db), user: PanelUser = Depends(require_user)):
+def operadores_exportar(db: Session = Depends(get_db), user: PanelUser = Depends(require_admin)):
     operadores = db.scalars(select(Operator).options(selectinload(Operator.movil)).order_by(Operator.id)).all()
     filas = [
         [
@@ -330,7 +371,7 @@ def create_operador(
     tipo: str = Form("Reparto"),
     movil_id: str = Form(""),
     db: Session = Depends(get_db),
-    user: PanelUser = Depends(require_user),
+    user: PanelUser = Depends(require_admin),
 ):
     if _duplicate_exists(db, Operator.whatsapp_numero, whatsapp_numero):
         operadores = db.scalars(select(Operator).order_by(Operator.id)).all()
@@ -358,7 +399,7 @@ def create_operador(
 
 @router.post("/config/operadores/{operador_id}/toggle")
 def toggle_operador(
-    operador_id: int, request: Request, db: Session = Depends(get_db), user: PanelUser = Depends(require_user)
+    operador_id: int, request: Request, db: Session = Depends(get_db), user: PanelUser = Depends(require_admin)
 ):
     operador = db.get(Operator, operador_id)
     if operador is not None:
@@ -376,7 +417,7 @@ def toggle_operador(
 
 @router.get("/config/operadores/{operador_id}/editar")
 def editar_operador_form(
-    operador_id: int, request: Request, db: Session = Depends(get_db), user: PanelUser = Depends(require_user)
+    operador_id: int, request: Request, db: Session = Depends(get_db), user: PanelUser = Depends(require_admin)
 ):
     operador = _get_or_redirect(db, Operator, operador_id, "/config/operadores")
     moviles = db.scalars(select(Movil).where(Movil.activo.is_(True)).order_by(Movil.nombre)).all()
@@ -394,7 +435,7 @@ def editar_operador_submit(
     tipo: str = Form("Reparto"),
     movil_id: str = Form(""),
     db: Session = Depends(get_db),
-    user: PanelUser = Depends(require_user),
+    user: PanelUser = Depends(require_admin),
 ):
     operador = _get_or_redirect(db, Operator, operador_id, "/config/operadores")
     moviles = db.scalars(select(Movil).where(Movil.activo.is_(True)).order_by(Movil.nombre)).all()
@@ -433,7 +474,7 @@ def editar_operador_submit(
 
 @router.get("/config/moviles")
 def list_moviles(
-    request: Request, error: str = "", db: Session = Depends(get_db), user: PanelUser = Depends(require_user)
+    request: Request, error: str = "", db: Session = Depends(get_db), user: PanelUser = Depends(require_admin)
 ):
     moviles = db.scalars(select(Movil).order_by(Movil.id)).all()
     operadores = db.scalars(select(Operator).where(Operator.activo.is_(True)).order_by(Operator.nombre)).all()
@@ -443,7 +484,7 @@ def list_moviles(
 
 
 @router.get("/config/moviles/exportar")
-def moviles_exportar(db: Session = Depends(get_db), user: PanelUser = Depends(require_user)):
+def moviles_exportar(db: Session = Depends(get_db), user: PanelUser = Depends(require_admin)):
     moviles = db.scalars(select(Movil).options(selectinload(Movil.responsable)).order_by(Movil.id)).all()
     filas = [
         [
@@ -466,7 +507,7 @@ def create_movil(
     descripcion: str = Form(""),
     responsable_operador_id: str = Form(""),
     db: Session = Depends(get_db),
-    user: PanelUser = Depends(require_user),
+    user: PanelUser = Depends(require_admin),
 ):
     error = None
     if _duplicate_exists(db, Movil.numero, numero):
@@ -498,7 +539,7 @@ def create_movil(
 
 @router.post("/config/moviles/{movil_id}/toggle")
 def toggle_movil(
-    movil_id: int, request: Request, db: Session = Depends(get_db), user: PanelUser = Depends(require_user)
+    movil_id: int, request: Request, db: Session = Depends(get_db), user: PanelUser = Depends(require_admin)
 ):
     movil = db.get(Movil, movil_id)
     if movil is not None:
@@ -509,7 +550,7 @@ def toggle_movil(
 
 @router.get("/config/moviles/{movil_id}/editar")
 def editar_movil_form(
-    movil_id: int, request: Request, db: Session = Depends(get_db), user: PanelUser = Depends(require_user)
+    movil_id: int, request: Request, db: Session = Depends(get_db), user: PanelUser = Depends(require_admin)
 ):
     movil = _get_or_redirect(db, Movil, movil_id, "/config/moviles")
     operadores = db.scalars(select(Operator).where(Operator.activo.is_(True)).order_by(Operator.nombre)).all()
@@ -527,7 +568,7 @@ def editar_movil_submit(
     descripcion: str = Form(""),
     responsable_operador_id: str = Form(""),
     db: Session = Depends(get_db),
-    user: PanelUser = Depends(require_user),
+    user: PanelUser = Depends(require_admin),
 ):
     movil = _get_or_redirect(db, Movil, movil_id, "/config/moviles")
     operadores = db.scalars(select(Operator).where(Operator.activo.is_(True)).order_by(Operator.nombre)).all()
@@ -555,13 +596,13 @@ def editar_movil_submit(
 
 
 @router.get("/config/cuentas")
-def list_cuentas(request: Request, db: Session = Depends(get_db), user: PanelUser = Depends(require_user)):
+def list_cuentas(request: Request, db: Session = Depends(get_db), user: PanelUser = Depends(require_admin)):
     cuentas = db.scalars(select(BankAccount).order_by(BankAccount.id)).all()
     return templates.TemplateResponse(request, "cuentas.html", {"user": user, "cuentas": cuentas, "error": None})
 
 
 @router.get("/config/cuentas/exportar")
-def cuentas_exportar(db: Session = Depends(get_db), user: PanelUser = Depends(require_user)):
+def cuentas_exportar(db: Session = Depends(get_db), user: PanelUser = Depends(require_admin)):
     cuentas = db.scalars(select(BankAccount).order_by(BankAccount.id)).all()
     filas = [[c.banco, c.numero_cuenta, c.alias, c.moneda] for c in cuentas]
     return _xlsx_response(["Banco", "Numero de cuenta", "Alias", "Moneda"], filas, "cuentas.xlsx")
@@ -575,7 +616,7 @@ def create_cuenta(
     alias: str = Form(...),
     moneda: str = Form("ARS"),
     db: Session = Depends(get_db),
-    user: PanelUser = Depends(require_user),
+    user: PanelUser = Depends(require_admin),
 ):
     db.add(BankAccount(banco=banco, numero_cuenta=numero_cuenta, alias=alias, moneda=moneda))
     db.commit()
@@ -584,7 +625,7 @@ def create_cuenta(
 
 @router.get("/config/cuentas/{cuenta_id}/editar")
 def editar_cuenta_form(
-    cuenta_id: int, request: Request, db: Session = Depends(get_db), user: PanelUser = Depends(require_user)
+    cuenta_id: int, request: Request, db: Session = Depends(get_db), user: PanelUser = Depends(require_admin)
 ):
     cuenta = _get_or_redirect(db, BankAccount, cuenta_id, "/config/cuentas")
     return templates.TemplateResponse(request, "editar_cuenta.html", {"user": user, "cuenta": cuenta, "error": None})
@@ -599,7 +640,7 @@ def editar_cuenta_submit(
     alias: str = Form(...),
     moneda: str = Form("ARS"),
     db: Session = Depends(get_db),
-    user: PanelUser = Depends(require_user),
+    user: PanelUser = Depends(require_admin),
 ):
     cuenta = _get_or_redirect(db, BankAccount, cuenta_id, "/config/cuentas")
 
@@ -1402,7 +1443,7 @@ async def nuevo_movimiento_submit(
 
 @router.get("/comprobantes/{movimiento_id}/editar")
 def editar_movimiento_form(
-    movimiento_id: int, request: Request, db: Session = Depends(get_db), user: PanelUser = Depends(require_user)
+    movimiento_id: int, request: Request, db: Session = Depends(get_db), user: PanelUser = Depends(require_admin)
 ):
     movimiento = _get_or_redirect(db, Movement, movimiento_id, "/comprobantes")
     cuentas = db.scalars(select(BankAccount).order_by(BankAccount.id)).all()
@@ -1424,7 +1465,7 @@ def editar_movimiento_submit(
     factura_o_cuenta_tipo: str = Form(""),
     factura_o_cuenta_numero: str = Form(""),
     db: Session = Depends(get_db),
-    user: PanelUser = Depends(require_user),
+    user: PanelUser = Depends(require_admin),
 ):
     movimiento = _get_or_redirect(db, Movement, movimiento_id, "/comprobantes")
     cuentas = db.scalars(select(BankAccount).order_by(BankAccount.id)).all()
@@ -1478,7 +1519,7 @@ def _eliminar_movimiento(db: Session, movimiento: Movement) -> None:
 
 @router.post("/comprobantes/{movimiento_id}/eliminar")
 def eliminar_movimiento(
-    movimiento_id: int, request: Request, db: Session = Depends(get_db), user: PanelUser = Depends(require_user)
+    movimiento_id: int, request: Request, db: Session = Depends(get_db), user: PanelUser = Depends(require_admin)
 ):
     movimiento = db.get(Movement, movimiento_id)
     if movimiento is not None:
@@ -1492,7 +1533,7 @@ def eliminar_movimientos_lote(
     request: Request,
     movimiento_ids: list[int] = Form(default=[]),
     db: Session = Depends(get_db),
-    user: PanelUser = Depends(require_user),
+    user: PanelUser = Depends(require_admin),
 ):
     for movimiento_id in movimiento_ids:
         movimiento = db.get(Movement, movimiento_id)
@@ -1546,7 +1587,7 @@ def eliminar_resumen(
     fecha: str = Form(""),
     banco: str = Form(""),
     db: Session = Depends(get_db),
-    user: PanelUser = Depends(require_user),
+    user: PanelUser = Depends(require_admin),
 ):
     resumen = db.get(ImportedStatement, resumen_id)
     if resumen is not None and _cierre_del_dia(db, resumen.fecha.date()) is None:
@@ -1888,7 +1929,7 @@ def conciliaciones(
     banco: str = "",
     resumen_id: str = "",
     db: Session = Depends(get_db),
-    user: PanelUser = Depends(require_user),
+    user: PanelUser = Depends(require_admin),
 ):
     if resumen_id:
         # Compat con links/bookmarks viejos que apuntaban a un resumen puntual --
@@ -1910,7 +1951,7 @@ def conciliaciones(
 
 @router.get("/conciliaciones/panel.json")
 def conciliaciones_panel_json(
-    fecha: str = "", banco: str = "", db: Session = Depends(get_db), user: PanelUser = Depends(require_user)
+    fecha: str = "", banco: str = "", db: Session = Depends(get_db), user: PanelUser = Depends(require_admin)
 ):
     fecha_obj = _parse_fecha_o_hoy(fecha)
     bancos = _bancos_disponibles(db)
@@ -1938,7 +1979,7 @@ def conciliaciones_movimientos_json(
     operador_id: str = "",
     reparto_id: str = "",
     db: Session = Depends(get_db),
-    user: PanelUser = Depends(require_user),
+    user: PanelUser = Depends(require_admin),
 ):
     fecha_obj = _parse_fecha_o_hoy(fecha)
     cuenta_ids = _cuenta_ids_por_banco(db, banco)
@@ -1972,7 +2013,7 @@ def conciliaciones_movimientos_exportar(
     operador_id: str = "",
     reparto_id: str = "",
     db: Session = Depends(get_db),
-    user: PanelUser = Depends(require_user),
+    user: PanelUser = Depends(require_admin),
 ):
     fecha_obj = _parse_fecha_o_hoy(fecha)
     cuenta_ids = _cuenta_ids_por_banco(db, banco)
@@ -2007,7 +2048,7 @@ def conciliaciones_salidas_json(
     page: int = 1,
     page_size: int = 25,
     db: Session = Depends(get_db),
-    user: PanelUser = Depends(require_user),
+    user: PanelUser = Depends(require_admin),
 ):
     fecha_obj = _parse_fecha_o_hoy(fecha)
     salidas = _salidas_del_dia(db, fecha_obj, banco)
@@ -2027,7 +2068,7 @@ def conciliaciones_salidas_json(
 
 @router.get("/conciliaciones/resumen-dia.json")
 def conciliaciones_resumen_dia_json(
-    fecha: str = "", db: Session = Depends(get_db), user: PanelUser = Depends(require_user)
+    fecha: str = "", db: Session = Depends(get_db), user: PanelUser = Depends(require_admin)
 ):
     fecha_obj = _parse_fecha_o_hoy(fecha)
     bancos = _bancos_disponibles(db)
@@ -2045,7 +2086,7 @@ def conciliaciones_resumen_dia_json(
 
 @router.post("/conciliaciones/cierres")
 def cerrar_dia(
-    request: Request, fecha: str = Form(...), db: Session = Depends(get_db), user: PanelUser = Depends(require_user)
+    request: Request, fecha: str = Form(...), db: Session = Depends(get_db), user: PanelUser = Depends(require_admin)
 ):
     fecha_obj = _parse_fecha_o_hoy(fecha)
     bancos = _bancos_disponibles(db)
@@ -2066,7 +2107,7 @@ def cerrar_dia(
 
 @router.post("/conciliaciones/cierres/{fecha}/reabrir")
 def reabrir_dia(
-    fecha: str, request: Request, db: Session = Depends(get_db), user: PanelUser = Depends(require_user)
+    fecha: str, request: Request, db: Session = Depends(get_db), user: PanelUser = Depends(require_admin)
 ):
     fecha_obj = _parse_fecha_o_hoy(fecha)
     cierre = _cierre_del_dia(db, fecha_obj)
@@ -2104,7 +2145,7 @@ def reconciliar_pendientes(
     fecha: str = Form(""),
     banco: str = Form(""),
     db: Session = Depends(get_db),
-    user: PanelUser = Depends(require_user),
+    user: PanelUser = Depends(require_admin),
 ):
     """Reintenta el matching automatico sobre las lineas pendientes SIN pedir un
     archivo nuevo -- util cuando lo que cambio no fue el resumen del banco sino que
@@ -2139,7 +2180,7 @@ async def importar_resumen(
     cuenta_bancaria_id: int = Form(...),
     fecha: str = Form(...),
     db: Session = Depends(get_db),
-    user: PanelUser = Depends(require_user),
+    user: PanelUser = Depends(require_admin),
 ):
     fecha_obj = datetime.strptime(fecha, "%Y-%m-%d").date()
     cuenta = db.get(BankAccount, cuenta_bancaria_id)
@@ -2242,7 +2283,7 @@ async def actualizar_resumen(
     request: Request,
     archivo: UploadFile,
     db: Session = Depends(get_db),
-    user: PanelUser = Depends(require_user),
+    user: PanelUser = Depends(require_admin),
 ):
     """Vuelve a leer el mismo archivo de resumen (o una version mas nueva del banco,
     ej. un export acumulativo del dia al que se le siguieron agregando filas) y
@@ -2344,7 +2385,7 @@ def list_resumenes(
     fecha_hasta: str = "",
     q: str = "",
     db: Session = Depends(get_db),
-    user: PanelUser = Depends(require_user),
+    user: PanelUser = Depends(require_admin),
 ):
     resumenes = db.scalars(_resumenes_query(banco, fecha_desde, fecha_hasta, q)).all()
     return templates.TemplateResponse(
@@ -2365,7 +2406,7 @@ def list_resumenes(
 
 @router.get("/conciliaciones/resumenes/{resumen_id}/descargar")
 def descargar_resumen(
-    resumen_id: int, db: Session = Depends(get_db), user: PanelUser = Depends(require_user)
+    resumen_id: int, db: Session = Depends(get_db), user: PanelUser = Depends(require_admin)
 ):
     resumen = db.get(ImportedStatement, resumen_id)
     if resumen is None or resumen.archivo_id is None:
@@ -2389,7 +2430,7 @@ def emparejar_linea(
     fecha: str = Form(""),
     banco: str = Form(""),
     db: Session = Depends(get_db),
-    user: PanelUser = Depends(require_user),
+    user: PanelUser = Depends(require_admin),
 ):
     linea = db.get(StatementLine, linea_id)
     movimiento = db.get(Movement, movimiento_id)
@@ -2432,7 +2473,7 @@ def aceptar_diferencia(
     fecha: str = Form(""),
     banco: str = Form(""),
     db: Session = Depends(get_db),
-    user: PanelUser = Depends(require_user),
+    user: PanelUser = Depends(require_admin),
 ):
     """El administrador reviso un movimiento "con diferencia" (emparejado con una
     linea del banco, pero con monto, fecha o emisor que no coinciden del todo) y
@@ -2459,7 +2500,7 @@ def marcar_linea_no_corresponde(
     fecha: str = Form(""),
     banco: str = Form(""),
     db: Session = Depends(get_db),
-    user: PanelUser = Depends(require_user),
+    user: PanelUser = Depends(require_admin),
 ):
     linea = db.get(StatementLine, linea_id)
     if linea is not None and _cierre_del_dia(db, linea.fecha.date()) is None:

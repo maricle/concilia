@@ -17,7 +17,11 @@
       </div>
       <div class="form-group">
         <label>Rol</label>
-        <input type="text" class="form-control" name="rol" value="{{ usuario.rol }}">
+        <select class="form-control" name="rol">
+          {% for rol in ["Administrador", "Contador", "Recaudador"] %}
+          <option value="{{ rol }}"{{ " selected" if rol == usuario.rol }}>{{ rol }}</option>
+          {% endfor %}
+        </select>
       </div>
       <div class="form-group">
         <label>Nueva contrasena</label>

@@ -1471,3 +1471,123 @@ def test_config_exportar_devuelve_xlsx_para_las_4_pantallas():
         assert response.status_code == 200, path
         filas = _leer_xlsx(response.content)
         assert encabezado_esperado in filas[0], path
+
+
+def _login_con_rol(rol: str):
+    client, test_session = _client_with_admin()
+    with test_session() as session:
+        session.add(
+            PanelUser(nombre="Otro", email="otro@concilia.test", password_hash=hash_password("secreta123"), rol=rol)
+        )
+        session.commit()
+    client.post("/login", data={"email": "otro@concilia.test", "password": "secreta123"})
+    return client, test_session
+
+
+def test_recaudador_no_entra_a_configuracion_ni_conciliaciones():
+    client, _ = _login_con_rol("Recaudador")
+
+    for ruta in ("/config/usuarios", "/config/operadores", "/config/moviles", "/config/cuentas", "/conciliaciones", "/conciliaciones/resumenes"):
+        respuesta = client.get(ruta)
+        assert respuesta.status_code == 403, ruta
+        assert "No tenes permiso" in respuesta.text
+
+
+def test_recaudador_puede_ver_y_cargar_comprobantes_pero_no_corregirlos_ni_eliminarlos():
+    client, test_session = _login_con_rol("Recaudador")
+    with test_session() as session:
+        session.add(Operator(nombre="Ana", whatsapp_numero="111"))
+        session.flush()
+        movimiento = Movement(
+            operador_id=1, monto=Decimal("100"), fecha_transaccion=datetime(2026, 8, 24), estado_registro=RecordState.CONFIRMADO
+        )
+        session.add(movimiento)
+        session.commit()
+        movimiento_id = movimiento.id
+
+    for ruta in ("/resumen", "/comprobantes", "/comprobantes/nuevo", "/repartos"):
+        assert client.get(ruta).status_code == 200, ruta
+    listado = client.get("/comprobantes").text
+    assert "/comprobantes/eliminar-lote" not in listado
+    assert f"/comprobantes/{movimiento_id}/editar" not in listado
+    assert 'id="menu-configuracion"' not in client.get("/resumen").text
+
+    assert client.get(f"/comprobantes/{movimiento_id}/editar").status_code == 403
+    assert client.post(f"/comprobantes/{movimiento_id}/eliminar").status_code == 403
+    assert client.post("/comprobantes/eliminar-lote", data={"movimiento_ids": [movimiento_id]}).status_code == 403
+    with test_session() as session:
+        assert session.get(Movement, movimiento_id) is not None
+
+
+def test_contador_tiene_acceso_total():
+    client, _ = _login_con_rol("Contador")
+
+    assert client.get("/config/usuarios").status_code == 200
+    assert client.get("/conciliaciones").status_code == 200
+    assert 'id="menu-configuracion"' in client.get("/resumen").text
+
+
+def test_rol_no_reconocido_tiene_permisos_de_recaudador():
+    # Usuarios viejos con el rol escrito a mano: si no es uno de los tres roles,
+    # no se le da acceso total por las dudas.
+    client, _ = _login_con_rol("admin general")
+
+    assert client.get("/config/usuarios").status_code == 403
+    assert client.get("/comprobantes").status_code == 200
+
+
+def test_rol_de_usuario_se_elige_de_la_lista():
+    client, test_session = _client_with_admin()
+    client.post("/login", data={"email": "admin@concilia.test", "password": "secreta123"})
+
+    invalido = client.post(
+        "/config/usuarios",
+        data={"nombre": "X", "email": "x@concilia.test", "password": "secreta123", "rol": "Superusuario"},
+    )
+    assert invalido.status_code == 400
+    assert "El rol tiene que ser" in invalido.text
+
+    client.post(
+        "/config/usuarios",
+        data={"nombre": "R", "email": "r@concilia.test", "password": "secreta123", "rol": "recaudador"},
+    )
+    with test_session() as session:
+        creado = session.query(PanelUser).filter_by(email="r@concilia.test").one()
+        assert creado.rol == "Recaudador"
+
+
+def test_post_desde_otro_sitio_es_rechazado():
+    # CSRF: un formulario de otro sitio que intenta usar la sesion del admin.
+    client, test_session = _client_with_admin()
+    client.post("/login", data={"email": "admin@concilia.test", "password": "secreta123"})
+
+    respuesta = client.post(
+        "/config/operadores",
+        data={"nombre": "Intruso", "whatsapp_numero": "5491100000000"},
+        headers={"origin": "https://sitio-malicioso.test"},
+    )
+
+    assert respuesta.status_code == 403
+    with test_session() as session:
+        assert session.query(Operator).filter_by(nombre="Intruso").count() == 0
+
+
+def test_post_desde_el_propio_panel_pasa():
+    client, _ = _client_with_admin()
+
+    respuesta = client.post(
+        "/login",
+        data={"email": "admin@concilia.test", "password": "secreta123"},
+        headers={"origin": "http://testserver", "referer": "http://testserver/login"},
+        follow_redirects=False,
+    )
+
+    assert respuesta.status_code == 303
+
+
+def test_webhooks_no_exigen_origen():
+    client, _ = _client_with_admin()
+
+    respuesta = client.post("/webhook", json={"entry": []}, headers={"origin": "https://graph.facebook.com"})
+
+    assert respuesta.status_code == 200

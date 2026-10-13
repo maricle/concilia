@@ -68,7 +68,11 @@
         </div>
         <div class="form-group col-md-3">
           <label>Rol</label>
-          <input type="text" class="form-control" name="rol" value="Administrador">
+          <select class="form-control" name="rol">
+            {% for rol in ["Administrador", "Contador", "Recaudador"] %}
+            <option value="{{ rol }}"{{ " selected" if rol == "Administrador" }}>{{ rol }}</option>
+            {% endfor %}
+          </select>
         </div>
       </div>
       {% if error %}<p class="text-danger small">{{ error }}</p>{% endif %}

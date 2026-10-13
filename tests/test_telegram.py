@@ -1,6 +1,10 @@
+import asyncio
+import json
 from datetime import datetime
 from decimal import Decimal
 
+import httpx
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
@@ -462,3 +466,79 @@ def test_error_al_interpretar_el_comprobante_avisa_y_responde_200(monkeypatch):
 
     assert response.status_code == 200
     assert sent == [("334", telegram.ERROR_PROCESANDO_TEXTO)]
+
+
+_API = "https://api.telegram.org/bottoken-de-test"
+
+
+def _cliente_http_falso(monkeypatch, respuestas: dict[str, httpx.Response]) -> list[httpx.Request]:
+    """Reemplaza el cliente httpx de telegram.py por uno con MockTransport: se
+    ejercita el armado real del request sin salir a la red. Las claves de
+    `respuestas` se comparan contra la URL sin query string."""
+    recibidos: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        recibidos.append(request)
+        url = str(request.url).split("?")[0]
+        return respuestas.get(url, httpx.Response(200, json={"ok": True}))
+
+    monkeypatch.setattr(telegram, "_http_client", httpx.AsyncClient(transport=httpx.MockTransport(handler)))
+    return recibidos
+
+
+def test_send_telegram_message_con_y_sin_botones(monkeypatch):
+    recibidos = _cliente_http_falso(monkeypatch, {})
+
+    asyncio.run(telegram.send_telegram_message("123", "Hola"))
+    asyncio.run(telegram.send_telegram_message("123", "Confirmas?", telegram.SI_NO_MARKUP))
+
+    assert str(recibidos[0].url) == f"{_API}/sendMessage"
+    assert json.loads(recibidos[0].content) == {"chat_id": "123", "text": "Hola"}
+    assert json.loads(recibidos[1].content) == {"chat_id": "123", "text": "Confirmas?", "reply_markup": telegram.SI_NO_MARKUP}
+
+
+def test_send_telegram_message_propaga_el_error_de_la_api(monkeypatch):
+    _cliente_http_falso(monkeypatch, {f"{_API}/sendMessage": httpx.Response(403, json={"ok": False})})
+
+    with pytest.raises(httpx.HTTPStatusError):
+        asyncio.run(telegram.send_telegram_message("123", "Hola"))
+
+
+def test_download_telegram_file_pide_la_ruta_y_baja_el_archivo(monkeypatch):
+    recibidos = _cliente_http_falso(
+        monkeypatch,
+        {
+            f"{_API}/getFile": httpx.Response(200, json={"ok": True, "result": {"file_path": "photos/f.jpg"}}),
+            "https://api.telegram.org/file/bottoken-de-test/photos/f.jpg": httpx.Response(200, content=b"jpg"),
+        },
+    )
+
+    contenido, ruta = asyncio.run(telegram._download_telegram_file("abc"))
+
+    assert (contenido, ruta) == (b"jpg", "photos/f.jpg")
+    assert recibidos[0].url.params["file_id"] == "abc"
+
+
+def test_answer_callback_query_no_rompe_si_telegram_la_rechaza(monkeypatch):
+    # Es cosmetico (apaga el spinner del boton): un error no tiene que cortar el
+    # procesamiento de la respuesta del operador.
+    _cliente_http_falso(monkeypatch, {f"{_API}/answerCallbackQuery": httpx.Response(400, json={"ok": False})})
+
+    asyncio.run(telegram._answer_callback_query("cbq-viejo"))
+
+
+def test_notificacion_fallida_no_corta_las_demas(monkeypatch):
+    recibidos = _cliente_http_falso(monkeypatch, {})
+    enviados: list[str] = []
+
+    async def send_que_falla_para_uno(chat_id: str, text: str, reply_markup=None) -> None:
+        if chat_id == "1":
+            raise httpx.ConnectError("sin red")
+        enviados.append(chat_id)
+
+    monkeypatch.setattr(telegram, "send_telegram_message", send_que_falla_para_uno)
+
+    asyncio.run(telegram._enviar_notificaciones([("1", "cierre"), ("2", "cierre")]))
+
+    assert enviados == ["2"]
+    assert recibidos == []

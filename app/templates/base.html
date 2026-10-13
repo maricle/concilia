@@ -29,6 +29,7 @@
     <li class="nav-item {{ 'active' if request.url.path == '/repartos' }}">
       <a class="nav-link" href="/repartos"><i class="fas fa-fw fa-route"></i><span>Salidas</span></a>
     </li>
+    {% if es_admin(user) %}
     {% set en_conciliaciones = request.url.path in ['/conciliaciones', '/conciliaciones/resumenes'] %}
     <li class="nav-item {{ 'active' if en_conciliaciones }}" id="menu-conciliaciones">
       <a class="nav-link collapsed" href="#" data-toggle="collapse" data-target="#collapseConciliaciones"
@@ -58,6 +59,7 @@
         </div>
       </div>
     </li>
+    {% endif %}
     <hr class="sidebar-divider d-none d-md-block">
     <div class="text-center d-none d-md-inline">
       <button class="rounded-circle border-0" id="sidebarToggle" title="Plegar/expandir menu"></button>
