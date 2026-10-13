@@ -9,7 +9,14 @@ from openpyxl import load_workbook
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from .models import ImportedStatement, Movement, RecordState, ReconciliationState, StatementLine, StatementLineState
+from .models import (
+    ImportedStatement,
+    Movement,
+    ReconciliationState,
+    RecordState,
+    StatementLine,
+    StatementLineState,
+)
 from .numeros import parse_monto_ar
 
 DEFAULT_TOLERANCE_DIAS = 1

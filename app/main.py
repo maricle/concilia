@@ -1,3 +1,4 @@
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -12,10 +13,25 @@ from .panel import router as panel_router
 from .telegram import router as telegram_router
 from .webhook import router as webhook_router
 
+logger = logging.getLogger(__name__)
+
+
+def _avisar_webhooks_sin_verificar() -> None:
+    """Sin estos secretos los webhooks aceptan cualquier request (comodo para
+    desarrollo local), asi que cualquiera que conozca la URL podria simular
+    mensajes de un operador. No se bloquea el arranque para no tirar produccion
+    por una variable faltante, pero queda avisado en el log de cada deploy."""
+    settings = get_settings()
+    if not settings.meta_app_secret:
+        logger.warning("META_APP_SECRET vacio: POST /webhook no verifica la firma de Meta.")
+    if not settings.telegram_webhook_secret:
+        logger.warning("TELEGRAM_WEBHOOK_SECRET vacio: POST /telegram/webhook no verifica el origen.")
+
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     create_tables()
+    _avisar_webhooks_sin_verificar()
     yield
 
 

@@ -3,14 +3,21 @@ from decimal import Decimal
 
 from fastapi.testclient import TestClient
 from sqlalchemy import select
-from sqlalchemy.orm import Session
 
 from app import telegram
 from app.config import Settings
 from app.conversation import ConversationService, ExtractedTransfer
 from app.db import Base, SessionLocal, engine
 from app.main import app
-from app.models import BankAccount, Movement, Movil, Operator, Reparto, RepartoOperador, WhatsAppConversation
+from app.models import (
+    BankAccount,
+    Movement,
+    Movil,
+    Operator,
+    Reparto,
+    RepartoOperador,
+    WhatsAppConversation,
+)
 
 client = TestClient(app)
 
@@ -427,3 +434,31 @@ def test_cuenta_no_identificada_no_pregunta_y_sigue_el_flujo(monkeypatch):
         assert movimiento.cuenta_bancaria_id is None
 
     _clean_movement("OP-CUENTA-DESCONOCIDA")
+
+
+def test_error_al_interpretar_el_comprobante_avisa_y_responde_200(monkeypatch):
+    # Con un 500 Telegram reintenta la misma entrega una y otra vez; se responde
+    # 200 y se le avisa al operador.
+    _register_operator("334")
+    sent: list[tuple[str, str]] = []
+
+    async def fake_send(chat_id: str, text: str, reply_markup: dict | None = None) -> None:
+        sent.append((chat_id, text))
+
+    async def fake_download(file_id: str) -> tuple[bytes, str]:
+        return b"fake-photo-bytes", "photos/file.jpg"
+
+    def extraccion_caida(content_type: str, data: bytes):
+        raise RuntimeError("API caida")
+
+    monkeypatch.setattr(telegram, "send_telegram_message", fake_send)
+    monkeypatch.setattr(telegram, "_download_telegram_file", fake_download)
+    monkeypatch.setattr(telegram, "extract_transfer", extraccion_caida)
+
+    response = client.post(
+        "/telegram/webhook",
+        json={"message": {"chat": {"id": 334}, "photo": [{"file_id": "abc", "file_size": 100}]}},
+    )
+
+    assert response.status_code == 200
+    assert sent == [("334", telegram.ERROR_PROCESANDO_TEXTO)]

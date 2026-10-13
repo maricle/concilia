@@ -21,12 +21,18 @@ from .models import Operator
 from .storage import save_comprobante_archivo
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 GRAPH_API_BASE = "https://graph.facebook.com/v21.0"
 
 SI_NO_BOTONES = [("si", "Si"), ("no", "No")]
 TIPO_FACTURA_CUENTA_BOTONES = [("factura", "Factura"), ("cuenta", "Cuenta"), ("descartar", "Descartar")]
 DESCARTAR_BOTONES = [("descartar", "Descartar")]
+
+ERROR_PROCESANDO_TEXTO = (
+    "Tuvimos un problema para procesar el comprobante. Reenvialo en unos minutos; "
+    "si sigue fallando, avisale al administrador."
+)
 
 NUMERO_NO_HABILITADO_TEXTO = (
     "Este numero no esta habilitado para registrar comprobantes. Contacta al administrador para que te registre."
@@ -102,7 +108,7 @@ async def _enviar_notificaciones(destinos: list[tuple[str, str]]) -> None:
         try:
             await send_whatsapp_message(numero_destino, mensaje)
         except httpx.HTTPError:
-            logging.exception("No se pudo enviar notificacion de WhatsApp a %s", numero_destino)
+            logger.exception("No se pudo enviar notificacion de WhatsApp a %s", numero_destino)
 
 
 async def _download_whatsapp_media(media_id: str) -> tuple[bytes, str]:
@@ -201,7 +207,7 @@ async def _handle_message_en_orden(message: dict[str, Any]) -> None:
         try:
             await _handle_message(message)
         except Exception:
-            logging.exception("Error procesando mensaje de WhatsApp %s", message.get("id"))
+            logger.exception("Error procesando mensaje de WhatsApp %s", message.get("id"))
 
 
 @router.post("/webhook")
@@ -279,14 +285,20 @@ async def _handle_message(message: dict[str, Any]) -> None:
         await send_whatsapp_message(numero, "Envia una imagen o PDF del comprobante de transferencia.")
         return
 
-    contenido, content_type_real = await _download_whatsapp_media(media_id)
-    content_type = content_type_real or content_type
-
     # extract_transfer llama a la API de Claude de forma sincrona (varios
     # segundos, mas si hace fallback a Sonnet); correrla directo en el handler
     # async bloquearia el unico event loop del proceso, mismo motivo que en
     # telegram.py.
-    transfer = await run_in_threadpool(extract_transfer, content_type, contenido)
+    try:
+        contenido, content_type_real = await _download_whatsapp_media(media_id)
+        content_type = content_type_real or content_type
+        transfer = await run_in_threadpool(extract_transfer, content_type, contenido)
+    except Exception:
+        # Meta o Anthropic caidos, timeout, etc.: sin esto el operador se queda sin
+        # ninguna respuesta y no sabe si el comprobante entro.
+        logger.exception("No se pudo descargar o interpretar el comprobante de WhatsApp %s", media_id)
+        await send_whatsapp_message(numero, ERROR_PROCESANDO_TEXTO)
+        return
     if transfer is None:
         await send_whatsapp_message(
             numero, "No pude leer el comprobante. Reenvialo con mejor calidad, o pedile al administrador que lo cargue desde el panel."
@@ -297,7 +309,7 @@ async def _handle_message(message: dict[str, Any]) -> None:
     try:
         archivo_id = save_comprobante_archivo(nombre_archivo=file_name, content_type=content_type, contenido=contenido)
     except Exception:
-        logging.exception("No se pudo guardar el archivo del comprobante; se continua sin bloquear el registro.")
+        logger.exception("No se pudo guardar el archivo del comprobante; se continua sin bloquear el registro.")
 
     with SessionLocal() as session:
         service = ConversationService(session)

@@ -18,8 +18,8 @@ from app.models import (
     Movil,
     Operator,
     PanelUser,
-    RecordState,
     ReconciliationState,
+    RecordState,
     Reparto,
     RepartoOperador,
     StatementLine,
@@ -510,7 +510,7 @@ def test_resumenes_table_shows_breakdown_by_line_state():
         lineas = session.query(StatementLine).all()
         con_diferencia = session.query(Movement).filter_by(numero_operacion="OP-DIFERENCIA").one()
         assert con_diferencia.estado_conciliacion == ReconciliationState.CON_DIFERENCIA
-        estados = sorted(l.estado.value for l in lineas)
+        estados = sorted(linea.estado.value for linea in lineas)
         assert estados == ["conciliada", "conciliada", "pendiente"]
 
 

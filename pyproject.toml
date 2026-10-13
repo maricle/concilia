@@ -24,6 +24,7 @@ dependencies = [
 
 [project.optional-dependencies]
 test = ["pytest>=8.3,<9.0"]
+dev = ["pytest>=8.3,<9.0", "ruff>=0.8", "coverage>=7.6"]
 postgres = ["psycopg[binary]>=3.2,<4.0"]
 
 [tool.setuptools.packages.find]
@@ -35,3 +36,17 @@ testpaths = ["tests"]
 
 [tool.ruff]
 line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM", "C4", "LOG"]
+ignore = [
+  "E501",  # el codigo tiene mensajes y docstrings largos a proposito; no se parte a mano
+  "B008",  # Depends()/Form() como default es el patron normal de FastAPI
+  "UP047", # genericos PEP 695: cambio cosmetico, se deja la forma con TypeVar
+]
+
+[tool.coverage.run]
+source = ["app"]
+
+[tool.coverage.report]
+show_missing = true

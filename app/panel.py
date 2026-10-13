@@ -1,3 +1,4 @@
+import contextlib
 import io
 import json
 import logging
@@ -42,6 +43,7 @@ from .storage import get_comprobante_archivo, save_comprobante_archivo
 from .zona_horaria import hoy_argentina
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 templates = Jinja2Templates(directory="app/templates")
 
 
@@ -1271,6 +1273,7 @@ def ver_archivo_movimiento(
     try:
         archivo = get_comprobante_archivo(movimiento.archivo_id)
     except Exception:
+        logger.exception("No se pudo leer el archivo del comprobante %s", movimiento_id)
         return RedirectResponse("/comprobantes", status_code=303)
     if archivo is None:
         return RedirectResponse("/comprobantes", status_code=303)
@@ -1301,7 +1304,7 @@ async def extraer_datos_comprobante(
         # patron en telegram.py) -- aca si hace falta, porque el punto de este
         # endpoint es degradar sin romper el alta manual (completar a mano sigue
         # funcionando aunque la extraccion falle por un problema de red/API).
-        logging.exception("Fallo la extraccion de datos para la carga manual de comprobantes")
+        logger.exception("Fallo la extraccion de datos para la carga manual de comprobantes")
         return {"ok": False, "error": "No pudimos leer el comprobante. Completa los datos a mano."}
 
     if transfer is None:
@@ -1711,10 +1714,8 @@ def _movimientos_del_dia_query(fecha: date, cuenta_ids: list[int], estado: str, 
             Movement.titular.ilike(like),
             Movement.factura_o_cuenta_numero.ilike(like),
         ]
-        try:
+        with contextlib.suppress(ValueError):
             condiciones.append(Movement.monto == parse_monto_ar(search))
-        except ValueError:
-            pass
         query = query.where(or_(*condiciones))
     return query
 

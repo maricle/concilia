@@ -88,5 +88,10 @@ También se aceptan URLs con los esquemas `postgres://` y `postgresql://`; la ap
 ## Tests
 
 ```powershell
+python -m pip install -e ".[dev]"
 pytest
+ruff check app tests scripts
+coverage run -m pytest; coverage report
 ```
+
+`tests/conftest.py` fuerza una base SQLite temporal y credenciales de prueba antes de importar la app: la suite nunca usa el `DATABASE_URL` ni los tokens del `.env`, así que se puede correr aunque el `.env` apunte a producción.

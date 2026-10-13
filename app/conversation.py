@@ -23,6 +23,8 @@ from .numeros import formato_monto_ar as _formato_monto_ar
 from .repartos import CerrarRepartoComando, IniciarRepartoComando, parse_comando_reparto
 from .zona_horaria import ahora_argentina, hoy_argentina
 
+logger = logging.getLogger(__name__)
+
 NO_CUENTA_RECEPTORA_TEXTO = (
     "No pudimos identificar a que cuenta bancaria de la empresa corresponde este pago. "
     "Reenvia el comprobante, o si el problema persiste contacta al administrador para cargarlo manualmente."
@@ -153,7 +155,7 @@ def _find_cuenta_bancaria(session: Session, cuenta_receptora: str | None) -> Ban
         if len(candidatas) == 1:
             return candidatas[0]
 
-    logging.warning(
+    logger.warning(
         "Cuenta receptora sin match: extraida=%r cuentas_registradas=%r",
         cuenta_receptora,
         [(c.alias, c.numero_cuenta) for c in cuentas],

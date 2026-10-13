@@ -195,9 +195,7 @@ def _es_numero_operacion_valido(valor: object) -> bool:
     normalizado = valor.strip()
     if len(normalizado.split()) >= 3:
         return False
-    if normalizado.isdigit() and len(normalizado) >= 20:
-        return False
-    return True
+    return not (normalizado.isdigit() and len(normalizado) >= 20)
 
 
 def _content_block(content_type: str, data: bytes) -> dict:

@@ -20,10 +20,8 @@ from app.models import (
     Movil,
     Operator,
     PanelUser,
-    ReconciliationState,
     RecordState,
     Reparto,
-    RepartoOperador,
     StatementLine,
     StatementLineState,
 )

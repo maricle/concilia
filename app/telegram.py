@@ -16,6 +16,7 @@ from .models import Operator
 from .storage import save_comprobante_archivo
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 TELEGRAM_API_BASE = "https://api.telegram.org/bot{token}"
 
@@ -41,6 +42,10 @@ TIPO_FACTURA_CUENTA_MARKUP = {
 
 DESCARTAR_MARKUP = {"inline_keyboard": [[{"text": "Descartar", "callback_data": "descartar"}]]}
 
+ERROR_PROCESANDO_TEXTO = (
+    "Tuvimos un problema para procesar el comprobante. Reenvialo en unos minutos; "
+    "si sigue fallando, avisale al administrador."
+)
 PEDIR_TELEFONO_TEXTO = "Para registrar comprobantes primero compartinos tu numero de telefono con el boton de abajo."
 NUMERO_NO_HABILITADO_TEXTO = "Tu numero no esta habilitado. Contacta al administrador para que te registre."
 NUMERO_VINCULADO_TEXTO = "Numero vinculado correctamente. Ya podes enviar tus comprobantes."
@@ -96,7 +101,7 @@ async def _enviar_notificaciones(destinos: list[tuple[str, str]]) -> None:
         try:
             await send_telegram_message(chat_id_destino, mensaje)
         except httpx.HTTPError:
-            logging.exception("No se pudo enviar notificacion a chat_id=%s", chat_id_destino)
+            logger.exception("No se pudo enviar notificacion a chat_id=%s", chat_id_destino)
 
 
 
@@ -111,7 +116,7 @@ async def _answer_callback_query(callback_query_id: str) -> None:
         )
         response.raise_for_status()
     except httpx.HTTPError:
-        logging.exception("No se pudo confirmar el callback_query a Telegram; se continua igual.")
+        logger.exception("No se pudo confirmar el callback_query a Telegram; se continua igual.")
 
 
 async def _download_telegram_file(file_id: str) -> tuple[bytes, str]:
@@ -155,7 +160,7 @@ def _find_operator_by_phone(session: Session, phone_number: str) -> Operator | N
     for operador in candidatos:
         if _ultimos_digitos(operador.whatsapp_numero) == clave:
             return operador
-    logging.warning(
+    logger.warning(
         "Contacto de Telegram sin operador coincidente: telefono=%r ultimos_digitos=%r candidatos=%r",
         phone_number,
         clave,
@@ -259,12 +264,20 @@ async def receive_telegram_update(
         await send_telegram_message(chat_id, "Envia una imagen o PDF del comprobante de transferencia.")
         return {"status": "ignored"}
 
-    contenido, _ = await _download_telegram_file(file_id)
     # extract_transfer llama a la API de Claude de forma sincrona (varios segundos,
     # mas si hace fallback a Sonnet); correrla directo en el handler async bloquearia
     # el unico event loop del proceso y congelaria a todos los demas operadores
     # mientras tanto, asi que se delega a un thread del pool.
-    transfer = await run_in_threadpool(extract_transfer, content_type, contenido)
+    try:
+        contenido, _ = await _download_telegram_file(file_id)
+        transfer = await run_in_threadpool(extract_transfer, content_type, contenido)
+    except Exception:
+        # Telegram o Anthropic caidos, timeout, etc. Se responde 200 igual: con un
+        # 500 Telegram reintenta la misma entrega una y otra vez, y el operador se
+        # queda sin saber que paso.
+        logger.exception("No se pudo descargar o interpretar el comprobante de Telegram %s", file_id)
+        await send_telegram_message(chat_id, ERROR_PROCESANDO_TEXTO)
+        return {"status": "accepted"}
     if transfer is None:
         await send_telegram_message(
             chat_id,
@@ -280,7 +293,7 @@ async def receive_telegram_update(
             contenido=contenido,
         )
     except Exception:
-        logging.exception("No se pudo guardar el archivo del comprobante; se continua sin bloquear el registro.")
+        logger.exception("No se pudo guardar el archivo del comprobante; se continua sin bloquear el registro.")
 
     with SessionLocal() as session:
         service = ConversationService(session)

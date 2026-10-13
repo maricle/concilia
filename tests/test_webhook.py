@@ -1,6 +1,12 @@
+import asyncio
+import hashlib
+import hmac
+import json
 from datetime import datetime
 from decimal import Decimal
 
+import httpx
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
@@ -9,7 +15,15 @@ from app.config import Settings
 from app.conversation import ConversationService, ExtractedTransfer
 from app.db import Base, SessionLocal, engine
 from app.main import app
-from app.models import BankAccount, Movement, Movil, Operator, Reparto, RepartoOperador, WhatsAppConversation
+from app.models import (
+    BankAccount,
+    Movement,
+    Movil,
+    Operator,
+    Reparto,
+    RepartoOperador,
+    WhatsAppConversation,
+)
 
 client = TestClient(app)
 
@@ -468,3 +482,127 @@ def test_reintento_de_meta_con_el_mismo_id_no_se_procesa_dos_veces(monkeypatch):
     assert client.post("/webhook", json=payload).status_code == 200
 
     assert len(sent) == 1
+
+
+def test_error_al_interpretar_el_comprobante_avisa_al_operador(monkeypatch):
+    # API de Anthropic o de Meta caida: el operador tiene que recibir una
+    # respuesta, no quedarse esperando.
+    _register_operator("3794500555")
+    _clean_conversation("3794500555")
+    sent: list[tuple[str, str, list | None]] = []
+
+    async def fake_send(to: str, text: str, botones=None) -> None:
+        sent.append((to, text, botones))
+
+    async def fake_download(media_id: str) -> tuple[bytes, str]:
+        return b"fake-photo-bytes", "image/jpeg"
+
+    def extraccion_caida(content_type: str, data: bytes):
+        raise RuntimeError("API caida")
+
+    monkeypatch.setattr(webhook, "send_whatsapp_message", fake_send)
+    monkeypatch.setattr(webhook, "_download_whatsapp_media", fake_download)
+    monkeypatch.setattr(webhook, "extract_transfer", extraccion_caida)
+
+    response = client.post("/webhook", json=_mensaje_imagen("3794500555"))
+
+    assert response.status_code == 200
+    assert sent == [("3794500555", webhook.ERROR_PROCESANDO_TEXTO, None)]
+    with SessionLocal() as session:
+        conversacion = session.get(WhatsAppConversation, "3794500555")
+        assert conversacion is None or conversacion.movimiento_borrador_id is None
+
+
+def _cliente_http_falso(monkeypatch, respuestas: dict[str, httpx.Response]) -> list[httpx.Request]:
+    """Reemplaza el cliente httpx de webhook.py por uno con MockTransport: se
+    ejercita el armado real del request sin salir a la red."""
+    recibidos: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        recibidos.append(request)
+        return respuestas.get(str(request.url), httpx.Response(200, json={}))
+
+    monkeypatch.setattr(webhook, "_http_client", httpx.AsyncClient(transport=httpx.MockTransport(handler)))
+    return recibidos
+
+
+def test_send_whatsapp_message_arma_mensaje_de_texto(monkeypatch):
+    recibidos = _cliente_http_falso(monkeypatch, {})
+
+    asyncio.run(webhook.send_whatsapp_message("5491100000000", "Hola"))
+
+    assert len(recibidos) == 1
+    assert str(recibidos[0].url) == f"{webhook.GRAPH_API_BASE}/0/messages"
+    assert recibidos[0].headers["authorization"] == "Bearer token-de-test"
+    assert json.loads(recibidos[0].content) == {
+        "messaging_product": "whatsapp",
+        "to": "5491100000000",
+        "type": "text",
+        "text": {"body": "Hola"},
+    }
+
+
+def test_send_whatsapp_message_arma_botones_interactivos(monkeypatch):
+    recibidos = _cliente_http_falso(monkeypatch, {})
+
+    asyncio.run(webhook.send_whatsapp_message("5491100000000", "Confirmas?", webhook.SI_NO_BOTONES))
+
+    cuerpo = json.loads(recibidos[0].content)
+    assert cuerpo["type"] == "interactive"
+    assert cuerpo["interactive"]["body"] == {"text": "Confirmas?"}
+    assert cuerpo["interactive"]["action"]["buttons"] == [
+        {"type": "reply", "reply": {"id": "si", "title": "Si"}},
+        {"type": "reply", "reply": {"id": "no", "title": "No"}},
+    ]
+
+
+def test_send_whatsapp_message_propaga_el_error_de_la_api(monkeypatch):
+    url = f"{webhook.GRAPH_API_BASE}/0/messages"
+    _cliente_http_falso(monkeypatch, {url: httpx.Response(401, json={"error": "token vencido"})})
+
+    with pytest.raises(httpx.HTTPStatusError):
+        asyncio.run(webhook.send_whatsapp_message("5491100000000", "Hola"))
+
+
+def test_download_whatsapp_media_sigue_la_url_firmada(monkeypatch):
+    _cliente_http_falso(
+        monkeypatch,
+        {
+            f"{webhook.GRAPH_API_BASE}/media-1": httpx.Response(
+                200, json={"url": "https://cdn.meta.test/archivo", "mime_type": "application/pdf"}
+            ),
+            "https://cdn.meta.test/archivo": httpx.Response(200, content=b"%PDF-contenido"),
+        },
+    )
+
+    contenido, mime = asyncio.run(webhook._download_whatsapp_media("media-1"))
+
+    assert contenido == b"%PDF-contenido"
+    assert mime == "application/pdf"
+
+
+def test_verify_webhook_devuelve_el_challenge_con_el_token_correcto():
+    respuesta = client.get(
+        "/webhook", params={"hub.mode": "subscribe", "hub.verify_token": "token-de-test", "hub.challenge": "12345"}
+    )
+
+    assert respuesta.status_code == 200
+    assert respuesta.text == '"12345"'
+
+
+def test_verify_webhook_rechaza_un_token_incorrecto():
+    respuesta = client.get(
+        "/webhook", params={"hub.mode": "subscribe", "hub.verify_token": "otro", "hub.challenge": "12345"}
+    )
+
+    assert respuesta.status_code == 403
+
+
+def test_verify_signature():
+    cuerpo = b'{"a": 1}'
+    firma = "sha256=" + hmac.new(b"secreto", cuerpo, hashlib.sha256).hexdigest()
+
+    assert webhook.verify_signature(cuerpo, firma, "secreto") is True
+    assert webhook.verify_signature(cuerpo + b" ", firma, "secreto") is False
+    assert webhook.verify_signature(cuerpo, None, "secreto") is False
+    assert webhook.verify_signature(cuerpo, firma.removeprefix("sha256="), "secreto") is False
