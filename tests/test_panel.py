@@ -412,7 +412,7 @@ def test_ver_archivo_returns_file_content(monkeypatch):
         content_type = "image/jpeg"
         nombre_archivo = "comprobante.jpg"
 
-    monkeypatch.setattr(panel, "get_comprobante_archivo", lambda archivo_id: _FakeArchivo() if archivo_id == 42 else None)
+    monkeypatch.setattr(panel.comprobantes, "get_comprobante_archivo", lambda archivo_id: _FakeArchivo() if archivo_id == 42 else None)
 
     client.post("/login", data={"email": "admin@concilia.test", "password": "secreta123"})
     response = client.get("/comprobantes/1/archivo")
@@ -468,7 +468,7 @@ def test_nuevo_movimiento_con_archivo_adjunto(monkeypatch):
         session.add(BankAccount(banco="Nacion", numero_cuenta="1", alias="Principal"))
         session.commit()
 
-    monkeypatch.setattr(panel, "save_comprobante_archivo", lambda nombre, content_type, contenido: 42)
+    monkeypatch.setattr(panel.comprobantes, "save_comprobante_archivo", lambda nombre, content_type, contenido: 42)
 
     client.post("/login", data={"email": "admin@concilia.test", "password": "secreta123"})
     response = client.post(
@@ -505,7 +505,7 @@ def test_extraer_datos_comprobante_completa_los_campos_y_matchea_cuenta(monkeypa
         cuenta_receptora="0070077120000014194391",
         titular="Liliana Desiree Moray Dacunda",
     )
-    monkeypatch.setattr(panel, "extract_transfer", lambda content_type, contenido: transfer)
+    monkeypatch.setattr(panel.comprobantes, "extract_transfer", lambda content_type, contenido: transfer)
 
     client.post("/login", data={"email": "admin@concilia.test", "password": "secreta123"})
     response = client.post(
@@ -525,7 +525,7 @@ def test_extraer_datos_comprobante_completa_los_campos_y_matchea_cuenta(monkeypa
 
 def test_extraer_datos_comprobante_no_legible_devuelve_error(monkeypatch):
     client, _ = _client_with_admin()
-    monkeypatch.setattr(panel, "extract_transfer", lambda content_type, contenido: None)
+    monkeypatch.setattr(panel.comprobantes, "extract_transfer", lambda content_type, contenido: None)
 
     client.post("/login", data={"email": "admin@concilia.test", "password": "secreta123"})
     response = client.post(
@@ -547,7 +547,7 @@ def test_extraer_datos_comprobante_error_de_api_no_rompe_el_alta(monkeypatch):
     def _explota(content_type, contenido):
         raise RuntimeError("boom")
 
-    monkeypatch.setattr(panel, "extract_transfer", _explota)
+    monkeypatch.setattr(panel.comprobantes, "extract_transfer", _explota)
 
     client.post("/login", data={"email": "admin@concilia.test", "password": "secreta123"})
     response = client.post(

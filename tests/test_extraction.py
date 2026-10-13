@@ -39,7 +39,7 @@ def test_build_tool_leaves_cuenta_receptora_freeform():
     # cuenta_receptora siempre se transcribe en texto libre -- restringirla a un
     # enum de aliases registrados hacia que Claude tuviera que comparar CBUs de 22
     # digitos a ojo contra esa lista, y en la practica fallaba con comprobantes
-    # reales. El matching se resuelve despues en Python (_find_cuenta_bancaria).
+    # reales. El matching se resuelve despues en Python (buscar_cuenta_bancaria).
     tool = _build_tool()
     assert "enum" not in tool["input_schema"]["properties"]["cuenta_receptora"]
 

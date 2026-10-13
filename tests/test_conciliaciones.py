@@ -874,3 +874,12 @@ def test_boton_aceptar_solo_aparece_en_movimientos_con_diferencia():
 
     assert f"/conciliaciones/movimientos/{movimiento_id}/aceptar" in pagina.text
     assert pagina.text.count("/aceptar") == 1
+
+
+def test_volver_a_conciliaciones_codifica_el_nombre_del_banco():
+    # Un banco con espacios o "&" en el nombre no tiene que romper el filtro.
+    from app.panel.conciliaciones import _volver_a_conciliaciones
+
+    respuesta = _volver_a_conciliaciones("2026-08-24", "Banco A & B")
+
+    assert respuesta.headers["location"] == "/conciliaciones?fecha=2026-08-24&banco=Banco+A+%26+B"

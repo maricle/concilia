@@ -118,7 +118,7 @@ _LARGO_CBU_CVU = 22
 _TOLERANCIA_DIGITOS_CBU_CVU = 2
 
 
-def _find_cuenta_bancaria(session: Session, cuenta_receptora: str | None) -> BankAccount | None:
+def buscar_cuenta_bancaria(session: Session, cuenta_receptora: str | None) -> BankAccount | None:
     """Matchea el CBU/CVU/alias leido del comprobante contra las cuentas bancarias
     registradas en /config/cuentas. Compara el alias tal cual (sin distinguir
     mayusculas) y el numero de cuenta primero por sus digitos exactos (para
@@ -469,7 +469,7 @@ class ConversationService:
             if duplicate is not None:
                 return "Ya existe un comprobante con ese numero de operacion."
         cuentas = self.session.scalars(select(BankAccount)).all()
-        cuenta_bancaria = _find_cuenta_bancaria(self.session, transfer.cuenta_receptora)
+        cuenta_bancaria = buscar_cuenta_bancaria(self.session, transfer.cuenta_receptora)
         if cuenta_bancaria is None and not cuentas:
             # Sin ninguna cuenta cargada en /config/cuentas no hay nada para
             # ofrecerle a elegir -- ahi si hace falta un administrador.
