@@ -10,7 +10,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
-from app import webhook
+from app import canales, webhook
 from app.config import Settings
 from app.conversation import ConversationService, ExtractedTransfer
 from app.db import Base, SessionLocal, engine
@@ -191,8 +191,8 @@ def test_imagen_se_extrae_y_guarda(monkeypatch):
 
     monkeypatch.setattr(webhook, "send_whatsapp_message", fake_send)
     monkeypatch.setattr(webhook, "_download_whatsapp_media", fake_download)
-    monkeypatch.setattr(webhook, "extract_transfer", fake_extract)
-    monkeypatch.setattr(webhook, "save_comprobante_archivo", fake_save)
+    monkeypatch.setattr(canales, "extract_transfer", fake_extract)
+    monkeypatch.setattr(canales, "save_comprobante_archivo", fake_save)
 
     response = client.post("/webhook", json=_mensaje_imagen("3794500222"))
 
@@ -232,8 +232,8 @@ def test_documento_pdf_se_extrae_igual_que_una_imagen(monkeypatch):
 
     monkeypatch.setattr(webhook, "send_whatsapp_message", fake_send)
     monkeypatch.setattr(webhook, "_download_whatsapp_media", fake_download)
-    monkeypatch.setattr(webhook, "extract_transfer", fake_extract)
-    monkeypatch.setattr(webhook, "save_comprobante_archivo", lambda **kwargs: 1)
+    monkeypatch.setattr(canales, "extract_transfer", fake_extract)
+    monkeypatch.setattr(canales, "save_comprobante_archivo", lambda **kwargs: 1)
 
     payload = {
         "entry": [
@@ -273,7 +273,7 @@ def test_imagen_no_legible_pide_reenviar(monkeypatch):
 
     monkeypatch.setattr(webhook, "send_whatsapp_message", fake_send)
     monkeypatch.setattr(webhook, "_download_whatsapp_media", fake_download)
-    monkeypatch.setattr(webhook, "extract_transfer", lambda content_type, data: None)
+    monkeypatch.setattr(canales, "extract_transfer", lambda content_type, data: None)
 
     response = client.post("/webhook", json=_mensaje_imagen("3794500333"))
 
@@ -306,8 +306,8 @@ def test_segunda_imagen_mientras_hay_borrador_pendiente_no_huerfana_la_primera(m
 
     monkeypatch.setattr(webhook, "send_whatsapp_message", fake_send)
     monkeypatch.setattr(webhook, "_download_whatsapp_media", fake_download)
-    monkeypatch.setattr(webhook, "extract_transfer", fake_extract)
-    monkeypatch.setattr(webhook, "save_comprobante_archivo", lambda **kwargs: 1)
+    monkeypatch.setattr(canales, "extract_transfer", fake_extract)
+    monkeypatch.setattr(canales, "save_comprobante_archivo", lambda **kwargs: 1)
 
     payload = _mensaje_imagen("3794500888")
     client.post("/webhook", json=payload)  # primer comprobante: crea el borrador
@@ -452,8 +452,8 @@ def test_imagen_con_caption_de_factura_pide_solo_confirmar(monkeypatch):
 
     monkeypatch.setattr(webhook, "send_whatsapp_message", fake_send)
     monkeypatch.setattr(webhook, "_download_whatsapp_media", fake_download)
-    monkeypatch.setattr(webhook, "extract_transfer", fake_extract)
-    monkeypatch.setattr(webhook, "save_comprobante_archivo", lambda **kwargs: 1)
+    monkeypatch.setattr(canales, "extract_transfer", fake_extract)
+    monkeypatch.setattr(canales, "save_comprobante_archivo", lambda **kwargs: 1)
 
     client.post("/webhook", json=_mensaje_imagen("3794500333", caption="F 4455"))
 
@@ -502,12 +502,12 @@ def test_error_al_interpretar_el_comprobante_avisa_al_operador(monkeypatch):
 
     monkeypatch.setattr(webhook, "send_whatsapp_message", fake_send)
     monkeypatch.setattr(webhook, "_download_whatsapp_media", fake_download)
-    monkeypatch.setattr(webhook, "extract_transfer", extraccion_caida)
+    monkeypatch.setattr(canales, "extract_transfer", extraccion_caida)
 
     response = client.post("/webhook", json=_mensaje_imagen("3794500555"))
 
     assert response.status_code == 200
-    assert sent == [("3794500555", webhook.ERROR_PROCESANDO_TEXTO, None)]
+    assert sent == [("3794500555", canales.ERROR_PROCESANDO_TEXTO, None)]
     with SessionLocal() as session:
         conversacion = session.get(WhatsAppConversation, "3794500555")
         assert conversacion is None or conversacion.movimiento_borrador_id is None

@@ -8,7 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
-from app import telegram
+from app import canales, telegram
 from app.config import Settings
 from app.conversation import ConversationService, ExtractedTransfer
 from app.db import Base, SessionLocal, engine
@@ -137,8 +137,8 @@ def test_photo_message_is_extracted_and_saved_to_test_store(monkeypatch):
 
     monkeypatch.setattr(telegram, "send_telegram_message", fake_send)
     monkeypatch.setattr(telegram, "_download_telegram_file", fake_download)
-    monkeypatch.setattr(telegram, "extract_transfer", fake_extract)
-    monkeypatch.setattr(telegram, "save_comprobante_archivo", fake_save)
+    monkeypatch.setattr(canales, "extract_transfer", fake_extract)
+    monkeypatch.setattr(canales, "save_comprobante_archivo", fake_save)
 
     response = client.post(
         "/telegram/webhook",
@@ -183,8 +183,8 @@ def test_second_photo_while_a_draft_is_pending_does_not_orphan_the_first(monkeyp
 
     monkeypatch.setattr(telegram, "send_telegram_message", fake_send)
     monkeypatch.setattr(telegram, "_download_telegram_file", fake_download)
-    monkeypatch.setattr(telegram, "extract_transfer", fake_extract)
-    monkeypatch.setattr(telegram, "save_comprobante_archivo", lambda **kwargs: 1)
+    monkeypatch.setattr(canales, "extract_transfer", fake_extract)
+    monkeypatch.setattr(canales, "save_comprobante_archivo", lambda **kwargs: 1)
 
     photo_message = {"message": {"chat": {"id": 888}, "photo": [{"file_id": "abc", "file_size": 100}]}}
     client.post("/telegram/webhook", json=photo_message)  # primer comprobante: crea el borrador
@@ -215,7 +215,7 @@ def test_photo_message_with_unreadable_receipt_asks_to_resend(monkeypatch):
 
     monkeypatch.setattr(telegram, "send_telegram_message", fake_send)
     monkeypatch.setattr(telegram, "_download_telegram_file", fake_download)
-    monkeypatch.setattr(telegram, "extract_transfer", lambda content_type, data: None)
+    monkeypatch.setattr(canales, "extract_transfer", lambda content_type, data: None)
 
     response = client.post(
         "/telegram/webhook",
@@ -419,8 +419,8 @@ def test_cuenta_no_identificada_no_pregunta_y_sigue_el_flujo(monkeypatch):
 
     monkeypatch.setattr(telegram, "send_telegram_message", fake_send)
     monkeypatch.setattr(telegram, "_download_telegram_file", fake_download)
-    monkeypatch.setattr(telegram, "extract_transfer", fake_extract)
-    monkeypatch.setattr(telegram, "save_comprobante_archivo", lambda **kwargs: 1)
+    monkeypatch.setattr(canales, "extract_transfer", fake_extract)
+    monkeypatch.setattr(canales, "save_comprobante_archivo", lambda **kwargs: 1)
 
     response = client.post(
         "/telegram/webhook",
@@ -457,7 +457,7 @@ def test_error_al_interpretar_el_comprobante_avisa_y_responde_200(monkeypatch):
 
     monkeypatch.setattr(telegram, "send_telegram_message", fake_send)
     monkeypatch.setattr(telegram, "_download_telegram_file", fake_download)
-    monkeypatch.setattr(telegram, "extract_transfer", extraccion_caida)
+    monkeypatch.setattr(canales, "extract_transfer", extraccion_caida)
 
     response = client.post(
         "/telegram/webhook",
@@ -465,7 +465,7 @@ def test_error_al_interpretar_el_comprobante_avisa_y_responde_200(monkeypatch):
     )
 
     assert response.status_code == 200
-    assert sent == [("334", telegram.ERROR_PROCESANDO_TEXTO)]
+    assert sent == [("334", canales.ERROR_PROCESANDO_TEXTO)]
 
 
 _API = "https://api.telegram.org/bottoken-de-test"
