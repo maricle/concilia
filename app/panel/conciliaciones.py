@@ -31,7 +31,7 @@ from ..numeros import parse_monto_ar
 from ..reconciliation import StatementParseError, match_statement, parse_statement_file
 from ..storage import get_comprobante_archivo, save_comprobante_archivo
 from ..zona_horaria import hoy_argentina
-from .comun import del_dia, get_db, require_admin, respuesta_xlsx, templates
+from .comun import del_dia, get_db, require_admin, respuesta_xlsx, templates, volver_a
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -88,7 +88,7 @@ def eliminar_resumen(
         db.commit()
     if fecha or banco:
         return _volver_a_conciliaciones(fecha, banco)
-    return RedirectResponse("/conciliaciones/resumenes", status_code=303)
+    return RedirectResponse(volver_a(request, "/conciliaciones/resumenes"), status_code=303)
 
 
 def _parse_fecha_o_hoy(fecha: str) -> date:

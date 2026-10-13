@@ -95,7 +95,20 @@ def destino_seguro(volver: str, por_defecto: str) -> str:
     return por_defecto
 
 
+def volver_a(request: Request, por_defecto: str) -> str:
+    """A donde volver despues de editar o de una accion sobre un listado: la
+    vista de origen que vino en `?volver=` (con sus filtros, dia, orden y
+    pagina), o `por_defecto`. Viaja en la URL y no en un campo oculto, asi que
+    tambien sobrevive cuando el formulario se vuelve a mostrar con un error."""
+    return destino_seguro(request.query_params.get("volver", ""), por_defecto)
+
+
+def con_parametros(url: str, **parametros: str) -> str:
+    return f"{url}{'&' if '?' in url else '?'}{urlencode(parametros)}"
+
+
 templates.env.globals["url_actual"] = url_actual
+templates.env.globals["volver_a"] = volver_a
 
 
 def respuesta_xlsx(headers: list[str], filas: list[list], filename: str) -> Response:

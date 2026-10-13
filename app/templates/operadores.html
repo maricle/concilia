@@ -30,8 +30,8 @@
               {% endif %}
             </td>
             <td class="text-nowrap">
-              <a href="/config/operadores/{{ operador.id }}/editar" class="btn btn-sm btn-outline-primary" title="Editar"><i class="fas fa-pencil-alt"></i></a>
-              <form class="d-inline" method="post" action="/config/operadores/{{ operador.id }}/toggle">
+              <a href="/config/operadores/{{ operador.id }}/editar?volver={{ url_actual(request)|urlencode }}" class="btn btn-sm btn-outline-primary" title="Editar"><i class="fas fa-pencil-alt"></i></a>
+              <form class="d-inline" method="post" action="/config/operadores/{{ operador.id }}/toggle?volver={{ url_actual(request)|urlencode }}">
                 {% if operador.activo %}
                 <button type="submit" class="btn btn-sm btn-outline-secondary" title="Desactivar"><i class="fas fa-toggle-on"></i></button>
                 {% else %}

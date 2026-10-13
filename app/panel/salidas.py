@@ -17,7 +17,7 @@ from ..models import (
     RepartoOperador,
 )
 from ..reportes import generar_resumen_salida_pdf, generar_resumen_salidas_pdf
-from .comun import get_db, require_user, respuesta_xlsx, templates
+from .comun import get_db, require_user, respuesta_xlsx, templates, volver_a
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -139,7 +139,7 @@ def descargar_resumen_reparto(
 ):
     reparto = db.get(Reparto, reparto_id)
     if reparto is None or reparto.hora_fin is None:
-        return RedirectResponse("/repartos", status_code=303)
+        return RedirectResponse(volver_a(request, "/repartos"), status_code=303)
 
     movimientos, operadores = _movimientos_y_operadores_de_reparto(db, reparto_id)
 
@@ -161,7 +161,7 @@ def descargar_resumen_repartos(
     user: PanelUser = Depends(require_user),
 ):
     if not reparto_ids:
-        return RedirectResponse("/repartos", status_code=303)
+        return RedirectResponse(volver_a(request, "/repartos"), status_code=303)
 
     repartos = db.scalars(
         select(Reparto)
@@ -170,7 +170,7 @@ def descargar_resumen_repartos(
         .order_by(Reparto.fecha, Reparto.movil_id, Reparto.hora_inicio)
     ).all()
     if not repartos:
-        return RedirectResponse("/repartos", status_code=303)
+        return RedirectResponse(volver_a(request, "/repartos"), status_code=303)
 
     items = [(reparto, *_movimientos_y_operadores_de_reparto(db, reparto.id)) for reparto in repartos]
 

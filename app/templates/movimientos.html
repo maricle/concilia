@@ -111,14 +111,13 @@
     <h6 class="m-0 font-weight-bold text-primary">Movimientos confirmados</h6>
     <div class="d-flex" style="gap: 8px;">
       {% if es_admin(user) %}
-      <button type="submit" form="form-comprobantes" formaction="/comprobantes/eliminar-lote" class="btn btn-sm btn-outline-danger" onclick="return confirm('¿Eliminar los comprobantes seleccionados? Esta accion no se puede deshacer.');"><i class="fas fa-trash-alt mr-1"></i>Eliminar seleccionados</button>
+      <button type="submit" form="form-comprobantes" formaction="/comprobantes/eliminar-lote?volver={{ url_actual(request)|urlencode }}" class="btn btn-sm btn-outline-danger" onclick="return confirm('¿Eliminar los comprobantes seleccionados? Esta accion no se puede deshacer.');"><i class="fas fa-trash-alt mr-1"></i>Eliminar seleccionados</button>
       {% endif %}
       <a href="/comprobantes/nuevo" class="btn btn-sm btn-primary"><i class="fas fa-plus mr-1"></i>Nuevo comprobante</a>
     </div>
   </div>
   <div class="card-body">
     <form method="post" id="form-comprobantes">
-    <input type="hidden" name="volver" value="{{ url_actual(request) }}">
     <div class="table-responsive">
       <table class="table table-bordered table-sm small mb-0" width="100%" cellspacing="0">
         <thead>

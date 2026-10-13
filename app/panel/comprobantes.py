@@ -27,7 +27,6 @@ from ..storage import get_comprobante_archivo, save_comprobante_archivo
 from ..zona_horaria import hoy_argentina
 from .comun import (
     del_dia,
-    destino_seguro,
     existe_duplicado,
     get_db,
     obtener_o_redirigir,
@@ -35,6 +34,7 @@ from .comun import (
     require_user,
     respuesta_xlsx,
     templates,
+    volver_a,
 )
 
 router = APIRouter()
@@ -403,11 +403,8 @@ def editar_movimiento_form(
 ):
     movimiento = obtener_o_redirigir(db, Movement, movimiento_id, "/comprobantes")
     cuentas = db.scalars(select(BankAccount).order_by(BankAccount.id)).all()
-    volver = destino_seguro(request.query_params.get("volver", ""), "/comprobantes")
     return templates.TemplateResponse(
-        request,
-        "editar_movimiento.html",
-        {"user": user, "movimiento": movimiento, "cuentas": cuentas, "error": None, "volver": volver},
+        request, "editar_movimiento.html", {"user": user, "movimiento": movimiento, "cuentas": cuentas, "error": None}
     )
 
 
@@ -423,13 +420,11 @@ def editar_movimiento_submit(
     titular: str = Form(""),
     factura_o_cuenta_tipo: str = Form(""),
     factura_o_cuenta_numero: str = Form(""),
-    volver: str = Form(""),
     db: Session = Depends(get_db),
     user: PanelUser = Depends(require_admin),
 ):
     movimiento = obtener_o_redirigir(db, Movement, movimiento_id, "/comprobantes")
     cuentas = db.scalars(select(BankAccount).order_by(BankAccount.id)).all()
-    volver = destino_seguro(volver, "/comprobantes")
 
     try:
         nueva_fecha = datetime.strptime(fecha_transaccion, "%Y-%m-%dT%H:%M")
@@ -438,13 +433,7 @@ def editar_movimiento_submit(
         return templates.TemplateResponse(
             request,
             "editar_movimiento.html",
-            {
-                "user": user,
-                "movimiento": movimiento,
-                "cuentas": cuentas,
-                "error": "Fecha o monto invalido.",
-                "volver": volver,
-            },
+            {"user": user, "movimiento": movimiento, "cuentas": cuentas, "error": "Fecha o monto invalido."},
             status_code=400,
         )
 
@@ -458,7 +447,6 @@ def editar_movimiento_submit(
                 "movimiento": movimiento,
                 "cuentas": cuentas,
                 "error": f"Ya existe otro comprobante con el numero {numero_operacion}.",
-                "volver": volver,
             },
             status_code=400,
         )
@@ -472,7 +460,7 @@ def editar_movimiento_submit(
     movimiento.factura_o_cuenta_tipo = TipoIdentificador(factura_o_cuenta_tipo) if factura_o_cuenta_tipo else None
     movimiento.factura_o_cuenta_numero = factura_o_cuenta_numero or None
     db.commit()
-    return RedirectResponse(volver, status_code=303)
+    return RedirectResponse(volver_a(request, "/comprobantes"), status_code=303)
 
 
 def _eliminar_movimiento(db: Session, movimiento: Movement) -> None:
@@ -493,14 +481,13 @@ def eliminar_movimiento(
     if movimiento is not None:
         _eliminar_movimiento(db, movimiento)
         db.commit()
-    return RedirectResponse("/comprobantes", status_code=303)
+    return RedirectResponse(volver_a(request, "/comprobantes"), status_code=303)
 
 
 @router.post("/comprobantes/eliminar-lote")
 def eliminar_movimientos_lote(
     request: Request,
     movimiento_ids: list[int] = Form(default=[]),
-    volver: str = Form(""),
     db: Session = Depends(get_db),
     user: PanelUser = Depends(require_admin),
 ):
@@ -509,6 +496,6 @@ def eliminar_movimientos_lote(
         if movimiento is not None:
             _eliminar_movimiento(db, movimiento)
     db.commit()
-    return RedirectResponse(destino_seguro(volver, "/comprobantes"), status_code=303)
+    return RedirectResponse(volver_a(request, "/comprobantes"), status_code=303)
 
 

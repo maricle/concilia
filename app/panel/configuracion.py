@@ -1,7 +1,6 @@
 """Configuracion: usuarios del panel, operadores, moviles y cuentas bancarias."""
 
 import logging
-from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import RedirectResponse
@@ -16,6 +15,7 @@ from ..models import (
     PanelUser,
 )
 from .comun import (
+    con_parametros,
     existe_duplicado,
     get_db,
     obtener_o_redirigir,
@@ -23,6 +23,7 @@ from .comun import (
     respuesta_xlsx,
     rol_valido,
     templates,
+    volver_a,
 )
 
 router = APIRouter()
@@ -81,7 +82,7 @@ def create_usuario(
 
     db.add(PanelUser(nombre=nombre, email=email, password_hash=hash_password(password), rol=rol_valido(rol)))
     db.commit()
-    return RedirectResponse("/config/usuarios", status_code=303)
+    return RedirectResponse(volver_a(request, "/config/usuarios"), status_code=303)
 
 
 @router.post("/config/usuarios/{usuario_id}/toggle")
@@ -94,7 +95,7 @@ def toggle_usuario(
         # el panel quede sin nadie que pueda volver a activar cuentas.
         usuario.activo = not usuario.activo
         db.commit()
-    return RedirectResponse("/config/usuarios", status_code=303)
+    return RedirectResponse(volver_a(request, "/config/usuarios"), status_code=303)
 
 
 @router.get("/config/usuarios/{usuario_id}/editar")
@@ -140,7 +141,7 @@ def editar_usuario_submit(
     if password:
         usuario.password_hash = hash_password(password)
     db.commit()
-    return RedirectResponse("/config/usuarios", status_code=303)
+    return RedirectResponse(volver_a(request, "/config/usuarios"), status_code=303)
 
 
 @router.get("/config/operadores")
@@ -204,7 +205,7 @@ def create_operador(
         )
     )
     db.commit()
-    return RedirectResponse("/config/operadores", status_code=303)
+    return RedirectResponse(volver_a(request, "/config/operadores"), status_code=303)
 
 
 @router.post("/config/operadores/{operador_id}/toggle")
@@ -219,10 +220,12 @@ def toggle_operador(
             )
             if es_responsable is not None:
                 mensaje = f"No se puede desactivar a {operador.nombre}: es responsable del movil {es_responsable.numero}."
-                return RedirectResponse(f"/config/operadores?{urlencode({'error': mensaje})}", status_code=303)
+                return RedirectResponse(
+                    con_parametros(volver_a(request, "/config/operadores"), error=mensaje), status_code=303
+                )
         operador.activo = not operador.activo
         db.commit()
-    return RedirectResponse("/config/operadores", status_code=303)
+    return RedirectResponse(volver_a(request, "/config/operadores"), status_code=303)
 
 
 @router.get("/config/operadores/{operador_id}/editar")
@@ -279,7 +282,7 @@ def editar_operador_submit(
     operador.tipo = tipo
     operador.movil_id = int(movil_id) if movil_id else None
     db.commit()
-    return RedirectResponse("/config/operadores", status_code=303)
+    return RedirectResponse(volver_a(request, "/config/operadores"), status_code=303)
 
 
 @router.get("/config/moviles")
@@ -344,7 +347,7 @@ def create_movil(
         )
     )
     db.commit()
-    return RedirectResponse("/config/moviles", status_code=303)
+    return RedirectResponse(volver_a(request, "/config/moviles"), status_code=303)
 
 
 @router.post("/config/moviles/{movil_id}/toggle")
@@ -355,7 +358,7 @@ def toggle_movil(
     if movil is not None:
         movil.activo = not movil.activo
         db.commit()
-    return RedirectResponse("/config/moviles", status_code=303)
+    return RedirectResponse(volver_a(request, "/config/moviles"), status_code=303)
 
 
 @router.get("/config/moviles/{movil_id}/editar")
@@ -402,7 +405,7 @@ def editar_movil_submit(
     movil.descripcion = descripcion or None
     movil.responsable_operador_id = int(responsable_operador_id)
     db.commit()
-    return RedirectResponse("/config/moviles", status_code=303)
+    return RedirectResponse(volver_a(request, "/config/moviles"), status_code=303)
 
 
 @router.get("/config/cuentas")
@@ -430,7 +433,7 @@ def create_cuenta(
 ):
     db.add(BankAccount(banco=banco, numero_cuenta=numero_cuenta, alias=alias, moneda=moneda))
     db.commit()
-    return RedirectResponse("/config/cuentas", status_code=303)
+    return RedirectResponse(volver_a(request, "/config/cuentas"), status_code=303)
 
 
 @router.get("/config/cuentas/{cuenta_id}/editar")
@@ -459,6 +462,6 @@ def editar_cuenta_submit(
     cuenta.alias = alias
     cuenta.moneda = moneda
     db.commit()
-    return RedirectResponse("/config/cuentas", status_code=303)
+    return RedirectResponse(volver_a(request, "/config/cuentas"), status_code=303)
 
 

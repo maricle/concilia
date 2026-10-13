@@ -1720,11 +1720,12 @@ def test_editar_comprobante_vuelve_al_listado_con_los_mismos_filtros():
     assert f'/comprobantes/1/editar?volver={quote(vista, safe="/")}' in listado
 
     formulario = client.get("/comprobantes/1/editar", params={"volver": vista}).text
-    assert f'name="volver" value="{vista.replace("&", "&amp;")}"' in formulario
+    assert f'href="{vista.replace("&", "&amp;")}"' in formulario  # Volver / Cancelar
 
     guardado = client.post(
         "/comprobantes/1/editar",
-        data={"fecha_transaccion": "2026-10-13T10:00", "monto": "10", "numero_operacion": "OP-HOY", "volver": vista},
+        params={"volver": vista},
+        data={"fecha_transaccion": "2026-10-13T10:00", "monto": "10", "numero_operacion": "OP-HOY"},
         follow_redirects=False,
     )
     assert guardado.status_code == 303
@@ -1748,8 +1749,66 @@ def test_eliminar_seleccionados_vuelve_al_listado_filtrado():
 
     respuesta = client.post(
         "/comprobantes/eliminar-lote",
-        data={"movimiento_ids": ["1"], "volver": "/comprobantes?fecha=todos&q=OP"},
+        params={"volver": "/comprobantes?fecha=todos&q=OP"},
+        data={"movimiento_ids": ["1"]},
         follow_redirects=False,
     )
 
     assert respuesta.headers["location"] == "/comprobantes?fecha=todos&q=OP"
+
+
+
+def test_todas_las_pantallas_de_edicion_vuelven_a_la_vista_de_origen():
+    client, test_session = _client_with_admin()
+    client.post("/login", data={"email": "admin@concilia.test", "password": "secreta123"})
+    with test_session() as session:
+        session.add(Operator(nombre="Ana", whatsapp_numero="1111111111"))
+        session.add(BankAccount(banco="Galicia", numero_cuenta="1", alias="principal"))
+        session.flush()
+        session.add(Movil(numero="M-01", nombre="Camion", responsable_operador_id=1))
+        session.commit()
+
+    casos = [
+        ("/config/usuarios/1/editar", {"nombre": "Admin", "email": "admin@concilia.test", "rol": "Administrador"}),
+        ("/config/operadores/1/editar", {"nombre": "Ana", "whatsapp_numero": "1111111111"}),
+        ("/config/moviles/1/editar", {"numero": "M-01", "nombre": "Camion", "responsable_operador_id": "1"}),
+        ("/config/cuentas/1/editar", {"banco": "Galicia", "numero_cuenta": "1", "alias": "principal"}),
+    ]
+    for ruta, datos in casos:
+        listado = ruta.rsplit("/", 2)[0]
+        vista = f"{listado}?orden=nombre"
+
+        formulario = client.get(ruta, params={"volver": vista})
+        assert formulario.status_code == 200, ruta
+        assert f'href="{vista}"' in formulario.text, ruta  # Volver al listado / Cancelar
+
+        guardado = client.post(ruta, params={"volver": vista}, data=datos, follow_redirects=False)
+        assert guardado.status_code == 303, (ruta, guardado.text[:300])
+        assert guardado.headers["location"] == vista, ruta
+
+        sin_origen = client.post(ruta, data=datos, follow_redirects=False)
+        assert sin_origen.headers["location"] == listado, ruta
+
+    # Activar/desactivar tambien vuelve a la vista de origen.
+    toggle = client.post("/config/moviles/1/toggle", params={"volver": "/config/moviles?x=1"}, follow_redirects=False)
+    assert toggle.headers["location"] == "/config/moviles?x=1"
+
+
+def test_salidas_y_resumenes_vuelven_al_listado_filtrado():
+    client, _ = _client_with_admin()
+    client.post("/login", data={"email": "admin@concilia.test", "password": "secreta123"})
+
+    sin_seleccion = client.post(
+        "/repartos/pdf", params={"volver": "/repartos?movil_id=1&q=x"}, data={}, follow_redirects=False
+    )
+    assert sin_seleccion.headers["location"] == "/repartos?movil_id=1&q=x"
+
+    resumen_inexistente = client.post(
+        "/conciliaciones/resumenes/999/eliminar",
+        params={"volver": "/conciliaciones/resumenes?banco=Galicia"},
+        follow_redirects=False,
+    )
+    assert resumen_inexistente.headers["location"] == "/conciliaciones/resumenes?banco=Galicia"
+
+    listado_salidas = client.get("/repartos", params={"movil_id": "1"}).text
+    assert 'action="/repartos/pdf?volver=/repartos%3Fmovil_id%3D1"' in listado_salidas

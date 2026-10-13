@@ -26,9 +26,9 @@
               {% endif %}
             </td>
             <td class="text-nowrap">
-              <a href="/config/usuarios/{{ usuario.id }}/editar" class="btn btn-sm btn-outline-primary" title="Editar"><i class="fas fa-pencil-alt"></i></a>
+              <a href="/config/usuarios/{{ usuario.id }}/editar?volver={{ url_actual(request)|urlencode }}" class="btn btn-sm btn-outline-primary" title="Editar"><i class="fas fa-pencil-alt"></i></a>
               {% if usuario.id != user.id %}
-              <form class="d-inline" method="post" action="/config/usuarios/{{ usuario.id }}/toggle">
+              <form class="d-inline" method="post" action="/config/usuarios/{{ usuario.id }}/toggle?volver={{ url_actual(request)|urlencode }}">
                 {% if usuario.activo %}
                 <button type="submit" class="btn btn-sm btn-outline-secondary" title="Desactivar"><i class="fas fa-toggle-on"></i></button>
                 {% else %}
