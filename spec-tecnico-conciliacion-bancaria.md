@@ -182,6 +182,8 @@ Contraparte técnica de la sección 12 del spec funcional. Ninguno de estos punt
 
 **Extracción en carga manual — implementado** (`POST /comprobantes/nuevo/extraer`, que el formulario llama al adjuntar el archivo). Diseño original: `POST /comprobantes/nuevo` pasa a llamar `extract_transfer()` (mismo `app/extraction.py` que usa Telegram) sobre el archivo adjunto antes de guardar el movimiento, pre-completando los campos del formulario. Implica partir el alta en dos pasos (subir archivo → revisar/corregir los datos extraídos → confirmar) en vez del alta directa de un solo paso que tiene hoy.
 
+**`origen = "telegram"` — pendiente.** `movimientos.origen` es `String(20)` (sin enum ni restricción): `"whatsapp"` por defecto y `"panel"` en la carga manual. `start_transfer` no lo asigna, así que lo que entra por Telegram queda como `"whatsapp"`. Bastaría con que cada canal pase su origen al crear el borrador.
+
 **Reporte de Mercado Pago por correo — diferido.** Requeriría una cuenta de correo dedicada, lectura vía IMAP (o un proveedor de email parsing) y un parser del formato de ese reporte. **Fuera de esta iteración**, queda solo como nota para más adelante.
 
 **Reabrir una salida cerrada.** No existe hoy la ruta. Agregar algo como `POST /repartos/{id}/reabrir` (`Reparto.hora_fin = None`), registrando el cambio en `historial_cambios`.

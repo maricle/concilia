@@ -171,6 +171,8 @@ Pedido directo del usuario, a implementar después de este punto. Ninguno de est
 
 **Extracción automática también en la carga manual — implementado.** La carga manual de un comprobante desde el panel (sección 4.1) deja de requerir tipear todos los datos a mano: al adjuntar la imagen o PDF, el sistema corre la misma extracción con IA que ya usa el flujo de Telegram y pre-completa monto, fecha, banco emisor, cuenta receptora, titular, etc. Quien carga el comprobante revisa y corrige esos datos antes de guardar, igual que hace el operador por Telegram.
 
+**Origen "Telegram" en los comprobantes — pendiente.** Hoy los comprobantes que entran por Telegram quedan registrados con origen "WhatsApp". No es relevante por ahora; queda anotado para distinguir el canal más adelante.
+
 **Reporte automático de Mercado Pago por correo — diferido.** Mercado Pago manda un reporte por correo con el detalle de movimientos; más adelante se evalúa leerlo automáticamente para ingestar comprobantes sin depender de que el operador mande cada uno por Telegram. **No se implementa en esta iteración**, queda solo anotado.
 
 **Reapertura de una salida cerrada.** Se agrega la posibilidad de reabrir una salida ya cerrada (por ejemplo, si se cerró por error o falta cargar un comprobante tardío). Cada reapertura queda registrada en el historial de cambios general, con quién la reabrió y cuándo.
