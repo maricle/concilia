@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from ..auth import hash_password
+from ..canales import ultimos_digitos
 from ..models import (
     BankAccount,
     Movil,
@@ -174,6 +175,23 @@ def operadores_exportar(db: Session = Depends(get_db), user: PanelUser = Depends
     )
 
 
+def _operador_con_el_mismo_celular(db: Session, celular: str, excluir_id: int | None = None) -> Operator | None:
+    """Otro operador (activo o no) con el mismo celular. Se compara con el mismo
+    criterio que usan WhatsApp, Telegram y el login web para identificar al
+    operador -- los ultimos 10 digitos --, asi "3794500000" y "+54 9 379 450-0000"
+    cuentan como el mismo numero y nunca quedan dos operadores que se confundan."""
+    clave = ultimos_digitos(celular)
+    consulta = select(Operator)
+    if excluir_id is not None:
+        consulta = consulta.where(Operator.id != excluir_id)
+    for operador in db.scalars(consulta):
+        if operador.whatsapp_numero.strip() == celular.strip():
+            return operador
+        if clave is not None and ultimos_digitos(operador.whatsapp_numero) == clave:
+            return operador
+    return None
+
+
 @router.post("/config/operadores")
 def create_operador(
     request: Request,
@@ -184,7 +202,8 @@ def create_operador(
     db: Session = Depends(get_db),
     user: PanelUser = Depends(require_admin),
 ):
-    if existe_duplicado(db, Operator.whatsapp_numero, whatsapp_numero):
+    duplicado = _operador_con_el_mismo_celular(db, whatsapp_numero)
+    if duplicado is not None:
         operadores = db.scalars(select(Operator).order_by(Operator.id)).all()
         moviles = db.scalars(select(Movil).where(Movil.activo.is_(True)).order_by(Movil.nombre)).all()
         return templates.TemplateResponse(
@@ -194,7 +213,7 @@ def create_operador(
                 "user": user,
                 "operadores": operadores,
                 "moviles": moviles,
-                "error": f"Ya existe un operador con el numero {whatsapp_numero}.",
+                "error": f"Ya existe un operador con el numero {whatsapp_numero} ({duplicado.nombre}).",
             },
             status_code=400,
         )
@@ -269,11 +288,17 @@ def editar_operador_submit(
             status_code=400,
         )
 
-    if existe_duplicado(db, Operator.whatsapp_numero, whatsapp_numero, exclude_id=operador.id):
+    duplicado = _operador_con_el_mismo_celular(db, whatsapp_numero, excluir_id=operador.id)
+    if duplicado is not None:
         return templates.TemplateResponse(
             request,
             "editar_operador.html",
-            {"user": user, "operador": operador, "moviles": moviles, "error": f"Ya existe otro operador con el numero {whatsapp_numero}."},
+            {
+                "user": user,
+                "operador": operador,
+                "moviles": moviles,
+                "error": f"Ya existe otro operador con el numero {whatsapp_numero} ({duplicado.nombre}).",
+            },
             status_code=400,
         )
 

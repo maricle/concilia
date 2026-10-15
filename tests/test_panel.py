@@ -1812,3 +1812,23 @@ def test_salidas_y_resumenes_vuelven_al_listado_filtrado():
 
     listado_salidas = client.get("/repartos", params={"movil_id": "1"}).text
     assert 'action="/repartos/pdf?volver=/repartos%3Fmovil_id%3D1"' in listado_salidas
+
+
+def test_no_se_puede_cargar_dos_operadores_con_el_mismo_celular_en_distinto_formato():
+    client, test_session = _client_with_admin()
+    client.post("/login", data={"email": "admin@concilia.test", "password": "secreta123"})
+    client.post("/config/operadores", data={"nombre": "Ana", "whatsapp_numero": "+54 9 379 450-0000", "tipo": "Reparto"})
+
+    alta = client.post("/config/operadores", data={"nombre": "Beto", "whatsapp_numero": "3794500000", "tipo": "Reparto"})
+    assert alta.status_code == 400
+    assert "Ya existe un operador con el numero 3794500000 (Ana)" in alta.text
+
+    client.post("/config/operadores", data={"nombre": "Carla", "whatsapp_numero": "3794511111", "tipo": "Reparto"})
+    edicion = client.post(
+        "/config/operadores/2/editar", data={"nombre": "Carla", "whatsapp_numero": "549 3794500000", "tipo": "Reparto"}
+    )
+    assert edicion.status_code == 400
+    assert "Ya existe otro operador" in edicion.text
+
+    with test_session() as session:
+        assert session.query(Operator).count() == 2
