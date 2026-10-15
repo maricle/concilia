@@ -7,8 +7,8 @@ from pathlib import Path
 from anthropic import Anthropic
 
 from .config import get_settings
-from .conversation import ExtractedTransfer
 from .numeros import parse_monto_ar
+from .servicios import ExtractedTransfer
 from .zona_horaria import ahora_argentina
 
 HAIKU_MODEL = "claude-haiku-4-5-20251001"

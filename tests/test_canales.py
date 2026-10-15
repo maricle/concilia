@@ -57,3 +57,25 @@ def test_procesar_comprobante_ilegible_no_guarda_nada(monkeypatch):
 
     assert respuesta == canales.Respuesta(canales.NO_PUDE_LEER_TEXTO)
     assert guardados == []
+
+
+def test_turno_de_serializa_los_pedidos_de_un_mismo_operador():
+    # WhatsApp, Telegram y la web usan el mismo turno (clave whatsapp_numero):
+    # dos pedidos del mismo operador no se intercalan; los de otro, si.
+    eventos: list[str] = []
+
+    async def pedido(numero: str, nombre: str) -> None:
+        async with canales.turno_de(numero):
+            eventos.append(f"{nombre}-inicio")
+            await asyncio.sleep(0.01)
+            eventos.append(f"{nombre}-fin")
+
+    async def correr() -> None:
+        await asyncio.gather(pedido("111", "a"), pedido("111", "b"), pedido("222", "c"))
+
+    asyncio.run(correr())
+
+    assert canales.turno_de("111") is canales.turno_de("111")
+    posicion = {evento: i for i, evento in enumerate(eventos)}
+    assert posicion["a-fin"] < posicion["b-inicio"]
+    assert posicion["c-inicio"] < posicion["a-fin"]  # otro operador no espera

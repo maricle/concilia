@@ -14,6 +14,7 @@ from .canales import (
     procesar_comprobante,
     recordatorio_de_pendiente,
     responder_texto,
+    turno_de,
     ultimos_digitos,
 )
 from .config import get_settings
@@ -196,7 +197,8 @@ async def receive_telegram_update(
         numero = await _resolve_operator_numero(chat_id, callback_query)
         if numero is None:
             return {"status": "ignored"}
-        await _responder(chat_id, responder_texto(numero, callback_query.get("data", "")))
+        async with turno_de(numero):
+            await _responder(chat_id, responder_texto(numero, callback_query.get("data", "")))
         return {"status": "accepted"}
 
     message = update.get("message")
@@ -207,7 +209,11 @@ async def receive_telegram_update(
     numero = await _resolve_operator_numero(chat_id, message)
     if numero is None:
         return {"status": "ignored"}
+    async with turno_de(numero):
+        return await _procesar_mensaje(chat_id, numero, message)
 
+
+async def _procesar_mensaje(chat_id: str, numero: str, message: dict[str, Any]) -> dict[str, str]:
     if "text" in message:
         await _responder(chat_id, responder_texto(numero, message["text"]))
         return {"status": "accepted"}

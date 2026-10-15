@@ -4,6 +4,7 @@ from decimal import Decimal
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 
+from app import servicios
 from app.conversation import (
     NO_CUENTA_RECEPTORA_TEXTO,
     SIN_SALIDA_ABIERTA_TEXTO,
@@ -432,8 +433,8 @@ def test_cerrar_reparto_lo_puede_cerrar_cualquier_operador_asociado():
     # queda cerrado para los dos, no solo para quien lo cerro
     ana = db.scalar(select(Operator).where(Operator.whatsapp_numero == "5491112345678"))
     beto = db.scalar(select(Operator).where(Operator.whatsapp_numero == "5491100000000"))
-    assert ConversationService(db)._reparto_abierto_de_operador(ana.id) is None
-    assert ConversationService(db)._reparto_abierto_de_operador(beto.id) is None
+    assert servicios.reparto_abierto_del_operador(db, ana.id) is None
+    assert servicios.reparto_abierto_del_operador(db, beto.id) is None
 
 
 def test_iniciar_reparto_confirmacion_no_cancela():

@@ -1,4 +1,3 @@
-import asyncio
 import hashlib
 import hmac
 import logging
@@ -17,6 +16,7 @@ from .canales import (
     procesar_comprobante,
     recordatorio_de_pendiente,
     responder_texto,
+    turno_de,
 )
 from .config import get_settings
 from .db import SessionLocal
@@ -151,9 +151,6 @@ def verify_webhook(
 # la ventana de reintentos de Meta (minutos), no hace falta persistirlo.
 _MAX_MENSAJES_RECORDADOS = 2000
 _mensajes_procesados: OrderedDict[str, None] = OrderedDict()
-# Un lock por numero: los mensajes de un mismo operador se procesan en orden (una
-# rafaga "foto + F 123" no puede cruzarse), los de operadores distintos en paralelo.
-_locks_por_numero: dict[str, asyncio.Lock] = {}
 
 
 def _es_mensaje_repetido(message_id: str | None) -> bool:
@@ -167,13 +164,11 @@ def _es_mensaje_repetido(message_id: str | None) -> bool:
     return False
 
 
-async def _handle_message_en_orden(message: dict[str, Any]) -> None:
-    lock = _locks_por_numero.setdefault(message.get("from") or "", asyncio.Lock())
-    async with lock:
-        try:
-            await _handle_message(message)
-        except Exception:
-            logger.exception("Error procesando mensaje de WhatsApp %s", message.get("id"))
+async def _handle_message_seguro(message: dict[str, Any]) -> None:
+    try:
+        await _handle_message(message)
+    except Exception:
+        logger.exception("Error procesando mensaje de WhatsApp %s", message.get("id"))
 
 
 @router.post("/webhook")
@@ -186,7 +181,7 @@ async def receive_webhook(request: Request, background_tasks: BackgroundTasks) -
     for message in _messages(payload):
         if _es_mensaje_repetido(message.get("id")):
             continue
-        background_tasks.add_task(_handle_message_en_orden, message)
+        background_tasks.add_task(_handle_message_seguro, message)
     return {"status": "accepted"}
 
 
@@ -208,10 +203,14 @@ async def _handle_message(message: dict[str, Any]) -> None:
         if _debe_avisar_no_habilitado(from_numero):
             await send_whatsapp_message(from_numero, NUMERO_NO_HABILITADO_TEXTO)
         return
-    # Clave canonica compartida con Telegram: un comprobante empezado por un
-    # canal se puede terminar por el otro sin perder el estado.
+    # Clave canonica compartida con Telegram y la web: un comprobante empezado
+    # por un canal se puede terminar por otro sin perder el estado.
     numero = operador.whatsapp_numero
+    async with turno_de(numero):
+        await _procesar_mensaje(numero, message)
 
+
+async def _procesar_mensaje(numero: str, message: dict[str, Any]) -> None:
     tipo = message.get("type")
     texto: str | None = None
     if tipo == "text":

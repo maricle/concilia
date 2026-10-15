@@ -9,6 +9,7 @@ botones -- por eso aca se devuelve una `Respuesta` con un `Teclado` abstracto, y
 cada canal lo traduce a su formato (botones interactivos de WhatsApp o
 inline_keyboard de Telegram)."""
 
+import asyncio
 import logging
 import re
 from collections.abc import Awaitable, Callable
@@ -50,6 +51,20 @@ class Respuesta:
     # (whatsapp_numero, mensaje) para OTROS operadores -- ej. los companeros de
     # una salida que se cierra. Cada canal resuelve como llegarles.
     notificaciones: list[tuple[str, str]] = field(default_factory=list)
+
+
+# Un turno (lock) por operador, compartido por WhatsApp, Telegram y la web, con
+# la misma clave que la conversacion: Operator.whatsapp_numero. Los pedidos de un
+# mismo operador se procesan de a uno (una rafaga "foto + F 123" no se cruza, y
+# dos canales no pueden crear dos borradores a la vez); los de operadores
+# distintos siguen en paralelo. En memoria del proceso: alcanza porque la app
+# corre en un solo proceso de uvicorn (ver Procfile); con varios workers haria
+# falta un lock en la base.
+_turnos: dict[str, asyncio.Lock] = {}
+
+
+def turno_de(numero: str) -> asyncio.Lock:
+    return _turnos.setdefault(numero, asyncio.Lock())
 
 
 def ultimos_digitos(numero: str, cantidad: int = 10) -> str | None:
