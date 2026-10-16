@@ -15,6 +15,7 @@ from ..models import (
     Operator,
     PanelUser,
 )
+from ..operador_web.sesion import generar_pin_temporal, revocar_sesiones
 from .comun import (
     con_parametros,
     existe_duplicado,
@@ -147,12 +148,12 @@ def editar_usuario_submit(
 
 @router.get("/config/operadores")
 def list_operadores(
-    request: Request, error: str = "", db: Session = Depends(get_db), user: PanelUser = Depends(require_admin)
+    request: Request, error: str = "", mensaje: str = "", db: Session = Depends(get_db), user: PanelUser = Depends(require_admin)
 ):
     operadores = db.scalars(select(Operator).order_by(Operator.id)).all()
     moviles = db.scalars(select(Movil).where(Movil.activo.is_(True)).order_by(Movil.nombre)).all()
     return templates.TemplateResponse(
-        request, "operadores.html", {"user": user, "operadores": operadores, "moviles": moviles, "error": error or None}
+        request, "operadores.html", {"user": user, "operadores": operadores, "moviles": moviles, "error": error or None, "mensaje": mensaje or None}
     )
 
 
@@ -243,8 +244,65 @@ def toggle_operador(
                     con_parametros(volver_a(request, "/config/operadores"), error=mensaje), status_code=303
                 )
         operador.activo = not operador.activo
+        if not operador.activo:
+            revocar_sesiones(db, operador.id)
         db.commit()
     return RedirectResponse(volver_a(request, "/config/operadores"), status_code=303)
+
+
+# ---- Acceso a la interfaz web de operadores (/m) ----
+# Sin historial de cambios todavia (pendiente en el spec): cuando exista, registrar
+# aca la habilitacion, el reseteo de PIN y el cierre de sesiones.
+
+
+@router.post("/config/operadores/{operador_id}/acceso-web")
+def alternar_acceso_web(
+    operador_id: int, request: Request, db: Session = Depends(get_db), user: PanelUser = Depends(require_admin)
+):
+    operador = obtener_o_redirigir(db, Operator, operador_id, "/config/operadores")
+    volver = volver_a(request, "/config/operadores")
+    if not operador.web_habilitado and ultimos_digitos(operador.whatsapp_numero) is None:
+        mensaje = f"{operador.nombre} necesita un celular de al menos 10 digitos para entrar a la web."
+        return RedirectResponse(con_parametros(volver, error=mensaje), status_code=303)
+    operador.web_habilitado = not operador.web_habilitado
+    if not operador.web_habilitado:
+        revocar_sesiones(db, operador.id)
+    db.commit()
+    return RedirectResponse(volver, status_code=303)
+
+
+@router.post("/config/operadores/{operador_id}/pin")
+def generar_pin(
+    operador_id: int, request: Request, db: Session = Depends(get_db), user: PanelUser = Depends(require_admin)
+):
+    """Genera (o resetea) el PIN y lo muestra UNA sola vez: en la base queda
+    solo el hash. Corta las sesiones abiertas y, si hacia falta, habilita el
+    acceso web (generar un PIN es para que el operador entre)."""
+    operador = obtener_o_redirigir(db, Operator, operador_id, "/config/operadores")
+    if ultimos_digitos(operador.whatsapp_numero) is None:
+        mensaje = f"{operador.nombre} necesita un celular de al menos 10 digitos para entrar a la web."
+        return RedirectResponse(con_parametros(volver_a(request, "/config/operadores"), error=mensaje), status_code=303)
+    pin = generar_pin_temporal(db, operador)
+    operador.web_habilitado = True
+    db.commit()
+    respuesta = templates.TemplateResponse(
+        request,
+        "pin_operador.html",
+        {"user": user, "operador": operador, "pin": pin, "url_operadores": f"{request.base_url}m/"},
+    )
+    respuesta.headers["Cache-Control"] = "no-store"
+    return respuesta
+
+
+@router.post("/config/operadores/{operador_id}/cerrar-sesiones")
+def cerrar_sesiones(
+    operador_id: int, request: Request, db: Session = Depends(get_db), user: PanelUser = Depends(require_admin)
+):
+    operador = obtener_o_redirigir(db, Operator, operador_id, "/config/operadores")
+    revocar_sesiones(db, operador.id)
+    db.commit()
+    mensaje = f"Se cerraron las sesiones web de {operador.nombre}."
+    return RedirectResponse(con_parametros(volver_a(request, "/config/operadores"), mensaje=mensaje), status_code=303)
 
 
 @router.get("/config/operadores/{operador_id}/editar")
