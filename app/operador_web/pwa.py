@@ -9,7 +9,7 @@ from fastapi.responses import FileResponse, JSONResponse
 router = APIRouter()
 
 # Iconos: mascota de Demonte (app/static/img/demonte-box.png) sobre fondo blanco.
-# TODO: nombre y colores con la marca del cliente.
+# Colores: los del panel (sidebar #14141f).
 _MANIFEST = {
     "name": "Concilia - Operadores",
     "short_name": "Concilia",
@@ -19,7 +19,7 @@ _MANIFEST = {
     "scope": "/m/",
     "display": "standalone",
     "orientation": "portrait",
-    "theme_color": "#1f2a44",
+    "theme_color": "#14141f",
     "background_color": "#ffffff",
     "icons": [
         {"src": "/m/static/iconos/icono-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},

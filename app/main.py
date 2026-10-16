@@ -78,7 +78,8 @@ app.include_router(panel_router)
 app.include_router(operador_web_router)
 
 _CSP_OPERADOR = (
-    "default-src 'self'; img-src 'self' blob: data:; style-src 'self'; script-src 'self'; "
+    "default-src 'self'; img-src 'self' blob: data:; style-src 'self' https://fonts.googleapis.com; "
+    "font-src https://fonts.gstatic.com; script-src 'self'; "
     "connect-src 'self'; manifest-src 'self'; worker-src 'self'; frame-ancestors 'none'; "
     "form-action 'self'; base-uri 'none'"
 )

@@ -1,15 +1,27 @@
 {% extends "m/base.html" %}
 {% block title %}Ingresar - Concilia{% endblock %}
+{% block clase_body %}m-pantalla-login{% endblock %}
 {% block content %}
-<h1>Ingresar</h1>
-<p class="m-ayuda">Usá tu número de celular y tu PIN de 6 números.</p>
-{% if error %}<p class="m-error" role="alert">{{ error }}</p>{% endif %}
-<form method="post" action="/m/login" class="m-form">
-  <label for="celular">Celular</label>
-  <input id="celular" name="celular" type="tel" inputmode="tel" autocomplete="tel" required value="{{ celular }}">
-  <label for="pin">PIN</label>
-  <input id="pin" name="pin" type="password" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="current-password" required>
-  <button type="submit" class="m-boton">Ingresar</button>
-</form>
-<p class="m-ayuda">¿No tenés PIN o lo olvidaste? Pedíselo al administrador.</p>
+<div class="m-login">
+  <div class="m-tarjeta">
+    <div class="m-login-titulo">
+      <img src="/static/iconos/favicon-192.png" alt="">
+      <h1>Concilia</h1>
+      <p class="m-ayuda">Ingresá con tu celular y tu PIN de 6 números.</p>
+    </div>
+    {% if error %}<p class="m-error" role="alert">{{ error }}</p>{% endif %}
+    <form method="post" action="/m/login" class="m-form">
+      <label for="celular">Celular</label>
+      <input id="celular" name="celular" type="tel" inputmode="tel" autocomplete="tel" required value="{{ celular }}">
+      <label for="pin">PIN</label>
+      <input id="pin" name="pin" type="password" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="current-password" required>
+      <button type="submit" class="m-boton">Ingresar</button>
+    </form>
+    <p class="m-ayuda">¿No tenés PIN o lo olvidaste? Pedíselo al administrador.</p>
+  </div>
+  <div class="m-pie">
+    <div class="txt">Desarrollado por</div>
+    <div class="logo-chip"><img src="/static/img/kleba-logo.png" alt="Kleba Dev"></div>
+  </div>
+</div>
 {% endblock %}

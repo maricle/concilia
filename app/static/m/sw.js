@@ -6,13 +6,14 @@
    envio offline: sin conexion no se guarda nada en el celular. */
 "use strict";
 
-var VERSION = "concilia-m-v2";
+var VERSION = "concilia-m-v3";
 var APP_SHELL = [
   "/m/static/m.css",
   "/m/static/m.js",
   "/m/static/sin-conexion.html",
   "/m/static/iconos/icono-192.png",
   "/m/static/iconos/icono-512.png",
+  "/static/iconos/favicon-192.png",
 ];
 
 self.addEventListener("install", function (evento) {

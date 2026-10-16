@@ -1,69 +1,154 @@
-/* Interfaz movil de operadores (/m). Mobile-first, una columna, uso con una mano.
-   TODO: colores y logo de la marca del cliente. */
+/* Interfaz movil de operadores (/m). Mismos tokens visuales que el panel
+   (app/static/css/custom.css): paleta, tipografia Inter / Inter Tight, radio de
+   esquina, sombras y pills de estado. Lo propio del celular: una columna, uso
+   con una mano, areas tactiles de 44 px o mas y campos de 16 px o mas (con
+   menos, iOS hace zoom al enfocarlos). */
+
 :root {
-  --fondo: #f5f6fa;
-  --tarjeta: #ffffff;
-  --texto: #1b2333;
-  --texto-suave: #5a6478;
-  --primario: #1f2a44;
-  --primario-texto: #ffffff;
-  --peligro: #b3261e;
-  --borde: #d5d9e2;
-  --radio: 12px;
+  /* Igual que el panel */
+  --sidebar-bg: #14141f;
+  --sidebar-bg-soft: #1c1c2b;
+  --sidebar-text: #9497ac;
+  --accent: #6C5DD3;
+  --accent-soft: #EFECFB;
+  --accent-strong: #5645C4;
+  --bg: #F3F4F8;
+  --surface: #FFFFFF;
+  --surface-2: #FAFAFC;
+  --border: #E6E7EF;
+  --border-soft: #EEEFF5;
+  --text-primary: #1B1D29;
+  --text-secondary: #62647A;
+  --text-muted: #9395A8;
+  --good: #17803D;   --good-bg: #E4F6EA;
+  --warn: #92660B;   --warn-bg: #FDF1D3;
+  --bad:  #B3261E;   --bad-bg:  #FCE4E0;
+  --shadow-card: 0 1px 2px rgba(20, 20, 31, .04), 0 1px 12px rgba(20, 20, 31, .05);
+  --radius: .2rem;
 }
+
 * { box-sizing: border-box; }
 html { -webkit-text-size-adjust: 100%; }
 body {
   margin: 0;
-  background: var(--fondo);
-  color: var(--texto);
-  font: 17px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text-primary);
+  font-family: "Inter", -apple-system, "Segoe UI", Arial, sans-serif;
+  font-feature-settings: "tnum" 1;
+  font-size: 16px;
+  line-height: 1.5;
 }
+h1, h2, h3 { font-family: "Inter Tight", "Inter", sans-serif; font-weight: 700; color: var(--text-primary); }
+h1 { font-size: 1.4rem; margin: 4px 0 12px; }
+a { color: var(--accent-strong); }
+
+/* ---------- Barra superior: el oscuro de la sidebar del panel ---------- */
 .m-barra {
-  position: sticky; top: 0; z-index: 1;
+  position: sticky; top: 0; z-index: 2;
   display: flex; justify-content: space-between; align-items: center;
-  min-height: 52px; padding: 0 16px;
+  min-height: 56px; padding: 0 16px;
   padding-top: env(safe-area-inset-top);
-  background: var(--primario); color: var(--primario-texto);
+  background: var(--sidebar-bg);
+  color: #fff;
 }
-.m-marca { font-weight: 700; }
+.m-marca { display: flex; align-items: center; gap: 10px; color: #fff; text-decoration: none; font-family: "Inter Tight", "Inter", sans-serif; font-weight: 800; letter-spacing: .01em; }
+.m-marca img { width: 32px; height: 32px; }
+.m-barra .m-link { color: var(--sidebar-text); text-decoration: none; font-weight: 500; }
+
 .m-contenido { max-width: 520px; margin: 0 auto; padding: 16px 16px 32px; }
-h1 { font-size: 1.5rem; margin: 8px 0 12px; }
-.m-ayuda { color: var(--texto-suave); margin: 0 0 16px; }
-.m-error { background: #fdecea; color: var(--peligro); border-radius: var(--radio); padding: 12px 14px; }
-.m-aviso { background: #fff4e5; border-radius: var(--radio); padding: 12px 14px; }
-.m-form { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
-.m-form label { font-weight: 600; margin-top: 8px; }
-/* 16px o mas en los campos: con menos, iOS hace zoom al enfocarlos. */
-input, select { font-size: 17px; min-height: 48px; padding: 10px 12px; border: 1px solid var(--borde); border-radius: var(--radio); background: var(--tarjeta); color: var(--texto); width: 100%; }
+
+/* ---------- Textos y avisos (como las alerts del panel) ---------- */
+.m-ayuda { color: var(--text-secondary); font-size: .95rem; margin: 0 0 16px; }
+.m-error, .m-aviso {
+  border-radius: var(--radius); padding: 12px 14px; margin: 0 0 16px; font-size: .95rem;
+}
+.m-error { background: var(--bad-bg); color: var(--bad); }
+.m-aviso { background: var(--warn-bg); color: var(--warn); }
+.m-aviso strong { display: block; color: var(--text-primary); }
+
+/* ---------- Tarjetas (como .card del panel) ---------- */
+.m-tarjeta {
+  background: var(--surface); border: 1px solid var(--border-soft); border-radius: var(--radius);
+  box-shadow: var(--shadow-card); padding: 14px 16px; margin: 0 0 12px;
+}
+.m-tarjeta strong { font-weight: 600; }
+.m-total { font-size: 1.05rem; }
+.m-fila { display: flex; justify-content: space-between; align-items: baseline; }
+.m-fila strong { font-family: "Inter Tight", "Inter", sans-serif; font-size: 1.1rem; }
+
+/* ---------- Formularios (como .form-control del panel) ---------- */
+.m-form { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
+.m-form label, .m-opciones legend { font-weight: 600; font-size: .9rem; color: var(--text-secondary); margin-top: 10px; }
+input, select {
+  width: 100%; min-height: 48px; padding: 10px 12px;
+  font: inherit; font-size: 16px; color: var(--text-primary);
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+}
+input:focus, select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+
+/* ---------- Botones (btn-primary / btn-outline-* del panel) ---------- */
 .m-boton, .m-boton-secundario, .m-boton-peligro {
   display: block; width: 100%; min-height: 52px; margin-top: 12px; padding: 12px 16px;
-  border: 0; border-radius: var(--radio); font-size: 1.05rem; font-weight: 600; text-align: center; text-decoration: none; cursor: pointer;
+  border-radius: var(--radius); font: inherit; font-weight: 600; font-size: 1rem;
+  text-align: center; text-decoration: none; cursor: pointer;
 }
-.m-boton { background: var(--primario); color: var(--primario-texto); }
-.m-boton-secundario { background: var(--tarjeta); color: var(--primario); border: 2px solid var(--primario); }
-.m-boton-peligro { background: var(--tarjeta); color: var(--peligro); border: 2px solid var(--peligro); }
+.m-boton { background: var(--accent); border: 1px solid var(--accent); color: #fff; }
+.m-boton:active { background: var(--accent-strong); border-color: var(--accent-strong); }
 .m-boton:disabled { opacity: .6; }
-.m-link { background: none; border: 0; color: inherit; font-size: 1rem; min-height: 44px; padding: 0 4px; cursor: pointer; text-decoration: underline; }
-.m-link-bloque { display: block; min-height: 44px; line-height: 44px; margin-top: 24px; text-align: center; color: var(--primario); }
-.m-tarjeta { background: var(--tarjeta); border-radius: var(--radio); padding: 14px 16px; margin-bottom: 12px; box-shadow: 0 1px 2px rgba(0,0,0,.06); }
+.m-boton-secundario { background: var(--surface); border: 1px solid var(--accent); color: var(--accent-strong); }
+.m-boton-secundario:active { background: var(--accent-soft); }
+.m-boton-peligro { background: var(--surface); border: 1px solid var(--bad); color: var(--bad); }
+.m-boton-peligro:active { background: var(--bad-bg); }
+.m-boton-grande { min-height: 64px; font-size: 1.1rem; }
+.m-boton-chico {
+  min-width: 48px; min-height: 48px; padding: 0 12px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  color: var(--text-primary); font: inherit; font-weight: 600; text-decoration: none; cursor: pointer;
+}
+.m-link { background: none; border: 0; color: inherit; font: inherit; min-height: 44px; padding: 0 4px; cursor: pointer; text-decoration: underline; }
+.m-link-bloque { display: block; min-height: 44px; line-height: 44px; margin-top: 20px; text-align: center; color: var(--accent-strong); font-weight: 500; }
+
+/* ---------- Factura / Cuenta ---------- */
+.m-opciones { border: 0; padding: 0; margin: 4px 0 0; display: flex; gap: 8px; flex-wrap: wrap; }
+.m-opciones legend { width: 100%; margin-bottom: 6px; }
+.m-opcion {
+  flex: 1; display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 0 14px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); font-weight: 600;
+}
+.m-opcion:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-strong); }
+.m-opcion input { width: 20px; min-height: 20px; height: 20px; margin: 0; accent-color: var(--accent); }
+
+/* ---------- Cargar comprobante ---------- */
 .m-oculto { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
-.m-boton-grande { min-height: 64px; font-size: 1.15rem; }
 .m-vista-previa { margin-top: 8px; text-align: center; }
-.m-vista-previa img { max-width: 100%; max-height: 50vh; border-radius: var(--radio); border: 1px solid var(--borde); }
-.m-opciones { border: 0; padding: 0; margin: 8px 0 0; display: flex; gap: 8px; flex-wrap: wrap; }
-.m-opciones legend { font-weight: 600; margin-bottom: 8px; }
-.m-opcion { flex: 1; display: flex; align-items: center; gap: 8px; min-height: 52px; padding: 0 14px; border: 2px solid var(--borde); border-radius: var(--radio); background: var(--tarjeta); font-weight: 600; }
-.m-opcion input { width: 22px; min-height: 22px; height: 22px; margin: 0; }
+.m-vista-previa img { max-width: 100%; max-height: 50vh; border: 1px solid var(--border); border-radius: var(--radius); }
+
+/* ---------- Mis comprobantes ---------- */
 .m-fila-fecha { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; }
 .m-fila-fecha input { flex: 1; }
-.m-boton-chico { min-width: 48px; min-height: 48px; display: inline-flex; align-items: center; justify-content: center; border: 2px solid var(--primario); border-radius: var(--radio); background: var(--tarjeta); color: var(--primario); font-size: 1.1rem; font-weight: 600; text-decoration: none; padding: 0 10px; }
-.m-total { font-size: 1.1rem; }
-.m-fila { display: flex; justify-content: space-between; }
-.m-estado { font-size: .9rem; color: var(--texto-suave); }
-.m-estado-conciliado, .m-estado-conciliado_manualmente { color: #1e7d3a; }
-.m-estado-con_diferencia { color: var(--peligro); }
-.m-banda { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; padding: 10px 16px; background: #e8ecf6; color: var(--texto); font-size: .95rem; }
+/* Pills de estado: mismas que badge-pill-estado del panel */
+.m-estado {
+  display: inline-block; margin-top: 6px; padding: 2px 10px; border-radius: 999px;
+  font-size: .78rem; font-weight: 600;
+}
+.m-estado-pendiente { background: var(--warn-bg); color: var(--warn); }
+.m-estado-con_diferencia { background: var(--bad-bg); color: var(--bad); }
+.m-estado-conciliado, .m-estado-conciliado_manualmente { background: var(--good-bg); color: var(--good); }
+
+/* ---------- Bandas: instalar la app / sin conexion ---------- */
+.m-banda { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; padding: 10px 16px; background: var(--accent-soft); color: var(--text-primary); font-size: .9rem; }
 .m-banda[hidden] { display: none; }
-.m-banda .m-link { color: var(--primario); font-weight: 600; }
-.m-banda-alerta { background: #fdecea; color: var(--peligro); }
+.m-banda .m-link { color: var(--accent-strong); font-weight: 600; text-decoration: none; }
+.m-banda-alerta { background: var(--bad-bg); color: var(--bad); }
+
+/* ---------- Login: mismo fondo y tarjeta que el login del panel ---------- */
+.m-pantalla-login { background: var(--bg) url("/static/img/concilia-bg01.png") center / cover no-repeat; min-height: 100vh; }
+.m-login { max-width: 400px; margin: 24px auto 0; }
+.m-login .m-tarjeta { padding: 28px 22px; }
+.m-login-titulo { text-align: center; margin-bottom: 8px; }
+.m-login-titulo img { width: 72px; height: 72px; }
+.m-pie { margin-top: 24px; text-align: center; }
+.m-pie .txt { font-size: 11px; color: var(--text-muted); letter-spacing: .03em; margin-bottom: 8px; }
+.m-pie .logo-chip { display: inline-flex; background: #fff; border-radius: var(--radius); padding: 6px 10px; box-shadow: var(--shadow-card); }
+.m-pie img { height: 18px; width: auto; display: block; }
