@@ -23,7 +23,7 @@
     </div>
   </div>
   <div class="login-footer mt-4">
-    {% include "partials/_pie_marca.html" %}
+    {% with logo_pie="logodemontecolor.png" %}{% include "partials/_pie_marca.html" %}{% endwith %}
   </div>
 </div>
 {% endblock %}

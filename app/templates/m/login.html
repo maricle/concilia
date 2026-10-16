@@ -19,7 +19,7 @@
     <p class="m-ayuda">¿No tenés PIN o lo olvidaste? Pedíselo al administrador.</p>
   </div>
   <div class="m-pie">
-    {% include "partials/_pie_marca.html" %}
+    {% with logo_pie="logodemontecolor.png" %}{% include "partials/_pie_marca.html" %}{% endwith %}
   </div>
 </div>
 {% endblock %}

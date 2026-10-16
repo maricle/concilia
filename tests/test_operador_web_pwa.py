@@ -63,6 +63,7 @@ def test_favicon_y_acceso_directo_con_el_logo():
 def test_pie_con_logo_de_demonte_y_credito_a_kleba():
     for pagina in ("/login", "/m/login"):
         html = client.get(pagina).text
-        assert 'alt="Demonte" class="pie-marca-logo"' in html, pagina
+        assert 'src="/static/img/logodemontecolor.png" alt="Expreso Demonte" class="pie-marca-logo"' in html, pagina
+        assert "favicon-192.png" not in html, pagina  # la mascota es solo favicon e icono de la app
         assert 'href="https://www.instagram.com/kleba.dev" target="_blank" rel="noopener noreferrer">@kleba.dev</a>' in html, pagina
         assert "kleba-logo.png" not in html, pagina
