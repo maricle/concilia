@@ -77,7 +77,10 @@ a { color: var(--accent-strong); }
 
 /* ---------- Formularios (como .form-control del panel) ---------- */
 .m-form { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
-.m-form label, .m-opciones legend { font-weight: 600; font-size: .9rem; color: var(--text-secondary); margin-top: 10px; }
+/* Solo las etiquetas de campo (sin clase): "Sacar foto", "Elegir archivo" y
+   Factura/Cuenta tambien son <label> pero con estilo de boton u opcion, y esta
+   regla les pisaba el color y el tamano. */
+.m-form label:not([class]), .m-opciones legend { font-weight: 600; font-size: .9rem; color: var(--text-secondary); margin-top: 10px; }
 input, select {
   width: 100%; min-height: 48px; padding: 10px 12px;
   font: inherit; font-size: 16px; color: var(--text-primary);
@@ -114,6 +117,7 @@ input:focus, select:focus { outline: none; border-color: var(--accent); box-shad
 .m-opcion {
   flex: 1; display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 0 14px;
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); font-weight: 600;
+  color: var(--text-primary);
 }
 .m-opcion:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-strong); }
 .m-opcion input { width: 20px; min-height: 20px; height: 20px; margin: 0; accent-color: var(--accent); }

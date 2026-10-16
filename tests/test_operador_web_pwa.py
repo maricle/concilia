@@ -76,3 +76,11 @@ def test_estaticos_versionados_para_que_el_navegador_no_use_uno_viejo():
     assert f'href="/m/static/m.css?v={version_estatico("m/m.css")}"' in client.get("/m/login").text
     assert version_estatico("css/custom.css") != version_estatico("m/m.css")
     assert version_estatico("no/existe.css") == "0"
+
+
+def test_estilo_de_etiquetas_de_campo_no_pisa_botones_que_son_label():
+    # "Sacar foto" / "Elegir archivo" (y Factura/Cuenta) son <label> con clase:
+    # la regla de las etiquetas de campo no tiene que aplicarse a ellos.
+    css = Path("app/static/m/m.css").read_text(encoding="utf-8")
+    assert ".m-form label:not([class])" in css
+    assert not re.search(r"\.m-form label[\s,{]", css)
