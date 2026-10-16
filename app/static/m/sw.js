@@ -6,7 +6,7 @@
    envio offline: sin conexion no se guarda nada en el celular. */
 "use strict";
 
-var VERSION = "concilia-m-v5";
+var VERSION = "concilia-m-v6";
 var APP_SHELL = [
   "/m/static/m.css",
   "/m/static/m.js",
@@ -17,7 +17,11 @@ var APP_SHELL = [
 
 self.addEventListener("install", function (evento) {
   evento.waitUntil(
-    caches.open(VERSION).then(function (cache) { return cache.addAll(APP_SHELL); }).then(function () { return self.skipWaiting(); })
+    caches.open(VERSION).then(function (cache) {
+      // cache: "reload": bajar del servidor, no de la cache HTTP del navegador,
+      // para no precargar una version vieja del CSS o del JS.
+      return cache.addAll(APP_SHELL.map(function (url) { return new Request(url, { cache: "reload" }); }));
+    }).then(function () { return self.skipWaiting(); })
   );
 });
 
