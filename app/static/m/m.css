@@ -63,3 +63,7 @@ input, select { font-size: 17px; min-height: 48px; padding: 10px 12px; border: 1
 .m-estado { font-size: .9rem; color: var(--texto-suave); }
 .m-estado-conciliado, .m-estado-conciliado_manualmente { color: #1e7d3a; }
 .m-estado-con_diferencia { color: var(--peligro); }
+.m-banda { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; padding: 10px 16px; background: #e8ecf6; color: var(--texto); font-size: .95rem; }
+.m-banda[hidden] { display: none; }
+.m-banda .m-link { color: var(--primario); font-weight: 600; }
+.m-banda-alerta { background: #fdecea; color: var(--peligro); }

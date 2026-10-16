@@ -55,6 +55,57 @@
     }
   }
 
+  // ---- PWA: service worker, aviso de instalacion y aviso sin conexion ----
+
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.register("/m/sw.js", { scope: "/m/" }).catch(function () {});
+  }
+
+  function leerPreferencia(clave) {
+    try { return window.localStorage.getItem(clave); } catch (e) { return null; }
+  }
+  function guardarPreferencia(clave, valor) {
+    try { window.localStorage.setItem(clave, valor); } catch (e) { /* modo privado: no se recuerda */ }
+  }
+
+  var aviso = document.getElementById("aviso-instalar");
+  var avisoTexto = document.getElementById("aviso-instalar-texto");
+  var avisoBoton = document.getElementById("aviso-instalar-boton");
+  var instalada = window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true;
+  if (aviso && !instalada && leerPreferencia("concilia-aviso-instalar") !== "descartado") {
+    document.getElementById("aviso-instalar-cerrar").addEventListener("click", function () {
+      aviso.hidden = true;
+      guardarPreferencia("concilia-aviso-instalar", "descartado");
+    });
+    // Android / Chrome: el navegador ofrece la instalacion y se dispara al tocar el boton.
+    var instalacion = null;
+    window.addEventListener("beforeinstallprompt", function (evento) {
+      evento.preventDefault();
+      instalacion = evento;
+      avisoBoton.hidden = false;
+      aviso.hidden = false;
+    });
+    avisoBoton.addEventListener("click", function () {
+      if (!instalacion) { return; }
+      instalacion.prompt();
+      instalacion.userChoice.finally(function () { aviso.hidden = true; instalacion = null; });
+    });
+    // iPhone / Safari: no hay instalacion automatica, se indica como hacerlo.
+    var esIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+    if (esIOS) {
+      avisoTexto.textContent = "Para tenerla como app: tocá Compartir y después \"Agregar a pantalla de inicio\".";
+      aviso.hidden = false;
+    }
+  }
+
+  var sinConexion = document.getElementById("aviso-sin-conexion");
+  function actualizarConexion() { if (sinConexion) { sinConexion.hidden = navigator.onLine; } }
+  window.addEventListener("online", actualizarConexion);
+  window.addEventListener("offline", actualizarConexion);
+  actualizarConexion();
+
+  // ---- Cargar comprobante ----
+
   var formulario = document.getElementById("form-comprobante");
   if (formulario) {
     var camara = document.getElementById("archivo-camara");

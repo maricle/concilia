@@ -6,6 +6,11 @@
 <meta name="theme-color" content="#1f2a44">
 <title>{% block title %}Concilia{% endblock %}</title>
 <link rel="stylesheet" href="/m/static/m.css">
+<link rel="manifest" href="/m/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/m/static/iconos/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Concilia">
+<script src="/m/static/m.js" defer></script>
 </head>
 <body>
 <header class="m-barra">
@@ -16,6 +21,12 @@
   </form>
   {% endif %}
 </header>
+<div id="aviso-sin-conexion" class="m-banda m-banda-alerta" hidden role="status">Sin conexión. Los comprobantes no se guardan en el celular.</div>
+<div id="aviso-instalar" class="m-banda" hidden>
+  <span id="aviso-instalar-texto">Instalá Concilia en tu celular para abrirla como una app.</span>
+  <button type="button" id="aviso-instalar-boton" class="m-link" hidden>Instalar</button>
+  <button type="button" id="aviso-instalar-cerrar" class="m-link" aria-label="Cerrar aviso">Ahora no</button>
+</div>
 <main class="m-contenido">
   {% block content %}{% endblock %}
 </main>
