@@ -133,7 +133,7 @@ html, body { height: 100%; }
 }
 /* Pie compartido (partials/_pie_marca.html): logo de Demonte + credito. */
 .pie-marca { text-align: center; }
-.pie-marca-logo { width: 140px; max-width: 100%; height: auto; display: block; margin: 0 auto 8px; }
+.pie-marca-logo { height: 28px; max-width: 100%; display: block; margin: 0 auto 8px; }
 .pie-marca-credito { font-size: 9px; letter-spacing: .03em; }
 .sidebar-footer .pie-marca-credito { color: var(--sidebar-text-dim); }
 .sidebar-footer .pie-marca-credito a { color: #d7d8e6; }

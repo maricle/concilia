@@ -16,6 +16,7 @@ from sqlalchemy.orm import DeclarativeBase, InstrumentedAttribute, Session
 
 from ..bancos import icono_banco
 from ..db import SessionLocal
+from ..estaticos import version_estatico
 from ..models import (
     PanelUser,
 )
@@ -53,6 +54,7 @@ def _sort_url(request: Request, campo: str) -> str:
 
 templates.env.globals["sort_url"] = _sort_url
 templates.env.globals["icono_banco"] = icono_banco
+templates.env.globals["version_estatico"] = version_estatico
 
 
 def del_dia(columna, dia: date):

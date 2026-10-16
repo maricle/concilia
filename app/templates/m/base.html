@@ -10,12 +10,12 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Inter+Tight:wght@600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/m/static/m.css">
+<link rel="stylesheet" href="/m/static/m.css?v={{ version_estatico('m/m.css') }}">
 <link rel="manifest" href="/m/manifest.webmanifest">
 <link rel="apple-touch-icon" href="/m/static/iconos/apple-touch-icon.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Concilia">
-<script src="/m/static/m.js" defer></script>
+<script src="/m/static/m.js?v={{ version_estatico('m/m.js') }}" defer></script>
 </head>
 <body class="{% block clase_body %}{% endblock %}">
 <header class="m-barra">

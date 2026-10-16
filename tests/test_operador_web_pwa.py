@@ -38,7 +38,7 @@ def test_las_paginas_enlazan_el_manifest_y_el_script():
     pagina = client.get("/m/login").text
 
     assert '<link rel="manifest" href="/m/manifest.webmanifest">' in pagina
-    assert '<script src="/m/static/m.js" defer></script>' in pagina
+    assert "<script src=\"/m/static/m.js?v=" in pagina
 
 
 def test_plantillas_de_m_sin_javascript_en_linea():
@@ -67,3 +67,12 @@ def test_pie_con_logo_de_demonte_y_credito_a_kleba():
         assert "favicon-192.png" not in html, pagina  # la mascota es solo favicon e icono de la app
         assert 'href="https://www.instagram.com/kleba.dev" target="_blank" rel="noopener noreferrer">@kleba.dev</a>' in html, pagina
         assert "kleba-logo.png" not in html, pagina
+
+
+def test_estaticos_versionados_para_que_el_navegador_no_use_uno_viejo():
+    from app.estaticos import version_estatico
+
+    assert f'href="/static/css/custom.css?v={version_estatico("css/custom.css")}"' in client.get("/login").text
+    assert f'href="/m/static/m.css?v={version_estatico("m/m.css")}"' in client.get("/m/login").text
+    assert version_estatico("css/custom.css") != version_estatico("m/m.css")
+    assert version_estatico("no/existe.css") == "0"
