@@ -1,0 +1,7 @@
+{% extends "m/base.html" %}
+{% block content %}
+<h1>Hola, {{ operador.nombre }}</h1>
+<p class="m-ayuda">Móvil: {{ operador.movil.numero if operador.movil else "sin asignar" }}</p>
+{% block acciones %}{% endblock %}
+<a href="/m/cambiar-pin" class="m-link-bloque">Cambiar PIN</a>
+{% endblock %}

@@ -9,6 +9,8 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from .config import get_settings
 from .db import create_tables
+from .operador_web import CambioDePinPendiente, OperadorNoAutenticado
+from .operador_web import router as operador_web_router
 from .panel import NotAuthenticated, RedirectOnMissing, SinPermiso, templates
 from .panel import router as panel_router
 from .telegram import router as telegram_router
@@ -69,14 +71,47 @@ async def _bloquear_post_de_otro_sitio(request: Request, call_next):
 
 
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
+app.mount("/m/static", StaticFiles(directory="app/static/m"), name="static_m")
 app.include_router(webhook_router)
 app.include_router(telegram_router)
 app.include_router(panel_router)
+app.include_router(operador_web_router)
+
+_CSP_OPERADOR = (
+    "default-src 'self'; img-src 'self' blob: data:; style-src 'self'; script-src 'self'; "
+    "connect-src 'self'; manifest-src 'self'; worker-src 'self'; frame-ancestors 'none'; "
+    "form-action 'self'; base-uri 'none'"
+)
+
+
+@app.middleware("http")
+async def _cabeceras_operador(request: Request, call_next):
+    """Cabeceras de seguridad de la interfaz de operadores. Las paginas de /m
+    tienen datos del operador: no se guardan en ningun cache (ni el del service
+    worker); los estaticos de /m/static si."""
+    response = await call_next(request)
+    if request.url.path.startswith("/m/"):
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["Referrer-Policy"] = "same-origin"
+        response.headers["Content-Security-Policy"] = _CSP_OPERADOR
+        if not request.url.path.startswith("/m/static/"):
+            response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 @app.exception_handler(NotAuthenticated)
 def _redirect_to_login(request: Request, exc: NotAuthenticated) -> RedirectResponse:
     return RedirectResponse("/login", status_code=303)
+
+
+@app.exception_handler(OperadorNoAutenticado)
+def _redirect_al_login_de_operador(request: Request, exc: OperadorNoAutenticado) -> RedirectResponse:
+    return RedirectResponse("/m/login", status_code=303)
+
+
+@app.exception_handler(CambioDePinPendiente)
+def _redirect_a_cambiar_pin(request: Request, exc: CambioDePinPendiente) -> RedirectResponse:
+    return RedirectResponse("/m/cambiar-pin", status_code=303)
 
 
 @app.exception_handler(SinPermiso)

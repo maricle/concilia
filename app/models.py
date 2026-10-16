@@ -76,6 +76,34 @@ class Operator(Base):
 
     movil: Mapped["Movil | None"] = relationship(foreign_keys=[movil_id])
 
+    # Acceso a la interfaz web de operadores (/m). Columnas agregadas con ALTER
+    # TABLE manual (sin Alembic). El PIN se guarda solo hasheado (bcrypt).
+    web_habilitado: Mapped[bool] = mapped_column(default=False)
+    pin_hash: Mapped[str | None] = mapped_column(String(255))
+    # PIN generado por un administrador: hay que cambiarlo en el primer ingreso.
+    pin_temporal: Mapped[bool] = mapped_column(default=False)
+    intentos_fallidos: Mapped[int] = mapped_column(default=0)
+    bloqueado_hasta: Mapped[datetime | None] = mapped_column(DateTime)
+
+
+class SesionOperador(Base):
+    """Sesion de un operador en la interfaz web. El token vive en claro solo en
+    la cookie del celular; aca se guarda su hash, asi una copia de la base no
+    alcanza para entrar."""
+
+    __tablename__ = "sesiones_operador"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    operador_id: Mapped[int] = mapped_column(ForeignKey("operadores.id"), index=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    creada_en: Mapped[datetime] = mapped_column(DateTime, default=ahora_argentina)
+    ultimo_uso: Mapped[datetime] = mapped_column(DateTime, default=ahora_argentina)
+    expira_en: Mapped[datetime] = mapped_column(DateTime)
+    user_agent: Mapped[str | None] = mapped_column(String(255))
+    revocada: Mapped[bool] = mapped_column(default=False)
+
+    operador: Mapped[Operator] = relationship()
+
 
 class BankAccount(Base):
     __tablename__ = "cuentas_bancarias"

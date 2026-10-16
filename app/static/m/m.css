@@ -1,0 +1,49 @@
+/* Interfaz movil de operadores (/m). Mobile-first, una columna, uso con una mano.
+   TODO: colores y logo de la marca del cliente. */
+:root {
+  --fondo: #f5f6fa;
+  --tarjeta: #ffffff;
+  --texto: #1b2333;
+  --texto-suave: #5a6478;
+  --primario: #1f2a44;
+  --primario-texto: #ffffff;
+  --peligro: #b3261e;
+  --borde: #d5d9e2;
+  --radio: 12px;
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--fondo);
+  color: var(--texto);
+  font: 17px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+.m-barra {
+  position: sticky; top: 0; z-index: 1;
+  display: flex; justify-content: space-between; align-items: center;
+  min-height: 52px; padding: 0 16px;
+  padding-top: env(safe-area-inset-top);
+  background: var(--primario); color: var(--primario-texto);
+}
+.m-marca { font-weight: 700; }
+.m-contenido { max-width: 520px; margin: 0 auto; padding: 16px 16px 32px; }
+h1 { font-size: 1.5rem; margin: 8px 0 12px; }
+.m-ayuda { color: var(--texto-suave); margin: 0 0 16px; }
+.m-error { background: #fdecea; color: var(--peligro); border-radius: var(--radio); padding: 12px 14px; }
+.m-aviso { background: #fff4e5; border-radius: var(--radio); padding: 12px 14px; }
+.m-form { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
+.m-form label { font-weight: 600; margin-top: 8px; }
+/* 16px o mas en los campos: con menos, iOS hace zoom al enfocarlos. */
+input, select { font-size: 17px; min-height: 48px; padding: 10px 12px; border: 1px solid var(--borde); border-radius: var(--radio); background: var(--tarjeta); color: var(--texto); width: 100%; }
+.m-boton, .m-boton-secundario, .m-boton-peligro {
+  display: block; width: 100%; min-height: 52px; margin-top: 12px; padding: 12px 16px;
+  border: 0; border-radius: var(--radio); font-size: 1.05rem; font-weight: 600; text-align: center; text-decoration: none; cursor: pointer;
+}
+.m-boton { background: var(--primario); color: var(--primario-texto); }
+.m-boton-secundario { background: var(--tarjeta); color: var(--primario); border: 2px solid var(--primario); }
+.m-boton-peligro { background: var(--tarjeta); color: var(--peligro); border: 2px solid var(--peligro); }
+.m-boton:disabled { opacity: .6; }
+.m-link { background: none; border: 0; color: inherit; font-size: 1rem; min-height: 44px; padding: 0 4px; cursor: pointer; text-decoration: underline; }
+.m-link-bloque { display: block; min-height: 44px; line-height: 44px; margin-top: 24px; text-align: center; color: var(--primario); }
+.m-tarjeta { background: var(--tarjeta); border-radius: var(--radio); padding: 14px 16px; margin-bottom: 12px; box-shadow: 0 1px 2px rgba(0,0,0,.06); }
