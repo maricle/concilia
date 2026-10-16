@@ -49,3 +49,12 @@ def test_plantillas_de_m_sin_javascript_en_linea():
         assert not re.search(r"<script(?![^>]*\bsrc=)[^>]*>", texto), plantilla.name
         assert not re.search(r"\son[a-z]+\s*=", texto), plantilla.name
         assert "style=" not in texto, plantilla.name
+
+
+def test_favicon_y_acceso_directo_con_el_logo():
+    assert client.get("/favicon.ico").headers["content-type"] == "image/x-icon"
+    for pagina in ("/login", "/m/login"):
+        assert '<link rel="icon" href="/static/iconos/favicon.ico"' in client.get(pagina).text, pagina
+    assert 'rel="apple-touch-icon" href="/m/static/iconos/apple-touch-icon.png"' in client.get("/m/login").text
+    for ruta in ("/static/iconos/favicon-32.png", "/m/static/iconos/apple-touch-icon.png"):
+        assert client.get(ruta).status_code == 200, ruta

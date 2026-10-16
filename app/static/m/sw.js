@@ -6,7 +6,7 @@
    envio offline: sin conexion no se guarda nada en el celular. */
 "use strict";
 
-var VERSION = "concilia-m-v1";
+var VERSION = "concilia-m-v2";
 var APP_SHELL = [
   "/m/static/m.css",
   "/m/static/m.js",

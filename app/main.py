@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from urllib.parse import urlsplit
 
 from fastapi import FastAPI, Request
-from fastapi.responses import PlainTextResponse, RedirectResponse
+from fastapi.responses import FileResponse, PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
@@ -122,6 +122,12 @@ def _sin_permiso(request: Request, exc: SinPermiso):
 @app.exception_handler(RedirectOnMissing)
 def _redirect_on_missing(request: Request, exc: RedirectOnMissing) -> RedirectResponse:
     return RedirectResponse(exc.redirect_to, status_code=303)
+
+
+@app.get("/favicon.ico", include_in_schema=False)
+def favicon() -> FileResponse:
+    # Los navegadores lo piden en la raiz aunque la pagina declare otro.
+    return FileResponse("app/static/iconos/favicon.ico", media_type="image/x-icon")
 
 
 @app.get("/health")
