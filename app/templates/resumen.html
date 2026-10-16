@@ -104,7 +104,7 @@
           <br>{{ kpis_hoy.bancos_en_uso - kpis_hoy.bancos_conciliados }} banco{{ "s" if kpis_hoy.bancos_en_uso - kpis_hoy.bancos_conciliados != 1 }} requiere{{ "n" if kpis_hoy.bancos_en_uso - kpis_hoy.bancos_conciliados != 1 }} atencion
           {% endif %}
         </p>
-        <a href="/conciliaciones" class="btn btn-sm btn-outline-primary">Ver conciliaciones <i class="fas fa-arrow-right ml-1"></i></a>
+        {% if es_admin(user) %}<a href="/conciliaciones" class="btn btn-sm btn-outline-primary">Ver conciliaciones <i class="fas fa-arrow-right ml-1"></i></a>{% endif %}
       </div>
     </div>
   </div>
@@ -153,11 +153,11 @@
     <div class="card shadow h-100">
       <div class="card-header py-3 d-flex justify-content-between align-items-center">
         <h6 class="m-0 font-weight-bold text-primary">Bancos del dia</h6>
-        <a href="/conciliaciones" class="small">Ver detalle</a>
+        {% if es_admin(user) %}<a href="/conciliaciones" class="small">Ver detalle</a>{% endif %}
       </div>
       <div class="card-body">
         {% for banco in bancos_del_dia %}
-        <a href="/conciliaciones?banco={{ banco.banco }}" class="banco-dia-row">
+        <a {% if es_admin(user) %}href="/conciliaciones?banco={{ banco.banco }}" {% endif %}class="banco-dia-row">
           {{ banco_icono.chip(banco.icono, "banco-dia-icon") }}
           <span class="flex-grow-1">
             <span class="banco-dia-nombre d-block">{{ banco.banco }}</span>
@@ -190,7 +190,7 @@
     <h6 class="font-weight-bold text-primary mb-1">Acciones rapidas</h6>
     <p class="text-muted small mb-3">Las tareas mas comunes, en un clic.</p>
     <div class="d-flex flex-wrap" style="gap: 10px;">
-      <a href="/conciliaciones" class="btn btn-outline-primary"><i class="fas fa-balance-scale mr-1"></i>Abrir conciliaciones</a>
+      {% if es_admin(user) %}<a href="/conciliaciones" class="btn btn-outline-primary"><i class="fas fa-balance-scale mr-1"></i>Abrir conciliaciones</a>{% endif %}
       <a href="/comprobantes" class="btn btn-outline-secondary"><i class="fas fa-file-invoice-dollar mr-1"></i>Ver comprobantes</a>
       <a href="/repartos" class="btn btn-outline-secondary"><i class="fas fa-route mr-1"></i>Ver salidas</a>
     </div>

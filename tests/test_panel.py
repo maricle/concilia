@@ -20,10 +20,8 @@ from app.models import (
     Movil,
     Operator,
     PanelUser,
-    ReconciliationState,
     RecordState,
     Reparto,
-    RepartoOperador,
     StatementLine,
     StatementLineState,
 )
@@ -200,7 +198,7 @@ def test_movimientos_list_shows_only_confirmed():
         session.commit()
 
     client.post("/login", data={"email": "admin@concilia.test", "password": "secreta123"})
-    response = client.get("/comprobantes")
+    response = client.get("/comprobantes", params={"fecha": "todos"})
 
     assert response.status_code == 200
     assert "OP-CONFIRMADO" in response.text
@@ -241,7 +239,7 @@ def test_comprobantes_muestra_logo_del_banco_receptor():
         session.commit()
 
     client.post("/login", data={"email": "admin@concilia.test", "password": "secreta123"})
-    response = client.get("/comprobantes")
+    response = client.get("/comprobantes", params={"fecha": "todos"})
 
     assert response.status_code == 200
     assert "banco-dia-icon" in response.text
@@ -414,7 +412,7 @@ def test_ver_archivo_returns_file_content(monkeypatch):
         content_type = "image/jpeg"
         nombre_archivo = "comprobante.jpg"
 
-    monkeypatch.setattr(panel, "get_comprobante_archivo", lambda archivo_id: _FakeArchivo() if archivo_id == 42 else None)
+    monkeypatch.setattr(panel.comprobantes, "get_comprobante_archivo", lambda archivo_id: _FakeArchivo() if archivo_id == 42 else None)
 
     client.post("/login", data={"email": "admin@concilia.test", "password": "secreta123"})
     response = client.get("/comprobantes/1/archivo")
@@ -470,7 +468,7 @@ def test_nuevo_movimiento_con_archivo_adjunto(monkeypatch):
         session.add(BankAccount(banco="Nacion", numero_cuenta="1", alias="Principal"))
         session.commit()
 
-    monkeypatch.setattr(panel, "save_comprobante_archivo", lambda nombre, content_type, contenido: 42)
+    monkeypatch.setattr(panel.comprobantes, "save_comprobante_archivo", lambda nombre, content_type, contenido: 42)
 
     client.post("/login", data={"email": "admin@concilia.test", "password": "secreta123"})
     response = client.post(
@@ -507,7 +505,7 @@ def test_extraer_datos_comprobante_completa_los_campos_y_matchea_cuenta(monkeypa
         cuenta_receptora="0070077120000014194391",
         titular="Liliana Desiree Moray Dacunda",
     )
-    monkeypatch.setattr(panel, "extract_transfer", lambda content_type, contenido: transfer)
+    monkeypatch.setattr(panel.comprobantes, "extract_transfer", lambda content_type, contenido: transfer)
 
     client.post("/login", data={"email": "admin@concilia.test", "password": "secreta123"})
     response = client.post(
@@ -527,7 +525,7 @@ def test_extraer_datos_comprobante_completa_los_campos_y_matchea_cuenta(monkeypa
 
 def test_extraer_datos_comprobante_no_legible_devuelve_error(monkeypatch):
     client, _ = _client_with_admin()
-    monkeypatch.setattr(panel, "extract_transfer", lambda content_type, contenido: None)
+    monkeypatch.setattr(panel.comprobantes, "extract_transfer", lambda content_type, contenido: None)
 
     client.post("/login", data={"email": "admin@concilia.test", "password": "secreta123"})
     response = client.post(
@@ -549,7 +547,7 @@ def test_extraer_datos_comprobante_error_de_api_no_rompe_el_alta(monkeypatch):
     def _explota(content_type, contenido):
         raise RuntimeError("boom")
 
-    monkeypatch.setattr(panel, "extract_transfer", _explota)
+    monkeypatch.setattr(panel.comprobantes, "extract_transfer", _explota)
 
     client.post("/login", data={"email": "admin@concilia.test", "password": "secreta123"})
     response = client.post(
@@ -614,10 +612,10 @@ def test_comprobantes_fila_es_clickeable_y_sin_boton_editar():
         session.commit()
 
     client.post("/login", data={"email": "admin@concilia.test", "password": "secreta123"})
-    response = client.get("/comprobantes")
+    response = client.get("/comprobantes", params={"fecha": "todos"})
 
     assert response.status_code == 200
-    assert 'class="fila-comprobante" data-href="/comprobantes/1/editar"' in response.text
+    assert 'class="fila-comprobante" data-href="/comprobantes/1/editar?volver=' in response.text
     assert "Nuevo comprobante" in response.text
     assert "fa-pencil-alt" not in response.text
 
@@ -999,7 +997,7 @@ def test_comprobantes_filtra_por_movil():
         session.commit()
 
     client.post("/login", data={"email": "admin@concilia.test", "password": "secreta123"})
-    response = client.get("/comprobantes", params={"movil_id": "1"})
+    response = client.get("/comprobantes", params={"movil_id": "1", "fecha": "todos"})
 
     assert response.status_code == 200
     assert "OP-M1" in response.text
@@ -1026,7 +1024,7 @@ def test_comprobantes_exportar_incluye_columna_movil():
         session.commit()
 
     client.post("/login", data={"email": "admin@concilia.test", "password": "secreta123"})
-    response = client.get("/comprobantes/exportar")
+    response = client.get("/comprobantes/exportar", params={"fecha": "todos"})
 
     assert response.status_code == 200
     libro = load_workbook(io.BytesIO(response.content))
@@ -1060,12 +1058,12 @@ def test_comprobantes_muestra_nro_de_reparto():
         session.commit()
 
     client.post("/login", data={"email": "admin@concilia.test", "password": "secreta123"})
-    response = client.get("/comprobantes")
+    response = client.get("/comprobantes", params={"fecha": "todos"})
 
     assert response.status_code == 200
     assert "Nro. Salida" in response.text
 
-    export = client.get("/comprobantes/exportar")
+    export = client.get("/comprobantes/exportar", params={"fecha": "todos"})
     libro = load_workbook(io.BytesIO(export.content))
     filas = [[celda.value for celda in fila] for fila in libro.active.iter_rows()]
     encabezado, fila = filas[0], filas[1]
@@ -1473,3 +1471,364 @@ def test_config_exportar_devuelve_xlsx_para_las_4_pantallas():
         assert response.status_code == 200, path
         filas = _leer_xlsx(response.content)
         assert encabezado_esperado in filas[0], path
+
+
+def _login_con_rol(rol: str):
+    client, test_session = _client_with_admin()
+    with test_session() as session:
+        session.add(
+            PanelUser(nombre="Otro", email="otro@concilia.test", password_hash=hash_password("secreta123"), rol=rol)
+        )
+        session.commit()
+    client.post("/login", data={"email": "otro@concilia.test", "password": "secreta123"})
+    return client, test_session
+
+
+def test_recaudador_no_entra_a_configuracion_ni_conciliaciones():
+    client, _ = _login_con_rol("Recaudador")
+
+    for ruta in ("/config/usuarios", "/config/operadores", "/config/moviles", "/config/cuentas", "/conciliaciones", "/conciliaciones/resumenes"):
+        respuesta = client.get(ruta)
+        assert respuesta.status_code == 403, ruta
+        assert "No tenes permiso" in respuesta.text
+
+
+def test_recaudador_puede_ver_y_cargar_comprobantes_pero_no_corregirlos_ni_eliminarlos():
+    client, test_session = _login_con_rol("Recaudador")
+    with test_session() as session:
+        session.add(Operator(nombre="Ana", whatsapp_numero="111"))
+        session.flush()
+        movimiento = Movement(
+            operador_id=1, monto=Decimal("100"), fecha_transaccion=datetime(2026, 8, 24), estado_registro=RecordState.CONFIRMADO
+        )
+        session.add(movimiento)
+        session.commit()
+        movimiento_id = movimiento.id
+
+    for ruta in ("/resumen", "/comprobantes", "/comprobantes/nuevo", "/repartos"):
+        assert client.get(ruta).status_code == 200, ruta
+    listado = client.get("/comprobantes").text
+    assert "/comprobantes/eliminar-lote" not in listado
+    assert f"/comprobantes/{movimiento_id}/editar" not in listado
+    assert 'id="menu-configuracion"' not in client.get("/resumen").text
+
+    assert client.get(f"/comprobantes/{movimiento_id}/editar").status_code == 403
+    assert client.post(f"/comprobantes/{movimiento_id}/eliminar").status_code == 403
+    assert client.post("/comprobantes/eliminar-lote", data={"movimiento_ids": [movimiento_id]}).status_code == 403
+    with test_session() as session:
+        assert session.get(Movement, movimiento_id) is not None
+
+
+def test_contador_tiene_acceso_total():
+    client, _ = _login_con_rol("Contador")
+
+    assert client.get("/config/usuarios").status_code == 200
+    assert client.get("/conciliaciones").status_code == 200
+    assert 'id="menu-configuracion"' in client.get("/resumen").text
+
+
+def test_rol_no_reconocido_tiene_permisos_de_recaudador():
+    # Usuarios viejos con el rol escrito a mano: si no es uno de los tres roles,
+    # no se le da acceso total por las dudas.
+    client, _ = _login_con_rol("admin general")
+
+    assert client.get("/config/usuarios").status_code == 403
+    assert client.get("/comprobantes").status_code == 200
+
+
+def test_rol_de_usuario_se_elige_de_la_lista():
+    client, test_session = _client_with_admin()
+    client.post("/login", data={"email": "admin@concilia.test", "password": "secreta123"})
+
+    invalido = client.post(
+        "/config/usuarios",
+        data={"nombre": "X", "email": "x@concilia.test", "password": "secreta123", "rol": "Superusuario"},
+    )
+    assert invalido.status_code == 400
+    assert "El rol tiene que ser" in invalido.text
+
+    client.post(
+        "/config/usuarios",
+        data={"nombre": "R", "email": "r@concilia.test", "password": "secreta123", "rol": "recaudador"},
+    )
+    with test_session() as session:
+        creado = session.query(PanelUser).filter_by(email="r@concilia.test").one()
+        assert creado.rol == "Recaudador"
+
+
+def test_post_desde_otro_sitio_es_rechazado():
+    # CSRF: un formulario de otro sitio que intenta usar la sesion del admin.
+    client, test_session = _client_with_admin()
+    client.post("/login", data={"email": "admin@concilia.test", "password": "secreta123"})
+
+    respuesta = client.post(
+        "/config/operadores",
+        data={"nombre": "Intruso", "whatsapp_numero": "5491100000000"},
+        headers={"origin": "https://sitio-malicioso.test"},
+    )
+
+    assert respuesta.status_code == 403
+    with test_session() as session:
+        assert session.query(Operator).filter_by(nombre="Intruso").count() == 0
+
+
+def test_post_desde_el_propio_panel_pasa():
+    client, _ = _client_with_admin()
+
+    respuesta = client.post(
+        "/login",
+        data={"email": "admin@concilia.test", "password": "secreta123"},
+        headers={"origin": "http://testserver", "referer": "http://testserver/login"},
+        follow_redirects=False,
+    )
+
+    assert respuesta.status_code == 303
+
+
+def test_webhooks_no_exigen_origen():
+    client, _ = _client_with_admin()
+
+    respuesta = client.post("/webhook", json={"entry": []}, headers={"origin": "https://graph.facebook.com"})
+
+    assert respuesta.status_code == 200
+
+
+def test_listado_de_comprobantes_paginado():
+    client, test_session = _client_with_admin()
+    client.post("/login", data={"email": "admin@concilia.test", "password": "secreta123"})
+    with test_session() as session:
+        session.add(Operator(nombre="Ana", whatsapp_numero="111"))
+        session.flush()
+        for i in range(55):
+            session.add(
+                Movement(
+                    operador_id=1,
+                    monto=Decimal("10"),
+                    numero_operacion=f"OP-PAG-{i:02d}",
+                    fecha_transaccion=datetime(2026, 8, 24),
+                    fecha_subida=datetime(2026, 8, 24, 8, 0) + timedelta(minutes=i),
+                    estado_registro=RecordState.CONFIRMADO,
+                )
+            )
+        session.commit()
+
+    primera = client.get("/comprobantes?fecha=2026-08-24").text
+    segunda = client.get("/comprobantes?fecha=2026-08-24&page=2").text
+    fuera_de_rango = client.get("/comprobantes?fecha=2026-08-24&page=99").text
+
+    assert primera.count('class="fila-comprobante"') == 50
+    assert "Mostrando 50 de 55 comprobantes" in primera
+    assert "OP-PAG-54" in primera  # orden por defecto: los ultimos subidos primero
+    assert segunda.count('class="fila-comprobante"') == 5
+    assert "OP-PAG-00" in segunda
+    assert fuera_de_rango.count('class="fila-comprobante"') == 5  # se ajusta a la ultima pagina
+
+
+def test_del_dia_incluye_la_medianoche_y_excluye_el_dia_siguiente():
+    from sqlalchemy import select
+
+    from app.panel.comun import del_dia
+
+    client, test_session = _client_with_admin()
+    with test_session() as session:
+        session.add(Operator(nombre="Ana", whatsapp_numero="111"))
+        session.flush()
+        for numero, momento in [
+            ("OP-ANTES", datetime(2026, 8, 23, 23, 59)),
+            ("OP-00", datetime(2026, 8, 24, 0, 0)),
+            ("OP-2359", datetime(2026, 8, 24, 23, 59, 59)),
+            ("OP-DESPUES", datetime(2026, 8, 25, 0, 0)),
+        ]:
+            session.add(Movement(operador_id=1, monto=Decimal("1"), numero_operacion=numero, fecha_transaccion=momento))
+        session.commit()
+
+        del_24 = session.scalars(
+            select(Movement.numero_operacion).where(del_dia(Movement.fecha_transaccion, date(2026, 8, 24)))
+        ).all()
+
+    assert sorted(del_24) == ["OP-00", "OP-2359"]
+
+
+def _comprobantes_en_dias(test_session) -> None:
+    with test_session() as session:
+        session.add(Operator(nombre="Ana", whatsapp_numero="111"))
+        session.flush()
+        for numero, momento in [
+            ("OP-HOY", datetime.combine(hoy_argentina(), datetime.min.time()).replace(hour=10)),
+            ("OP-AYER", datetime.combine(hoy_argentina() - timedelta(days=1), datetime.min.time()).replace(hour=10)),
+        ]:
+            session.add(
+                Movement(
+                    operador_id=1, monto=Decimal("10"), numero_operacion=numero,
+                    fecha_transaccion=momento, estado_registro=RecordState.CONFIRMADO,
+                )
+            )
+        session.commit()
+
+
+def test_comprobantes_muestra_por_defecto_los_del_dia():
+    client, test_session = _client_with_admin()
+    client.post("/login", data={"email": "admin@concilia.test", "password": "secreta123"})
+    _comprobantes_en_dias(test_session)
+
+    hoy = client.get("/comprobantes").text
+    ayer = client.get("/comprobantes", params={"fecha": (hoy_argentina() - timedelta(days=1)).isoformat()}).text
+    todos = client.get("/comprobantes", params={"fecha": "todos"}).text
+
+    assert "OP-HOY" in hoy and "OP-AYER" not in hoy
+    assert f'value="{hoy_argentina().isoformat()}"' in hoy  # el selector arranca en hoy
+    assert "OP-AYER" in ayer and "OP-HOY" not in ayer
+    assert "OP-HOY" in todos and "OP-AYER" in todos
+
+
+def test_rango_de_fechas_tiene_prioridad_sobre_el_dia():
+    client, test_session = _client_with_admin()
+    client.post("/login", data={"email": "admin@concilia.test", "password": "secreta123"})
+    _comprobantes_en_dias(test_session)
+    ayer = (hoy_argentina() - timedelta(days=1)).isoformat()
+
+    pagina = client.get(
+        "/comprobantes",
+        params={"fecha": hoy_argentina().isoformat(), "fecha_transaccion_desde": ayer, "fecha_transaccion_hasta": ayer},
+    ).text
+
+    assert "OP-AYER" in pagina and "OP-HOY" not in pagina
+    assert "Filtrando por rango de fechas" in pagina
+
+
+def test_exportar_respeta_el_dia_elegido():
+    client, test_session = _client_with_admin()
+    client.post("/login", data={"email": "admin@concilia.test", "password": "secreta123"})
+    _comprobantes_en_dias(test_session)
+
+    export = client.get("/comprobantes/exportar", params={"fecha": hoy_argentina().isoformat()})
+    hoja = load_workbook(io.BytesIO(export.content)).active
+    numeros = {fila[7] for fila in hoja.iter_rows(min_row=2, values_only=True)}
+
+    assert "OP-HOY" in str(numeros) and "OP-AYER" not in str(numeros)
+
+
+def test_editar_comprobante_vuelve_al_listado_con_los_mismos_filtros():
+    from urllib.parse import quote
+
+    client, test_session = _client_with_admin()
+    client.post("/login", data={"email": "admin@concilia.test", "password": "secreta123"})
+    _comprobantes_en_dias(test_session)
+    vista = "/comprobantes?fecha=todos&q=OP-HOY&sort=monto&order=desc&page=1"
+
+    listado = client.get(vista).text
+    assert f'/comprobantes/1/editar?volver={quote(vista, safe="/")}' in listado
+
+    formulario = client.get("/comprobantes/1/editar", params={"volver": vista}).text
+    assert f'href="{vista.replace("&", "&amp;")}"' in formulario  # Volver / Cancelar
+
+    guardado = client.post(
+        "/comprobantes/1/editar",
+        params={"volver": vista},
+        data={"fecha_transaccion": "2026-10-13T10:00", "monto": "10", "numero_operacion": "OP-HOY"},
+        follow_redirects=False,
+    )
+    assert guardado.status_code == 303
+    assert guardado.headers["location"] == vista
+
+
+def test_volver_solo_acepta_rutas_internas():
+    from app.panel.comun import destino_seguro
+
+    assert destino_seguro("/comprobantes?fecha=todos", "/comprobantes") == "/comprobantes?fecha=todos"
+    assert destino_seguro("https://otro-sitio.test", "/comprobantes") == "/comprobantes"
+    assert destino_seguro("//otro-sitio.test", "/comprobantes") == "/comprobantes"
+    assert destino_seguro("/\otro-sitio.test", "/comprobantes") == "/comprobantes"
+    assert destino_seguro("", "/comprobantes") == "/comprobantes"
+
+
+def test_eliminar_seleccionados_vuelve_al_listado_filtrado():
+    client, test_session = _client_with_admin()
+    client.post("/login", data={"email": "admin@concilia.test", "password": "secreta123"})
+    _comprobantes_en_dias(test_session)
+
+    respuesta = client.post(
+        "/comprobantes/eliminar-lote",
+        params={"volver": "/comprobantes?fecha=todos&q=OP"},
+        data={"movimiento_ids": ["1"]},
+        follow_redirects=False,
+    )
+
+    assert respuesta.headers["location"] == "/comprobantes?fecha=todos&q=OP"
+
+
+
+def test_todas_las_pantallas_de_edicion_vuelven_a_la_vista_de_origen():
+    client, test_session = _client_with_admin()
+    client.post("/login", data={"email": "admin@concilia.test", "password": "secreta123"})
+    with test_session() as session:
+        session.add(Operator(nombre="Ana", whatsapp_numero="1111111111"))
+        session.add(BankAccount(banco="Galicia", numero_cuenta="1", alias="principal"))
+        session.flush()
+        session.add(Movil(numero="M-01", nombre="Camion", responsable_operador_id=1))
+        session.commit()
+
+    casos = [
+        ("/config/usuarios/1/editar", {"nombre": "Admin", "email": "admin@concilia.test", "rol": "Administrador"}),
+        ("/config/operadores/1/editar", {"nombre": "Ana", "whatsapp_numero": "1111111111"}),
+        ("/config/moviles/1/editar", {"numero": "M-01", "nombre": "Camion", "responsable_operador_id": "1"}),
+        ("/config/cuentas/1/editar", {"banco": "Galicia", "numero_cuenta": "1", "alias": "principal"}),
+    ]
+    for ruta, datos in casos:
+        listado = ruta.rsplit("/", 2)[0]
+        vista = f"{listado}?orden=nombre"
+
+        formulario = client.get(ruta, params={"volver": vista})
+        assert formulario.status_code == 200, ruta
+        assert f'href="{vista}"' in formulario.text, ruta  # Volver al listado / Cancelar
+
+        guardado = client.post(ruta, params={"volver": vista}, data=datos, follow_redirects=False)
+        assert guardado.status_code == 303, (ruta, guardado.text[:300])
+        assert guardado.headers["location"] == vista, ruta
+
+        sin_origen = client.post(ruta, data=datos, follow_redirects=False)
+        assert sin_origen.headers["location"] == listado, ruta
+
+    # Activar/desactivar tambien vuelve a la vista de origen.
+    toggle = client.post("/config/moviles/1/toggle", params={"volver": "/config/moviles?x=1"}, follow_redirects=False)
+    assert toggle.headers["location"] == "/config/moviles?x=1"
+
+
+def test_salidas_y_resumenes_vuelven_al_listado_filtrado():
+    client, _ = _client_with_admin()
+    client.post("/login", data={"email": "admin@concilia.test", "password": "secreta123"})
+
+    sin_seleccion = client.post(
+        "/repartos/pdf", params={"volver": "/repartos?movil_id=1&q=x"}, data={}, follow_redirects=False
+    )
+    assert sin_seleccion.headers["location"] == "/repartos?movil_id=1&q=x"
+
+    resumen_inexistente = client.post(
+        "/conciliaciones/resumenes/999/eliminar",
+        params={"volver": "/conciliaciones/resumenes?banco=Galicia"},
+        follow_redirects=False,
+    )
+    assert resumen_inexistente.headers["location"] == "/conciliaciones/resumenes?banco=Galicia"
+
+    listado_salidas = client.get("/repartos", params={"movil_id": "1"}).text
+    assert 'action="/repartos/pdf?volver=/repartos%3Fmovil_id%3D1"' in listado_salidas
+
+
+def test_no_se_puede_cargar_dos_operadores_con_el_mismo_celular_en_distinto_formato():
+    client, test_session = _client_with_admin()
+    client.post("/login", data={"email": "admin@concilia.test", "password": "secreta123"})
+    client.post("/config/operadores", data={"nombre": "Ana", "whatsapp_numero": "+54 9 379 450-0000", "tipo": "Reparto"})
+
+    alta = client.post("/config/operadores", data={"nombre": "Beto", "whatsapp_numero": "3794500000", "tipo": "Reparto"})
+    assert alta.status_code == 400
+    assert "Ya existe un operador con el numero 3794500000 (Ana)" in alta.text
+
+    client.post("/config/operadores", data={"nombre": "Carla", "whatsapp_numero": "3794511111", "tipo": "Reparto"})
+    edicion = client.post(
+        "/config/operadores/2/editar", data={"nombre": "Carla", "whatsapp_numero": "549 3794500000", "tipo": "Reparto"}
+    )
+    assert edicion.status_code == 400
+    assert "Ya existe otro operador" in edicion.text
+
+    with test_session() as session:
+        assert session.query(Operator).count() == 2

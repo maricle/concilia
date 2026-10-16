@@ -1,0 +1,13 @@
+{% extends "m/base.html" %}
+{% block title %}Comprobante registrado - Concilia{% endblock %}
+{% block content %}
+<h1>Comprobante registrado</h1>
+<div class="m-tarjeta">
+  <div>{{ "Factura" if registrado.movimiento.factura_o_cuenta_tipo.value == "factura" else "Cuenta" }}: <strong>{{ registrado.movimiento.factura_o_cuenta_numero }}</strong></div>
+  <div>Monto: {{ registrado.movimiento|monto_comprobante }}</div>
+  <div>Salida Nº {{ registrado.reparto.numero_reparto }} (móvil {{ registrado.movil.numero }}){{ " — salida nueva" if registrado.salida.value == "nueva" }}</div>
+</div>
+<p class="m-ayuda">Revisá que el número sea el correcto. Si te equivocaste, avisale al administrador para que lo corrija.</p>
+<a href="/m/comprobante/nuevo" class="m-boton">Cargar otro comprobante</a>
+<a href="/m/" class="m-boton-secundario">Volver al inicio</a>
+{% endblock %}

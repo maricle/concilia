@@ -1,0 +1,31 @@
+{% extends "m/base.html" %}
+{% block content %}
+<h1>Hola, {{ operador.nombre }}</h1>
+<div class="m-tarjeta">
+  <div>Móvil: <strong>{{ operador.movil.numero if operador.movil else "sin asignar" }}</strong></div>
+  {% if salida %}
+  <div>Salida Nº <strong>{{ salida.numero_reparto }}</strong> abierta desde las {{ salida.hora_inicio.strftime("%H:%M") }} (móvil {{ salida.movil.numero }})</div>
+  {% else %}
+  <div>Sin salida abierta</div>
+  {% endif %}
+</div>
+{% if borrador %}
+<div class="m-aviso">
+  <strong>Tenés un movimiento pendiente</strong>
+  <div>{{ borrador|monto_comprobante }} — operación {{ borrador.numero_operacion or "sin número" }}</div>
+  <a href="/m/comprobante/{{ borrador.id }}/revisar" class="m-boton">Continuar</a>
+  <form method="post" action="/m/comprobante/{{ borrador.id }}/descartar">
+    <button type="submit" class="m-boton-peligro">Descartar</button>
+  </form>
+</div>
+{% else %}
+<a href="/m/comprobante/nuevo" class="m-boton m-boton-grande">Cargar comprobante</a>
+{% endif %}
+{% if salida %}
+<a href="/m/salida/cerrar" class="m-boton-secundario">Cerrar salida</a>
+{% else %}
+<a href="/m/salida/iniciar" class="m-boton-secundario">Iniciar salida</a>
+{% endif %}
+<a href="/m/comprobantes" class="m-boton-secundario">Mis comprobantes</a>
+<a href="/m/cambiar-pin" class="m-link-bloque">Cambiar PIN</a>
+{% endblock %}

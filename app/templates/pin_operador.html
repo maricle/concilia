@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}PIN de {{ operador.nombre }} - Concilia{% endblock %}
+{% block content %}
+<h1 class="h3 mb-4 text-gray-800">PIN de acceso web de {{ operador.nombre }}</h1>
+<div class="card shadow mb-4" style="max-width: 520px;">
+  <div class="card-body">
+    <p class="mb-2">Pasale este PIN a {{ operador.nombre }}:</p>
+    <p class="display-4 font-weight-bold text-gray-800 mb-3" style="letter-spacing: .2em;">{{ pin }}</p>
+    <div class="alert alert-warning mb-3">
+      Se muestra <strong>una sola vez</strong>: no queda guardado en ningun lado. Si se pierde, generá uno nuevo.
+    </div>
+    <p class="small text-muted mb-1">Para entrar: <strong>{{ url_operadores }}</strong> con su celular ({{ operador.whatsapp_numero }}) y este PIN.</p>
+    <p class="small text-muted">En el primer ingreso va a tener que elegir un PIN propio. Las sesiones que tenia abiertas se cerraron.</p>
+    <a href="{{ volver_a(request, '/config/operadores') }}" class="btn btn-primary">Listo, volver a operadores</a>
+  </div>
+</div>
+{% endblock %}

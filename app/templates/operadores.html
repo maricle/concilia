@@ -5,6 +5,7 @@
 <h1 class="h3 mb-4 text-gray-800">Operadores / Vendedores</h1>
 
 {% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
+{% if mensaje %}<div class="alert alert-success">{{ mensaje }}</div>{% endif %}
 
 <div class="card shadow mb-4">
   {{ listado.header("Listado", "/config/operadores/exportar") }}
@@ -12,7 +13,7 @@
     <div class="table-responsive">
       <table class="table table-bordered table-sm small mb-0" width="100%" cellspacing="0">
         <thead>
-          <tr><th>Nombre</th><th>Numero</th><th>Telegram vinculado</th><th>Tipo</th><th>Movil</th><th>Estado</th><th></th></tr>
+          <tr><th>Nombre</th><th>Numero</th><th>Telegram vinculado</th><th>Tipo</th><th>Movil</th><th>Estado</th><th>Acceso web</th><th></th></tr>
         </thead>
         <tbody>
           {% for operador in operadores %}
@@ -30,8 +31,30 @@
               {% endif %}
             </td>
             <td class="text-nowrap">
-              <a href="/config/operadores/{{ operador.id }}/editar" class="btn btn-sm btn-outline-primary" title="Editar"><i class="fas fa-pencil-alt"></i></a>
-              <form class="d-inline" method="post" action="/config/operadores/{{ operador.id }}/toggle">
+              {% if not operador.web_habilitado %}
+              <span class="badge-pill-estado badge-pill-inactivo">No habilitado</span>
+              {% elif not operador.pin_hash %}
+              <span class="badge-pill-estado badge-pill-pendiente">Sin PIN</span>
+              {% elif operador.pin_temporal %}
+              <span class="badge-pill-estado badge-pill-pendiente">PIN temporal pendiente</span>
+              {% else %}
+              <span class="badge-pill-estado badge-pill-activo">Habilitado</span>
+              {% endif %}
+              <form class="d-inline" method="post" action="/config/operadores/{{ operador.id }}/pin?volver={{ url_actual(request)|urlencode }}">
+                <button type="submit" class="btn btn-sm btn-outline-primary" title="{{ 'Resetear PIN' if operador.pin_hash else 'Generar PIN' }}"><i class="fas fa-key"></i></button>
+              </form>
+              <form class="d-inline" method="post" action="/config/operadores/{{ operador.id }}/acceso-web?volver={{ url_actual(request)|urlencode }}">
+                <button type="submit" class="btn btn-sm btn-outline-secondary" title="{{ 'Quitar acceso web' if operador.web_habilitado else 'Habilitar acceso web' }}"><i class="fas fa-{{ 'mobile-alt' if operador.web_habilitado else 'ban' }}"></i></button>
+              </form>
+              {% if operador.web_habilitado %}
+              <form class="d-inline" method="post" action="/config/operadores/{{ operador.id }}/cerrar-sesiones?volver={{ url_actual(request)|urlencode }}">
+                <button type="submit" class="btn btn-sm btn-outline-secondary" title="Cerrar sesiones web"><i class="fas fa-sign-out-alt"></i></button>
+              </form>
+              {% endif %}
+            </td>
+            <td class="text-nowrap">
+              <a href="/config/operadores/{{ operador.id }}/editar?volver={{ url_actual(request)|urlencode }}" class="btn btn-sm btn-outline-primary" title="Editar"><i class="fas fa-pencil-alt"></i></a>
+              <form class="d-inline" method="post" action="/config/operadores/{{ operador.id }}/toggle?volver={{ url_actual(request)|urlencode }}">
                 {% if operador.activo %}
                 <button type="submit" class="btn btn-sm btn-outline-secondary" title="Desactivar"><i class="fas fa-toggle-on"></i></button>
                 {% else %}
@@ -41,7 +64,7 @@
             </td>
           </tr>
           {% else %}
-          <tr><td colspan="7">Todavia no hay operadores dados de alta.</td></tr>
+          <tr><td colspan="8">Todavia no hay operadores dados de alta.</td></tr>
           {% endfor %}
         </tbody>
       </table>

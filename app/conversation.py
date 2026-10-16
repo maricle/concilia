@@ -1,34 +1,34 @@
 import logging
-import re
-from dataclasses import dataclass
 from datetime import datetime
-from decimal import Decimal
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from . import servicios
 from .models import (
-    BankAccount,
     ConversationState,
     Movement,
-    Movil,
     Operator,
-    RecordState,
     Reparto,
-    RepartoOperador,
     TipoIdentificador,
     WhatsAppConversation,
 )
 from .numeros import formato_monto_ar as _formato_monto_ar
 from .repartos import CerrarRepartoComando, IniciarRepartoComando, parse_comando_reparto
-from .zona_horaria import ahora_argentina, hoy_argentina
+from .servicios import ExtractedTransfer, buscar_cuenta_bancaria  # noqa: F401 (re-exportados)
+
+logger = logging.getLogger(__name__)
 
 NO_CUENTA_RECEPTORA_TEXTO = (
     "No pudimos identificar a que cuenta bancaria de la empresa corresponde este pago. "
     "Reenvia el comprobante, o si el problema persiste contacta al administrador para cargarlo manualmente."
 )
 
-_CANCELAR_TEXTO = {"no", "cancelar", "cancelo"}
+SIN_SALIDA_ABIERTA_TEXTO = "No tenes una salida abierta. Indica el numero de salida para registrar el comprobante."
+
+PENDIENTE_TEXTO = "Tenes movimientos pendientes."
+
+_CANCELAR_TEXTO = {"no", "cancelar", "cancelo", "descartar"}
 
 _TIPO_POR_TEXTO = {
     "factura": TipoIdentificador.FACTURA,
@@ -57,81 +57,6 @@ def _formatear_fecha(fecha: datetime) -> str:
     if fecha.hour or fecha.minute:
         return fecha.strftime("%Y-%m-%d %H:%M")
     return fecha.strftime("%Y-%m-%d")
-
-
-@dataclass
-class ExtractedTransfer:
-    monto: Decimal | None
-    fecha_transaccion: datetime
-    numero_operacion: str | None
-    banco_emisor: str | None = None
-    cuenta_receptora: str | None = None
-    titular: str | None = None
-
-
-def _levenshtein(a: str, b: str) -> int:
-    if len(a) < len(b):
-        a, b = b, a
-    fila_previa = list(range(len(b) + 1))
-    for i, char_a in enumerate(a, 1):
-        fila_actual = [i] + [0] * len(b)
-        for j, char_b in enumerate(b, 1):
-            fila_actual[j] = min(
-                fila_previa[j] + 1,  # borrar
-                fila_actual[j - 1] + 1,  # insertar
-                fila_previa[j - 1] + (char_a != char_b),  # sustituir
-            )
-        fila_previa = fila_actual
-    return fila_previa[-1]
-
-
-_LARGO_CBU_CVU = 22
-_TOLERANCIA_DIGITOS_CBU_CVU = 2
-
-
-def _find_cuenta_bancaria(session: Session, cuenta_receptora: str | None) -> BankAccount | None:
-    """Matchea el CBU/CVU/alias leido del comprobante contra las cuentas bancarias
-    registradas en /config/cuentas. Compara el alias tal cual (sin distinguir
-    mayusculas) y el numero de cuenta primero por sus digitos exactos (para
-    tolerar espacios, guiones u otro formato).
-
-    Si no hay match exacto pero el dato extraido tiene forma de CBU/CVU (22
-    digitos), se intenta un match aproximado por distancia de edicion --
-    confirmado con un caso real de produccion donde Claude leyo el CBU correcto
-    salvo por un digito insertado de mas en una tira de ceros y uno de menos al
-    final (mismo largo total, pero corrido): "...000001419439" en vez de
-    "...0000141943 91". Un umbral de 2 separa bien ese tipo de error de
-    transcripcion de una cuenta genuinamente distinta (que en la practica
-    difiere en muchos mas digitos), y solo se acepta si es la unica cuenta
-    registrada dentro de esa tolerancia -- si hay ambiguedad, no se adivina."""
-    if not cuenta_receptora:
-        return None
-    normalizado = cuenta_receptora.strip().lower()
-    digitos = re.sub(r"\D", "", cuenta_receptora)
-    cuentas = session.scalars(select(BankAccount)).all()
-    for cuenta in cuentas:
-        if cuenta.alias.strip().lower() == normalizado:
-            return cuenta
-        if digitos and digitos == re.sub(r"\D", "", cuenta.numero_cuenta):
-            return cuenta
-
-    if digitos and len(digitos) == _LARGO_CBU_CVU:
-        candidatas = []
-        for cuenta in cuentas:
-            digitos_cuenta = re.sub(r"\D", "", cuenta.numero_cuenta)
-            if len(digitos_cuenta) != _LARGO_CBU_CVU:
-                continue
-            if _levenshtein(digitos, digitos_cuenta) <= _TOLERANCIA_DIGITOS_CBU_CVU:
-                candidatas.append(cuenta)
-        if len(candidatas) == 1:
-            return candidatas[0]
-
-    logging.warning(
-        "Cuenta receptora sin match: extraida=%r cuentas_registradas=%r",
-        cuenta_receptora,
-        [(c.alias, c.numero_cuenta) for c in cuentas],
-    )
-    return None
 
 
 class ConversationService:
@@ -226,25 +151,17 @@ class ConversationService:
                 conversation.estado = ConversationState.ESPERANDO_COMPROBANTE
                 self.session.commit()
                 return "La sesion vencio. Reenvia el comprobante, por favor."
-            movil = self._buscar_movil_activo(text)
+            if normalized in _CANCELAR_TEXTO:
+                servicios.descartar_borrador(self.session, conversation)
+                self.session.commit()
+                return "Registro descartado. Puedes reenviar el comprobante."
+            movil = servicios.buscar_movil_activo(self.session, text)
             if movil is None:
                 return f"No encontramos un movil activo con el numero {text.strip()}. Respondé con el numero correcto."
 
-            reparto_abierto = self._reparto_abierto(movil.id)
-            if reparto_abierto is not None:
-                self._asociar_operador(reparto_abierto, operator)
-                movement.movil_id = movil.id
-                movement.reparto_id = reparto_abierto.id
-                movement.estado_registro = RecordState.CONFIRMADO
-                conversation.movimiento_borrador_id = None
-                conversation.estado = ConversationState.ESPERANDO_COMPROBANTE
-                self.session.commit()
-                numero_abierto = reparto_abierto.numero_reparto if reparto_abierto.numero_reparto is not None else "sin numero"
-                return f"Comprobante registrado correctamente. Salida Nº {numero_abierto} en el movil {movil.numero}."
-
-            conversation.estado = ConversationState.ESPERANDO_CONFIRMACION_CREAR_REPARTO
-            conversation.movil_pendiente_numero = movil.numero
-            self.session.commit()
+            resultado = servicios.registrar_en_movil(self.session, operator, conversation, movement, movil)
+            if not isinstance(resultado, servicios.MovilSinSalida):
+                return self._texto_registrado(resultado)
             return (
                 f"No hay ninguna salida abierta en el movil {movil.numero}. ¿Queres iniciar una? "
                 "Respondé SI o NO."
@@ -264,13 +181,15 @@ class ConversationService:
 
         if conversation.estado == ConversationState.ESPERANDO_NUMERO_REPARTO_NUEVO:
             if normalized in _CANCELAR_TEXTO:
-                self._discard(conversation)
+                servicios.descartar_borrador(self.session, conversation)
                 conversation.movil_pendiente_numero = None
                 self.session.commit()
                 return "Registro descartado. Puedes reenviar el comprobante."
             numero_texto = text.strip()
             if not numero_texto.isdigit():
                 return "Ese no es un numero de salida valido. Respondé solo con el numero."
+            if conversation.movil_pendiente_numero is None:
+                return self._resolver_salida_por_numero(operator, conversation, int(numero_texto))
             return self._crear_reparto_y_confirmar_comprobante(operator, conversation, int(numero_texto))
 
         if conversation.estado == ConversationState.ESPERANDO_CONFIRMACION_DATOS:
@@ -279,7 +198,7 @@ class ConversationService:
                 self.session.commit()
                 return "¿El dato que vas a cargar es un numero de factura o un numero de cuenta del cliente?"
             if normalized in _CANCELAR_TEXTO:
-                self._discard(conversation)
+                servicios.descartar_borrador(self.session, conversation)
                 self.session.commit()
                 return "Registro descartado. Puedes reenviar el comprobante."
             return "Responde SI para confirmar los datos o NO para descartar el comprobante."
@@ -291,9 +210,15 @@ class ConversationService:
                 self.session.commit()
                 return "La sesion vencio. Reenvia el comprobante, por favor."
             if normalized in _CANCELAR_TEXTO:
-                self._discard(conversation)
+                servicios.descartar_borrador(self.session, conversation)
                 self.session.commit()
                 return "Registro descartado. Puedes reenviar el comprobante."
+            factura_cuenta = servicios.interpretar_factura_cuenta(text)
+            if factura_cuenta is not None:
+                # Tipo y numero en un solo mensaje ("F 12345"): se registra
+                # directo, sin el paso intermedio de pedir el numero.
+                movement.factura_o_cuenta_tipo, movement.factura_o_cuenta_numero = factura_cuenta
+                return self._registrar(operator, conversation, movement)
             tipo = _parse_tipo_identificador(normalized)
             if tipo is None:
                 return "Respondé 'factura' o 'cuenta' para indicar que numero vas a cargar."
@@ -308,32 +233,28 @@ class ConversationService:
                 conversation.estado = ConversationState.ESPERANDO_COMPROBANTE
                 self.session.commit()
                 return "La sesion vencio. Reenvia el comprobante, por favor."
+            if normalized in _CANCELAR_TEXTO:
+                servicios.descartar_borrador(self.session, conversation)
+                self.session.commit()
+                return "Registro descartado. Puedes reenviar el comprobante."
             movement.factura_o_cuenta_numero = text.strip()
-            conversation.estado = ConversationState.ESPERANDO_CONFIRMACION_FINAL
-            self.session.commit()
-            return self._summary(movement) + "\n\nConfirma la operacion respondiendo SI para que se registre el movimiento, o NO para descartarlo."
+            # Sin una segunda confirmacion con el resumen repetido: el operador ya
+            # vio los datos extraidos al elegir factura/cuenta, y el mensaje de
+            # "registrado" le muestra el numero cargado -- si se equivoco, un
+            # administrador lo corrige desde el panel (/comprobantes/{id}/editar).
+            # Es un mensaje de WhatsApp (pago) menos por comprobante.
+            return self._registrar(operator, conversation, movement)
 
         if conversation.estado == ConversationState.ESPERANDO_CONFIRMACION_FINAL:
-            if normalized in {"si", "sí", "ok", "confirmo", "registrar"}:
+            if normalized in {"si", "sí", "ok", "confirmo", "confirmar", "registrar"}:
                 movement = conversation.movimiento_borrador
                 if movement is None:
                     conversation.estado = ConversationState.ESPERANDO_COMPROBANTE
                     self.session.commit()
                     return "La sesion vencio. Reenvia el comprobante, por favor."
-                reparto_propio = self._reparto_abierto_de_operador(operator.id)
-                if reparto_propio is None:
-                    conversation.estado = ConversationState.ESPERANDO_MOVIL
-                    self.session.commit()
-                    return "¿En que movil estas? Respondé con el numero del movil."
-                movement.movil_id = reparto_propio.movil_id
-                movement.reparto_id = reparto_propio.id
-                movement.estado_registro = RecordState.CONFIRMADO
-                conversation.movimiento_borrador_id = None
-                conversation.estado = ConversationState.ESPERANDO_COMPROBANTE
-                self.session.commit()
-                return "Comprobante registrado correctamente."
+                return self._registrar(operator, conversation, movement)
             if normalized in _CANCELAR_TEXTO:
-                self._discard(conversation)
+                servicios.descartar_borrador(self.session, conversation)
                 self.session.commit()
                 return "Registro descartado. Puedes reenviar el comprobante."
             return "Responde SI para registrar el comprobante o NO para descartarlo."
@@ -358,6 +279,19 @@ class ConversationService:
         conversation = self.session.get(WhatsAppConversation, number)
         return conversation is not None and conversation.estado == ConversationState.ESPERANDO_TIPO_FACTURA_CUENTA
 
+    def needs_descartar_keyboard(self, number: str) -> bool:
+        """True si el operador tiene que escribir un dato (numero de factura/cuenta,
+        de salida o movil) de un comprobante a medio cargar -- se le ofrece un
+        boton para descartarlo sin tener que escribir "descartar"."""
+        conversation = self.session.get(WhatsAppConversation, number)
+        if conversation is None or conversation.movimiento_borrador_id is None:
+            return False
+        return conversation.estado in {
+            ConversationState.ESPERANDO_NUMERO_FACTURA_CUENTA,
+            ConversationState.ESPERANDO_NUMERO_REPARTO_NUEVO,
+            ConversationState.ESPERANDO_MOVIL,
+        }
+
     def pending_prompt(self, number: str) -> str | None:
         """Si el operador ya tiene un comprobante sin cerrar, devuelve el mensaje que
         corresponde re-mostrarle en vez de arrancar uno nuevo (para no dejar el
@@ -368,7 +302,7 @@ class ConversationService:
             return None
 
         if conversation.estado == ConversationState.ESPERANDO_TIPO_FACTURA_CUENTA:
-            return "Todavia estoy esperando que indiques si el dato que vas a cargar es un numero de factura o de cuenta."
+            return f"{PENDIENTE_TEXTO} Indica el tipo y numero de comprobante (ej: F 12345) o descartalo."
 
         if conversation.estado == ConversationState.ESPERANDO_DECISION_REPARTO_ABIERTO:
             return "Todavia estoy esperando que respondas 'cerrar' o 'continuar' sobre la salida que ya tenes abierta."
@@ -389,6 +323,8 @@ class ConversationService:
             )
 
         if conversation.estado == ConversationState.ESPERANDO_NUMERO_REPARTO_NUEVO:
+            if conversation.movil_pendiente_numero is None:
+                return f"{PENDIENTE_TEXTO} Indica el numero de salida o descartalo."
             return "¿Que numero de salida es? Respondé solo con el numero."
 
         movement = conversation.movimiento_borrador
@@ -400,119 +336,96 @@ class ConversationService:
         if conversation.estado == ConversationState.ESPERANDO_CONFIRMACION_DATOS:
             return self._summary(movement) + "\n\nResponde SI para confirmar o NO para descartar."
         if conversation.estado == ConversationState.ESPERANDO_NUMERO_FACTURA_CUENTA:
-            return f"Todavia estoy esperando el numero de {_etiqueta_tipo(movement.factura_o_cuenta_tipo)} del comprobante anterior."
+            return f"{PENDIENTE_TEXTO} Indica el numero de {_etiqueta_tipo(movement.factura_o_cuenta_tipo)} o descartalo."
         if conversation.estado == ConversationState.ESPERANDO_CONFIRMACION_FINAL:
-            return (
-                self._summary(movement)
-                + "\n\nConfirma la operacion respondiendo SI para que se registre el movimiento, o NO para descartarlo."
-            )
+            return f"{PENDIENTE_TEXTO} {self._resumen_corto(movement)}. ¿Lo registro? Respondé SI, o NO para descartarlo."
         if conversation.estado == ConversationState.ESPERANDO_MOVIL:
-            return "Todavia estoy esperando que me digas en que movil estas para poder registrar el comprobante."
+            return f"{PENDIENTE_TEXTO} Indica en que movil estas o descartalo."
         return None
 
-    def start_transfer(self, number: str, transfer: ExtractedTransfer, archivo_id: int | None = None) -> str:
+    def start_transfer(
+        self, number: str, transfer: ExtractedTransfer, archivo_id: int | None = None, caption: str | None = None
+    ) -> str:
         operator = self.session.scalar(select(Operator).where(Operator.whatsapp_numero == number, Operator.activo.is_(True)))
         if operator is None:
             return "Este numero no esta habilitado para registrar comprobantes."
-        if transfer.numero_operacion:
-            duplicate = self.session.scalar(
-                select(Movement).where(Movement.numero_operacion == transfer.numero_operacion)
-            )
-            if duplicate is not None:
-                return "Ya existe un comprobante con ese numero de operacion."
-        cuentas = self.session.scalars(select(BankAccount)).all()
-        cuenta_bancaria = _find_cuenta_bancaria(self.session, transfer.cuenta_receptora)
-        if cuenta_bancaria is None and not cuentas:
-            # Sin ninguna cuenta cargada en /config/cuentas no hay nada para
-            # ofrecerle a elegir -- ahi si hace falta un administrador.
+        resultado = servicios.crear_borrador(self.session, operator, transfer, archivo_id)
+        if resultado is servicios.Rechazo.COMPROBANTE_DUPLICADO:
+            return "Ya existe un comprobante con ese numero de operacion."
+        if resultado is servicios.Rechazo.SIN_CUENTAS_BANCARIAS:
             return NO_CUENTA_RECEPTORA_TEXTO
-        conversation = self.session.get(WhatsAppConversation, number) or WhatsAppConversation(numero=number)
-        movement = Movement(
-            operador_id=operator.id,
-            monto=transfer.monto,
-            fecha_transaccion=transfer.fecha_transaccion,
-            numero_operacion=transfer.numero_operacion,
-            banco_emisor=transfer.banco_emisor,
-            cuenta_receptora_extraida=transfer.cuenta_receptora,
-            titular=transfer.titular,
-            archivo_id=archivo_id,
-            cuenta_bancaria_id=cuenta_bancaria.id if cuenta_bancaria is not None else None,
-        )
-        self.session.add(movement)
-        self.session.flush()
-        conversation.movimiento_borrador_id = movement.id
-        self.session.add(conversation)
+        movement = resultado
 
-        # Si no se pudo identificar la cuenta sola, el movimiento queda registrado
-        # con cuenta_bancaria_id null en vez de interrumpir al operador para que
-        # elija a mano -- un administrador la completa despues desde el panel
-        # (/comprobantes/{id}/editar, ver editar_movimiento.html), que para eso
-        # tiene el texto crudo extraido como referencia.
-        # Se salta directo al paso de factura/cuenta -- mostrar el resumen y pedir
-        # una confirmacion aparte antes de esto era una revision redundante, ya que
-        # el resumen se vuelve a mostrar completo (con factura/cuenta ya cargada)
-        # en la confirmacion final antes de registrar.
-        return self._avanzar_a_tipo_factura_cuenta(conversation, movement)
-
-    def _avanzar_a_tipo_factura_cuenta(self, conversation: WhatsAppConversation, movement: Movement) -> str:
-        conversation.estado = ConversationState.ESPERANDO_TIPO_FACTURA_CUENTA
+        # El resumen va junto con la pregunta de factura/cuenta: elegir una de las
+        # dos es la confirmacion de que los datos extraidos estan bien (o
+        # "Descartar" si no), sin un paso de SI/NO aparte.
+        factura_cuenta = servicios.interpretar_factura_cuenta(caption)
+        if factura_cuenta is None:
+            return self._pedir_tipo_factura_cuenta(movement)
+        # El operador ya mando factura/cuenta en el texto del comprobante: un solo
+        # mensaje con el resumen completo para confirmar, y listo.
+        movement.factura_o_cuenta_tipo, movement.factura_o_cuenta_numero = factura_cuenta
+        servicios.conversacion_de(self.session, operator).estado = ConversationState.ESPERANDO_CONFIRMACION_FINAL
         self.session.commit()
+        return self._summary(movement) + "\n\n¿Registro el comprobante? Respondé SI o NO."
+
+    def _pedir_tipo_factura_cuenta(self, movement: Movement) -> str:
         return (
             self._summary(movement)
-            + "\n\n¿El dato que vas a cargar es un numero de factura o un numero de cuenta del cliente?"
+            + "\n\nSi los datos estan bien, elegi si vas a cargar un numero de factura o un numero de cuenta del cliente. "
+            "Si no, descartalo."
+            "\nTip: la proxima vez manda el comprobante con el texto \"F 12345\" o \"C 12345\" y te ahorras este paso."
+            "\n\nIndica el tipo y numero de comprobante (ej: F 12345 o C 987)."
         )
 
-    def _discard(self, conversation: WhatsAppConversation) -> None:
-        if conversation.movimiento_borrador is not None:
-            self.session.delete(conversation.movimiento_borrador)
-        conversation.movimiento_borrador_id = None
-        conversation.estado = ConversationState.ESPERANDO_COMPROBANTE
+    def _registrar(self, operator: Operator, conversation: WhatsAppConversation, movement: Movement) -> str:
+        resultado = servicios.registrar(self.session, operator, conversation, movement)
+        if isinstance(resultado, servicios.SinSalidaAbierta):
+            return SIN_SALIDA_ABIERTA_TEXTO
+        return self._texto_registrado(resultado)
 
-    def _reparto_abierto(self, movil_id: int) -> Reparto | None:
-        return self.session.scalar(select(Reparto).where(Reparto.movil_id == movil_id, Reparto.hora_fin.is_(None)))
-
-    def _reparto_abierto_de_operador(self, operador_id: int) -> Reparto | None:
-        """El reparto abierto (de cualquier movil) al que este operador esta
-        asociado ahora mismo. Un operador solo puede estar asociado a un reparto
-        abierto a la vez (se valida al asociar, no lo impide el modelo)."""
-        return self.session.scalar(
-            select(Reparto)
-            .join(RepartoOperador, RepartoOperador.reparto_id == Reparto.id)
-            .where(RepartoOperador.operador_id == operador_id, Reparto.hora_fin.is_(None))
-        )
-
-    def _asociar_operador(self, reparto: Reparto, operator: Operator) -> None:
-        """Suma al operador como participante del reparto (chofer, ayudante, o el
-        que entra en un cambio de turno) si todavia no estaba. movil_id del
-        operador se actualiza como referencia -- no es la fuente de verdad para
-        nada, solo un dato de conveniencia de "en que movil arranco el dia"."""
-        ya_asociado = self.session.scalar(
-            select(RepartoOperador).where(
-                RepartoOperador.reparto_id == reparto.id, RepartoOperador.operador_id == operator.id
+    def _texto_registrado(self, resultado: servicios.Registrado) -> str:
+        corto = self._resumen_corto(resultado.movimiento)
+        if resultado.salida == servicios.SalidaUsada.PROPIA:
+            return f"Comprobante registrado correctamente.\n{corto}"
+        numero = resultado.reparto.numero_reparto
+        if resultado.salida == servicios.SalidaUsada.NUEVA:
+            return (
+                f"Comprobante registrado correctamente. Se inicio la Salida Nº {numero} en el movil "
+                f"{resultado.movil.numero}.\n{corto}"
             )
-        )
-        if ya_asociado is None:
-            self.session.add(RepartoOperador(reparto_id=reparto.id, operador_id=operator.id))
-        operator.movil_id = reparto.movil_id
+        etiqueta = numero if numero is not None else "sin numero"
+        return f"Comprobante registrado correctamente. Salida Nº {etiqueta} en el movil {resultado.movil.numero}.\n{corto}"
 
-    def _buscar_movil_activo(self, texto: str | None) -> Movil | None:
-        """Busca un movil activo por numero, tolerando que el operador escriba con
-        o sin el prefijo 'M-' -- 'M-01', 'm01', '01' y '1' matchean el mismo movil
-        si sus digitos coinciden. Primero intenta match exacto (por si el numero
-        del movil no es puramente numerico, ej. "Camion Rojo")."""
-        if texto is None:
-            return None
-        texto = texto.strip()
-        movil = self.session.scalar(select(Movil).where(Movil.numero == texto, Movil.activo.is_(True)))
-        if movil is not None:
-            return movil
-        digitos = re.sub(r"\D", "", texto).lstrip("0")
-        if not digitos:
-            return None
-        for candidato in self.session.scalars(select(Movil).where(Movil.activo.is_(True))):
-            if re.sub(r"\D", "", candidato.numero).lstrip("0") == digitos:
-                return candidato
-        return None
+    @staticmethod
+    def _resumen_corto(movement: Movement) -> str:
+        monto = f"${movement.monto}" if movement.monto is not None else "monto no detectado"
+        return f"{_etiqueta_tipo(movement.factura_o_cuenta_tipo).capitalize()}: {movement.factura_o_cuenta_numero} · {monto}"
+
+    def _resolver_salida_por_numero(
+        self, operator: Operator, conversation: WhatsAppConversation, numero_reparto: int
+    ) -> str:
+        """El operador sin salida abierta indico solo el numero de salida: se
+        deduce el movil sin hacerle mas preguntas (cada respuesta del bot por
+        WhatsApp se cobra). Si hay una unica salida abierta con ese numero, se
+        suma a ella; si no hay ninguna, se crea en el movil que el operador tiene
+        asignado. Solo si eso no alcanza (sin movil asignado, o mas de una salida
+        abierta con el mismo numero) se le pregunta el movil."""
+        movement = conversation.movimiento_borrador
+        if movement is None:
+            conversation.estado = ConversationState.ESPERANDO_COMPROBANTE
+            self.session.commit()
+            return "La sesion vencio. Reenvia el comprobante, por favor."
+
+        resultado = servicios.resolver_salida_por_numero(self.session, operator, conversation, movement, numero_reparto)
+        if isinstance(resultado, servicios.MovilConOtraSalida):
+            return (
+                f"El movil {resultado.movil.numero} ya tiene abierta la Salida Nº {resultado.reparto.numero_reparto}. "
+                "Indica ese numero de salida."
+            )
+        if isinstance(resultado, servicios.PedirMovil):
+            return "¿En que movil estas? Respondé con el numero del movil."
+        return self._texto_registrado(resultado)
 
     @staticmethod
     def _limpiar_decision_reparto(conversation: WhatsAppConversation) -> None:
@@ -528,7 +441,7 @@ class ConversationService:
     ) -> str:
         if isinstance(comando, IniciarRepartoComando):
             if comando.movil_numero is None or comando.numero_reparto is None:
-                reparto_propio = self._reparto_abierto_de_operador(operator.id)
+                reparto_propio = servicios.reparto_abierto_del_operador(self.session, operator.id)
                 if reparto_propio is not None:
                     # Con el comando incompleto no sabemos si el operador quiere seguir
                     # con el reparto que ya tiene abierto o arrancar uno distinto -- se lo
@@ -561,14 +474,14 @@ class ConversationService:
         return "¿En que movil vas a iniciar la salida? Respondé con el numero del movil."
 
     def _iniciar_reparto(self, operator: Operator, comando: IniciarRepartoComando) -> str:
-        movil = self._buscar_movil_activo(comando.movil_numero)
+        movil = servicios.buscar_movil_activo(self.session, comando.movil_numero)
         if movil is None:
             return f"No encontramos un movil activo con el numero {comando.movil_numero}."
 
         # Un operador solo puede estar asociado a un reparto abierto a la vez -- se
         # chequea contra SU reparto propio actual (no contra el movil X recien
         # pedido), para no permitir que quede sumado a dos turnos en simultaneo.
-        reparto_propio = self._reparto_abierto_de_operador(operator.id)
+        reparto_propio = servicios.reparto_abierto_del_operador(self.session, operator.id)
         if reparto_propio is not None:
             if reparto_propio.movil_id == movil.id:
                 numero_abierto = (
@@ -592,9 +505,9 @@ class ConversationService:
         # El movil pedido puede ya tener un reparto abierto con otro operador (o con
         # este mismo bajo otra circunstancia) -- en ese caso no se crea uno nuevo,
         # el operador se suma al que ya esta en curso, sin pedir confirmacion.
-        reparto_movil = self._reparto_abierto(movil.id)
+        reparto_movil = servicios.reparto_abierto_del_movil(self.session, movil.id)
         if reparto_movil is not None:
-            self._asociar_operador(reparto_movil, operator)
+            servicios.asociar_operador(self.session, reparto_movil, operator)
             self.session.commit()
             numero_abierto = reparto_movil.numero_reparto if reparto_movil.numero_reparto is not None else "sin numero"
             return f"Te asociaste a la Salida Nº {numero_abierto} en el movil {movil.numero}."
@@ -613,47 +526,39 @@ class ConversationService:
         )
 
     def _confirmar_inicio_reparto(self, operator: Operator, conversation: WhatsAppConversation) -> str:
-        movil = self._buscar_movil_activo(conversation.movil_pendiente_numero)
+        movil = servicios.buscar_movil_activo(self.session, conversation.movil_pendiente_numero)
         numero_reparto = conversation.numero_reparto_pendiente
         self._limpiar_decision_reparto(conversation)
         if movil is None:
             self.session.commit()
             return "El movil ya no esta disponible. Volve a mandar el comando de inicio."
 
-        reparto = Reparto(movil_id=movil.id, fecha=hoy_argentina(), hora_inicio=ahora_argentina(), numero_reparto=numero_reparto)
-        self.session.add(reparto)
-        self.session.flush()
-        self._asociar_operador(reparto, operator)
+        servicios.crear_salida(self.session, operator, movil, numero_reparto)
         self.session.commit()
         return f"Salida Nº {numero_reparto} iniciada en el movil {movil.numero}."
 
     def _cerrar_y_arrancar_reparto_pendiente(self, operator: Operator, conversation: WhatsAppConversation) -> str:
-        reparto_propio = self._reparto_abierto_de_operador(operator.id)
+        reparto_propio = servicios.reparto_abierto_del_operador(self.session, operator.id)
         if reparto_propio is not None:
-            reparto_propio.hora_fin = ahora_argentina()
-            self._notificar_cierre_reparto(reparto_propio, operator, self._resumen_bancario_cierre(reparto_propio))
+            otros = servicios.cerrar_salida(self.session, reparto_propio, operator)
+            self._notificar_cierre_reparto(reparto_propio, operator, otros, self._resumen_bancario_cierre(reparto_propio))
 
-        movil = self._buscar_movil_activo(conversation.movil_pendiente_numero)
+        movil = servicios.buscar_movil_activo(self.session, conversation.movil_pendiente_numero)
         numero_reparto_nuevo = conversation.numero_reparto_pendiente
         if movil is None:
             self._limpiar_decision_reparto(conversation)
             self.session.commit()
             return "El movil que habias indicado ya no esta disponible. Volve a mandar el comando de inicio."
 
-        reparto_movil = self._reparto_abierto(movil.id)
+        reparto_movil = servicios.reparto_abierto_del_movil(self.session, movil.id)
         if reparto_movil is not None:
-            self._asociar_operador(reparto_movil, operator)
+            servicios.asociar_operador(self.session, reparto_movil, operator)
             self._limpiar_decision_reparto(conversation)
             self.session.commit()
             numero_abierto = reparto_movil.numero_reparto if reparto_movil.numero_reparto is not None else "sin numero"
             return f"Salida anterior cerrada. Te asociaste a la Salida Nº {numero_abierto} en el movil {movil.numero}."
 
-        reparto_nuevo = Reparto(
-            movil_id=movil.id, fecha=hoy_argentina(), hora_inicio=ahora_argentina(), numero_reparto=numero_reparto_nuevo
-        )
-        self.session.add(reparto_nuevo)
-        self.session.flush()
-        self._asociar_operador(reparto_nuevo, operator)
+        servicios.crear_salida(self.session, operator, movil, numero_reparto_nuevo)
         self._limpiar_decision_reparto(conversation)
         self.session.commit()
         return f"Salida anterior cerrada. Salida Nº {numero_reparto_nuevo} iniciada en el movil {movil.numero}."
@@ -661,42 +566,33 @@ class ConversationService:
     def _resumen_bancario_cierre(self, reparto: Reparto) -> str:
         """Texto con el total por banco de los comprobantes registrados durante la
         salida, para avisar al cerrarla -- reemplaza el PDF que se mandaba antes."""
-        movimientos = self.session.scalars(select(Movement).where(Movement.reparto_id == reparto.id)).all()
-        subtotales: dict[str, Decimal] = {}
-        for movimiento in movimientos:
-            banco = movimiento.cuenta_bancaria.banco if movimiento.cuenta_bancaria else "Sin banco identificado"
-            subtotales[banco] = subtotales.get(banco, Decimal("0")) + (movimiento.monto or Decimal("0"))
-
+        totales = servicios.totales_de_salida(self.session, reparto)
+        sin_banco = servicios.SIN_BANCO_IDENTIFICADO
         numero = reparto.numero_reparto if reparto.numero_reparto is not None else "sin numero"
         lineas = [f"Cierre Salida Nº {numero}"]
-        for banco in sorted(banco for banco in subtotales if banco != "Sin banco identificado"):
-            lineas.append(f"{banco}: {_formato_monto_ar(subtotales[banco])}")
-        if "Sin banco identificado" in subtotales:
-            lineas.append(f"Sin banco identificado: {_formato_monto_ar(subtotales['Sin banco identificado'])}")
-        if not movimientos:
+        for banco in sorted(banco for banco in totales.por_banco if banco != sin_banco):
+            lineas.append(f"{banco}: {_formato_monto_ar(totales.por_banco[banco])}")
+        if sin_banco in totales.por_banco:
+            lineas.append(f"{sin_banco}: {_formato_monto_ar(totales.por_banco[sin_banco])}")
+        if not totales.cantidad_comprobantes:
             lineas.append("Sin comprobantes registrados.")
         return "\n".join(lineas)
 
-    def _notificar_cierre_reparto(self, reparto: Reparto, quien_cierra: Operator, resumen: str) -> None:
-        """Encola un aviso para cada operador asociado al reparto DISTINTO de quien
-        lo cerro -- el canal (telegram.py) los envia despues via pop_notificaciones()."""
+    def _notificar_cierre_reparto(
+        self, reparto: Reparto, quien_cierra: Operator, otros: list[Operator], resumen: str
+    ) -> None:
+        """Encola un aviso para los demas operadores de la salida -- el canal los
+        envia despues via pop_notificaciones()."""
         numero = reparto.numero_reparto if reparto.numero_reparto is not None else "sin numero"
         mensaje = (
             f"La Salida Nº {numero} en el movil {reparto.movil.numero} fue cerrada por {quien_cierra.nombre}.\n\n"
             f"{resumen}"
         )
-        asociados = self.session.scalars(
-            select(RepartoOperador).where(RepartoOperador.reparto_id == reparto.id)
-        ).all()
-        for asociado in asociados:
-            if asociado.operador_id == quien_cierra.id:
-                continue
-            operador = self.session.get(Operator, asociado.operador_id)
-            if operador is not None:
-                self._notificaciones.append((operador.whatsapp_numero, mensaje))
+        for operador in otros:
+            self._notificaciones.append((operador.whatsapp_numero, mensaje))
 
     def _cerrar_reparto(self, operator: Operator, comando: CerrarRepartoComando) -> str:
-        reparto_abierto = self._reparto_abierto_de_operador(operator.id)
+        reparto_abierto = servicios.reparto_abierto_del_operador(self.session, operator.id)
         if reparto_abierto is None:
             return "No tenes ninguna salida abierta para cerrar."
         numero_real = reparto_abierto.numero_reparto
@@ -706,9 +602,9 @@ class ConversationService:
                 "Reenvia el comando con el numero correcto."
             )
         # Cierra para todos los operadores asociados, no solo para quien manda el comando.
-        reparto_abierto.hora_fin = ahora_argentina()
+        otros = servicios.cerrar_salida(self.session, reparto_abierto, operator)
         resumen = self._resumen_bancario_cierre(reparto_abierto)
-        self._notificar_cierre_reparto(reparto_abierto, operator, resumen)
+        self._notificar_cierre_reparto(reparto_abierto, operator, otros, resumen)
         self.session.commit()
         etiqueta_numero = numero_real if numero_real is not None else "sin numero"
         return f"Salida Nº {etiqueta_numero} cerrada.\n\n{resumen}"
@@ -723,31 +619,12 @@ class ConversationService:
             self.session.commit()
             return "La sesion vencio. Reenvia el comprobante, por favor."
 
-        movil = self._buscar_movil_activo(conversation.movil_pendiente_numero)
-        if movil is None:
-            conversation.estado = ConversationState.ESPERANDO_MOVIL
-            conversation.movil_pendiente_numero = None
-            self.session.commit()
+        resultado = servicios.crear_salida_y_registrar(
+            self.session, operator, conversation, movement, conversation.movil_pendiente_numero, numero_reparto
+        )
+        if isinstance(resultado, servicios.MovilNoDisponible):
             return "Ese movil ya no esta disponible. ¿En que movil estas?"
-
-        reparto = Reparto(
-            movil_id=movil.id, fecha=hoy_argentina(), hora_inicio=ahora_argentina(), numero_reparto=numero_reparto
-        )
-        self.session.add(reparto)
-        self.session.flush()
-        self._asociar_operador(reparto, operator)
-
-        movement.movil_id = movil.id
-        movement.reparto_id = reparto.id
-        movement.estado_registro = RecordState.CONFIRMADO
-        conversation.movimiento_borrador_id = None
-        conversation.movil_pendiente_numero = None
-        conversation.estado = ConversationState.ESPERANDO_COMPROBANTE
-        self.session.commit()
-        return (
-            f"Comprobante registrado correctamente. Se inicio la Salida Nº {numero_reparto} en el movil "
-            f"{movil.numero}."
-        )
+        return self._texto_registrado(resultado)
 
     @staticmethod
     def _summary(movement: Movement) -> str:

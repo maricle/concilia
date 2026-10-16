@@ -4,7 +4,13 @@ from decimal import Decimal
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 
-from app.conversation import NO_CUENTA_RECEPTORA_TEXTO, ConversationService, ExtractedTransfer
+from app import servicios
+from app.conversation import (
+    NO_CUENTA_RECEPTORA_TEXTO,
+    SIN_SALIDA_ABIERTA_TEXTO,
+    ConversationService,
+    ExtractedTransfer,
+)
 from app.db import Base, _engine_url
 from app.models import (
     BankAccount,
@@ -57,9 +63,7 @@ def test_registered_operator_can_confirm_and_register_transfer():
     assert "factura o un numero de cuenta" in response
     assert "Indica el numero" in service.handle_text("5491112345678", "factura")
     final = service.handle_text("5491112345678", "FAC-9")
-    assert "Factura: FAC-9" in final
-    assert "Confirma la operacion" in final
-    assert service.handle_text("5491112345678", "OK") == "Comprobante registrado correctamente."
+    assert final == "Comprobante registrado correctamente.\nFactura: FAC-9 · $1250.50"
 
     movement = db.query(Movement).one()
     assert movement.estado_registro == RecordState.CONFIRMADO
@@ -93,7 +97,6 @@ def test_missing_numero_operacion_does_not_collide_between_movements():
     assert "factura o un numero de cuenta" in primera
     service.handle_text("5491112345678", "factura")
     service.handle_text("5491112345678", "FAC-1")
-    service.handle_text("5491112345678", "OK")
 
     segunda = service.start_transfer("5491112345678", sin_numero)
     assert "Ya existe" not in segunda
@@ -116,8 +119,7 @@ def test_transfer_with_unreadable_monto_is_registered_anyway():
     response = service.start_transfer("5491112345678", transfer)
     assert "Monto: no detectado" in response
     service.handle_text("5491112345678", "factura")
-    service.handle_text("5491112345678", "FAC-9")
-    assert service.handle_text("5491112345678", "OK") == "Comprobante registrado correctamente."
+    assert service.handle_text("5491112345678", "FAC-9") == "Comprobante registrado correctamente.\nFactura: FAC-9 · monto no detectado"
 
     movement = db.query(Movement).one()
     assert movement.estado_registro == RecordState.CONFIRMADO
@@ -235,10 +237,15 @@ def test_needs_confirmation_keyboard_tracks_si_no_steps():
     assert service.needs_confirmation_keyboard(numero) is False  # esperando texto del numero
     assert service.needs_tipo_keyboard(numero) is False
 
-    service.handle_text(numero, "FAC-9")
-    assert service.needs_confirmation_keyboard(numero) is True
+    service.handle_text(numero, "FAC-9")  # registra directo, sin SI/NO final
+    assert service.needs_confirmation_keyboard(numero) is False
 
-    service.handle_text(numero, "OK")
+    otro = ExtractedTransfer(Decimal("500"), datetime(2026, 8, 21), "OP-2", cuenta_receptora="empresa.mp")
+    service.start_transfer(numero, otro, caption="F 123")
+    assert service.needs_confirmation_keyboard(numero) is True
+    assert service.needs_tipo_keyboard(numero) is False
+
+    service.handle_text(numero, "si")
     assert service.needs_confirmation_keyboard(numero) is False
 
 
@@ -259,8 +266,7 @@ def test_pending_prompt_reshows_cuenta_factura_step():
 
     prompt = service.pending_prompt("5491112345678")
 
-    assert prompt is not None
-    assert "factura o de cuenta" in prompt
+    assert prompt == "Tenes movimientos pendientes. Indica el tipo y numero de comprobante (ej: F 12345) o descartalo."
     assert db.query(Movement).count() == 1
 
 
@@ -270,15 +276,71 @@ def test_pending_prompt_reshows_confirmacion_final():
     _con_cuenta_registrada(db)
     service = ConversationService(db)
     transfer = ExtractedTransfer(Decimal("500"), datetime(2026, 8, 21), "OP-1", cuenta_receptora="empresa.mp")
-    service.start_transfer("5491112345678", transfer)
-    service.handle_text("5491112345678", "factura")
-    service.handle_text("5491112345678", "FAC-9")
+    service.start_transfer("5491112345678", transfer, caption="factura FAC-9")
 
     prompt = service.pending_prompt("5491112345678")
 
     assert prompt is not None
-    assert "Confirma la operacion" in prompt
+    assert prompt == "Tenes movimientos pendientes. Factura: FAC-9 · $500.00. ¿Lo registro? Respondé SI, o NO para descartarlo."
     assert db.query(Movement).count() == 1
+
+
+def test_caption_con_factura_saltea_las_preguntas_y_registra_con_un_si():
+    db = session()
+    db.add(Operator(nombre="Ana", whatsapp_numero="5491112345678"))
+    _con_cuenta_registrada(db)
+    db.add(Movil(numero="M-01", nombre="Camion 1", responsable_operador_id=1))
+    db.commit()
+    _asociar_a_reparto_abierto(db, operador_id=1, movil_id=1)
+    service = ConversationService(db)
+    transfer = ExtractedTransfer(Decimal("500"), datetime(2026, 8, 21), "OP-1", cuenta_receptora="empresa.mp")
+
+    resumen = service.start_transfer("5491112345678", transfer, caption="  F 00012-345 ")
+
+    assert "Factura/cuenta: Factura: 00012-345" in resumen
+    assert service.handle_text("5491112345678", "si") == "Comprobante registrado correctamente.\nFactura: 00012-345 · $500.00"
+    movement = db.query(Movement).one()
+    assert movement.estado_registro == RecordState.CONFIRMADO
+    assert movement.factura_o_cuenta_numero == "00012-345"
+
+
+def test_caption_con_cuenta_y_descartar():
+    db = session()
+    db.add(Operator(nombre="Ana", whatsapp_numero="5491112345678"))
+    _con_cuenta_registrada(db)
+    service = ConversationService(db)
+    transfer = ExtractedTransfer(Decimal("500"), datetime(2026, 8, 21), "OP-1", cuenta_receptora="empresa.mp")
+
+    resumen = service.start_transfer("5491112345678", transfer, caption="cta: 987")
+
+    assert "Cuenta: 987" in resumen
+    assert "Registro descartado" in service.handle_text("5491112345678", "no")
+    assert db.query(Movement).count() == 0
+
+
+def test_caption_sin_prefijo_reconocible_pregunta_factura_o_cuenta():
+    db = session()
+    db.add(Operator(nombre="Ana", whatsapp_numero="5491112345678"))
+    _con_cuenta_registrada(db)
+    service = ConversationService(db)
+    transfer = ExtractedTransfer(Decimal("500"), datetime(2026, 8, 21), "OP-1", cuenta_receptora="empresa.mp")
+
+    resumen = service.start_transfer("5491112345678", transfer, caption="12345")
+
+    assert "factura o un numero de cuenta" in resumen
+    assert service.needs_tipo_keyboard("5491112345678") is True
+
+
+def test_boton_descartar_en_paso_factura_cuenta():
+    db = session()
+    db.add(Operator(nombre="Ana", whatsapp_numero="5491112345678"))
+    _con_cuenta_registrada(db)
+    service = ConversationService(db)
+    transfer = ExtractedTransfer(Decimal("500"), datetime(2026, 8, 21), "OP-1", cuenta_receptora="empresa.mp")
+    service.start_transfer("5491112345678", transfer)
+
+    assert "Registro descartado" in service.handle_text("5491112345678", "descartar")
+    assert db.query(Movement).count() == 0
 
 
 def test_iniciar_reparto_asigna_movil_y_crea_reparto():
@@ -371,8 +433,8 @@ def test_cerrar_reparto_lo_puede_cerrar_cualquier_operador_asociado():
     # queda cerrado para los dos, no solo para quien lo cerro
     ana = db.scalar(select(Operator).where(Operator.whatsapp_numero == "5491112345678"))
     beto = db.scalar(select(Operator).where(Operator.whatsapp_numero == "5491100000000"))
-    assert ConversationService(db)._reparto_abierto_de_operador(ana.id) is None
-    assert ConversationService(db)._reparto_abierto_de_operador(beto.id) is None
+    assert servicios.reparto_abierto_del_operador(db, ana.id) is None
+    assert servicios.reparto_abierto_del_operador(db, beto.id) is None
 
 
 def test_iniciar_reparto_confirmacion_no_cancela():
@@ -885,110 +947,39 @@ def test_comando_reparto_rechazado_durante_flujo_de_comprobante():
     assert db.query(Reparto).count() == 0
 
 
-def test_confirmacion_pide_movil_si_operador_no_tiene_asignado():
+def _borrador_listo_para_registrar(service: ConversationService, numero: str = "5491112345678") -> str:
+    transfer = ExtractedTransfer(Decimal("500"), datetime(2026, 8, 21), "OP-1", cuenta_receptora="empresa.mp")
+    service.start_transfer(numero, transfer)
+    return service.handle_text(numero, "F FAC-9")
+
+
+def test_sin_salida_abierta_pide_solo_el_numero_y_la_crea_en_el_movil_asignado():
     db = session()
     db.add(Operator(nombre="Ana", whatsapp_numero="5491112345678"))
     _con_cuenta_registrada(db)
     db.add(Movil(numero="M-01", nombre="Camion 1", responsable_operador_id=1))
     db.commit()
+    db.get(Operator, 1).movil_id = 1
+    db.commit()
     service = ConversationService(db)
-    transfer = ExtractedTransfer(Decimal("500"), datetime(2026, 8, 21), "OP-1", cuenta_receptora="empresa.mp")
-    service.start_transfer("5491112345678", transfer)
-    service.handle_text("5491112345678", "SI")
-    service.handle_text("5491112345678", "factura")
-    service.handle_text("5491112345678", "FAC-9")
 
-    respuesta = service.handle_text("5491112345678", "OK")
+    respuesta = _borrador_listo_para_registrar(service)
 
-    assert "En que movil" in respuesta
+    assert respuesta == SIN_SALIDA_ABIERTA_TEXTO
     assert db.query(Movement).one().estado_registro == RecordState.PENDIENTE_CONFIRMACION
-
-    respuesta_movil = service.handle_text("5491112345678", "M-01")
-    assert "No hay ninguna salida abierta en el movil M-01" in respuesta_movil
-    assert db.query(Movement).one().estado_registro == RecordState.PENDIENTE_CONFIRMACION
-
-    respuesta_numero = service.handle_text("5491112345678", "SI")
-    assert "Que numero de salida es" in respuesta_numero
 
     respuesta_final = service.handle_text("5491112345678", "8")
 
-    assert respuesta_final == "Comprobante registrado correctamente. Se inicio la Salida Nº 8 en el movil M-01."
+    assert respuesta_final == (
+        "Comprobante registrado correctamente. Se inicio la Salida Nº 8 en el movil M-01.\nFactura: FAC-9 · $500.00"
+    )
     movement = db.query(Movement).one()
     assert movement.estado_registro == RecordState.CONFIRMADO
     assert movement.movil_id == 1
-    assert db.get(Operator, 1).movil_id == 1
     assert db.query(Reparto).one().numero_reparto == 8
 
 
-def test_numero_de_reparto_nuevo_invalido_vuelve_a_pedir():
-    db = session()
-    db.add(Operator(nombre="Ana", whatsapp_numero="5491112345678"))
-    _con_cuenta_registrada(db)
-    db.add(Movil(numero="M-01", nombre="Camion 1", responsable_operador_id=1))
-    db.commit()
-    service = ConversationService(db)
-    transfer = ExtractedTransfer(Decimal("500"), datetime(2026, 8, 21), "OP-1", cuenta_receptora="empresa.mp")
-    service.start_transfer("5491112345678", transfer)
-    service.handle_text("5491112345678", "factura")
-    service.handle_text("5491112345678", "FAC-9")
-    service.handle_text("5491112345678", "OK")
-    service.handle_text("5491112345678", "M-01")
-    service.handle_text("5491112345678", "SI")
-
-    respuesta = service.handle_text("5491112345678", "ocho")
-
-    assert "no es un numero de salida valido" in respuesta
-    assert db.query(Reparto).count() == 0
-
-    respuesta_ok = service.handle_text("5491112345678", "8")
-    assert respuesta_ok == "Comprobante registrado correctamente. Se inicio la Salida Nº 8 en el movil M-01."
-
-
-def test_numero_de_reparto_nuevo_se_puede_cancelar():
-    db = session()
-    db.add(Operator(nombre="Ana", whatsapp_numero="5491112345678"))
-    _con_cuenta_registrada(db)
-    db.add(Movil(numero="M-01", nombre="Camion 1", responsable_operador_id=1))
-    db.commit()
-    service = ConversationService(db)
-    transfer = ExtractedTransfer(Decimal("500"), datetime(2026, 8, 21), "OP-1", cuenta_receptora="empresa.mp")
-    service.start_transfer("5491112345678", transfer)
-    service.handle_text("5491112345678", "factura")
-    service.handle_text("5491112345678", "FAC-9")
-    service.handle_text("5491112345678", "OK")
-    service.handle_text("5491112345678", "M-01")
-    service.handle_text("5491112345678", "SI")
-
-    respuesta = service.handle_text("5491112345678", "cancelar")
-
-    assert "Registro descartado" in respuesta
-    assert db.query(Reparto).count() == 0
-    assert db.query(Movement).count() == 0
-
-
-def test_confirmacion_no_iniciar_reparto_nuevo_vuelve_a_pedir_movil():
-    db = session()
-    db.add(Operator(nombre="Ana", whatsapp_numero="5491112345678"))
-    _con_cuenta_registrada(db)
-    db.add(Movil(numero="M-01", nombre="Camion 1", responsable_operador_id=1))
-    db.commit()
-    service = ConversationService(db)
-    transfer = ExtractedTransfer(Decimal("500"), datetime(2026, 8, 21), "OP-1", cuenta_receptora="empresa.mp")
-    service.start_transfer("5491112345678", transfer)
-    service.handle_text("5491112345678", "SI")
-    service.handle_text("5491112345678", "factura")
-    service.handle_text("5491112345678", "FAC-9")
-    service.handle_text("5491112345678", "OK")
-    service.handle_text("5491112345678", "M-01")
-
-    respuesta = service.handle_text("5491112345678", "NO")
-
-    assert "En que movil" in respuesta
-    assert db.query(Reparto).count() == 0
-    assert db.query(Movement).one().estado_registro == RecordState.PENDIENTE_CONFIRMACION
-
-
-def test_confirmacion_via_esperando_movil_se_asocia_a_reparto_abierto_de_otro_operador():
+def test_sin_salida_abierta_se_suma_a_la_salida_abierta_con_ese_numero():
     db = session()
     db.add_all(
         [
@@ -1000,27 +991,115 @@ def test_confirmacion_via_esperando_movil_se_asocia_a_reparto_abierto_de_otro_op
     db.add(Movil(numero="M-01", nombre="Camion 1", responsable_operador_id=1))
     db.commit()
     service = ConversationService(db)
-    # Ana arranca el reparto -- Beto todavia no tiene ninguna asociacion.
+    # Ana arranca la salida -- Beto (sin movil asignado) todavia no esta asociado.
     service.handle_text("5491112345678", "inicio movil M-01 reparto nro 3")
     service.handle_text("5491112345678", "SI")
     reparto = db.query(Reparto).one()
 
-    transfer = ExtractedTransfer(Decimal("500"), datetime(2026, 8, 21), "OP-1", cuenta_receptora="empresa.mp")
-    service.start_transfer("5491100000000", transfer)
-    service.handle_text("5491100000000", "SI")
-    service.handle_text("5491100000000", "factura")
-    service.handle_text("5491100000000", "FAC-9")
-    respuesta = service.handle_text("5491100000000", "OK")
-    assert "En que movil" in respuesta
+    assert _borrador_listo_para_registrar(service, "5491100000000") == SIN_SALIDA_ABIERTA_TEXTO
+    respuesta_final = service.handle_text("5491100000000", "3")
 
-    respuesta_final = service.handle_text("5491100000000", "M-01")
-
-    assert respuesta_final == "Comprobante registrado correctamente. Salida Nº 3 en el movil M-01."
+    assert respuesta_final == (
+        "Comprobante registrado correctamente. Salida Nº 3 en el movil M-01.\nFactura: FAC-9 · $500.00"
+    )
     movement = db.query(Movement).one()
     assert movement.reparto_id == reparto.id
     assert movement.movil_id == 1
     beto = db.scalar(select(Operator).where(Operator.whatsapp_numero == "5491100000000"))
     assert beto.movil_id == 1
+
+
+def test_sin_salida_ni_movil_asignado_pide_el_movil_y_crea_la_salida_sin_mas_preguntas():
+    db = session()
+    db.add(Operator(nombre="Ana", whatsapp_numero="5491112345678"))
+    _con_cuenta_registrada(db)
+    db.add(Movil(numero="M-01", nombre="Camion 1", responsable_operador_id=1))
+    db.commit()
+    service = ConversationService(db)
+    _borrador_listo_para_registrar(service)
+
+    assert "En que movil" in service.handle_text("5491112345678", "8")
+    respuesta_final = service.handle_text("5491112345678", "M-01")
+
+    assert respuesta_final.startswith("Comprobante registrado correctamente. Se inicio la Salida Nº 8 en el movil M-01.")
+    assert db.query(Reparto).one().numero_reparto == 8
+    assert db.query(Movement).one().estado_registro == RecordState.CONFIRMADO
+
+
+def test_movil_asignado_con_otra_salida_abierta_indica_ese_numero():
+    db = session()
+    db.add_all(
+        [
+            Operator(nombre="Ana", whatsapp_numero="5491112345678"),
+            Operator(nombre="Beto", whatsapp_numero="5491100000000"),
+        ]
+    )
+    _con_cuenta_registrada(db)
+    db.add(Movil(numero="M-01", nombre="Camion 1", responsable_operador_id=1))
+    db.commit()
+    db.get(Operator, 2).movil_id = 1
+    db.commit()
+    _asociar_a_reparto_abierto(db, operador_id=1, movil_id=1, numero_reparto=4)
+    db.get(Operator, 2).movil_id = 1
+    db.commit()
+    service = ConversationService(db)
+    _borrador_listo_para_registrar(service, "5491100000000")
+
+    respuesta = service.handle_text("5491100000000", "9")
+
+    assert respuesta == "El movil M-01 ya tiene abierta la Salida Nº 4. Indica ese numero de salida."
+    assert db.query(Reparto).count() == 1
+    assert service.handle_text("5491100000000", "4").startswith("Comprobante registrado correctamente. Salida Nº 4")
+
+
+def test_numero_de_salida_invalido_vuelve_a_pedir():
+    db = session()
+    db.add(Operator(nombre="Ana", whatsapp_numero="5491112345678"))
+    _con_cuenta_registrada(db)
+    db.add(Movil(numero="M-01", nombre="Camion 1", responsable_operador_id=1))
+    db.commit()
+    service = ConversationService(db)
+    _borrador_listo_para_registrar(service)
+
+    respuesta = service.handle_text("5491112345678", "ocho")
+
+    assert "no es un numero de salida valido" in respuesta
+    assert db.query(Reparto).count() == 0
+
+
+def test_numero_de_salida_se_puede_descartar():
+    db = session()
+    db.add(Operator(nombre="Ana", whatsapp_numero="5491112345678"))
+    _con_cuenta_registrada(db)
+    db.add(Movil(numero="M-01", nombre="Camion 1", responsable_operador_id=1))
+    db.commit()
+    service = ConversationService(db)
+    _borrador_listo_para_registrar(service)
+    assert service.needs_descartar_keyboard("5491112345678") is True
+
+    respuesta = service.handle_text("5491112345678", "descartar")
+
+    assert "Registro descartado" in respuesta
+    assert db.query(Reparto).count() == 0
+    assert db.query(Movement).count() == 0
+    assert db.get(WhatsAppConversation, "5491112345678").numero_reparto_pendiente is None
+
+
+def test_tipo_y_numero_escritos_juntos_registran_de_una():
+    db = session()
+    db.add(Operator(nombre="Ana", whatsapp_numero="5491112345678"))
+    _con_cuenta_registrada(db)
+    db.add(Movil(numero="M-01", nombre="Camion 1", responsable_operador_id=1))
+    db.commit()
+    _asociar_a_reparto_abierto(db, operador_id=1, movil_id=1)
+    service = ConversationService(db)
+    transfer = ExtractedTransfer(Decimal("500"), datetime(2026, 8, 21), "OP-1", cuenta_receptora="empresa.mp")
+    resumen = service.start_transfer("5491112345678", transfer)
+    assert "Indica el tipo y numero de comprobante" in resumen
+
+    respuesta = service.handle_text("5491112345678", "c987")
+
+    assert respuesta == "Comprobante registrado correctamente.\nCuenta: 987 · $500.00"
 
 
 def test_confirmacion_completa_movil_id_si_operador_ya_tiene_asignado():
@@ -1035,11 +1114,9 @@ def test_confirmacion_completa_movil_id_si_operador_ya_tiene_asignado():
     service.start_transfer("5491112345678", transfer)
     service.handle_text("5491112345678", "SI")
     service.handle_text("5491112345678", "factura")
-    service.handle_text("5491112345678", "FAC-9")
+    respuesta = service.handle_text("5491112345678", "FAC-9")
 
-    respuesta = service.handle_text("5491112345678", "OK")
-
-    assert respuesta == "Comprobante registrado correctamente."
+    assert respuesta == "Comprobante registrado correctamente.\nFactura: FAC-9 · $500.00"
     assert db.query(Movement).one().movil_id == 1
 
 
@@ -1059,7 +1136,6 @@ def test_confirmacion_asigna_el_reparto_abierto_del_movil():
     service.handle_text("5491112345678", "SI")
     service.handle_text("5491112345678", "factura")
     service.handle_text("5491112345678", "FAC-9")
-    service.handle_text("5491112345678", "OK")
 
     assert db.query(Movement).one().reparto_id == reparto.id
 
@@ -1078,7 +1154,6 @@ def test_confirmacion_sin_reparto_abierto_deja_reparto_id_nulo():
     service.handle_text("5491112345678", "SI")
     service.handle_text("5491112345678", "factura")
     service.handle_text("5491112345678", "FAC-9")
-    service.handle_text("5491112345678", "OK")
 
     assert db.query(Movement).one().reparto_id is None
 
@@ -1116,9 +1191,7 @@ def test_pending_prompt_reshows_esperando_movil():
     service.handle_text("5491112345678", "SI")
     service.handle_text("5491112345678", "factura")
     service.handle_text("5491112345678", "FAC-9")
-    service.handle_text("5491112345678", "OK")
 
     prompt = service.pending_prompt("5491112345678")
 
-    assert prompt is not None
-    assert "movil" in prompt.lower()
+    assert prompt == "Tenes movimientos pendientes. Indica el numero de salida o descartalo."

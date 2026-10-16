@@ -1,16 +1,27 @@
+import asyncio
+import json
 from datetime import datetime
 from decimal import Decimal
 
+import httpx
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
-from sqlalchemy.orm import Session
 
-from app import telegram
+from app import canales, telegram
 from app.config import Settings
 from app.conversation import ConversationService, ExtractedTransfer
 from app.db import Base, SessionLocal, engine
 from app.main import app
-from app.models import BankAccount, Movement, Movil, Operator, Reparto, RepartoOperador, WhatsAppConversation
+from app.models import (
+    BankAccount,
+    Movement,
+    Movil,
+    Operator,
+    Reparto,
+    RepartoOperador,
+    WhatsAppConversation,
+)
 
 client = TestClient(app)
 
@@ -126,8 +137,8 @@ def test_photo_message_is_extracted_and_saved_to_test_store(monkeypatch):
 
     monkeypatch.setattr(telegram, "send_telegram_message", fake_send)
     monkeypatch.setattr(telegram, "_download_telegram_file", fake_download)
-    monkeypatch.setattr(telegram, "extract_transfer", fake_extract)
-    monkeypatch.setattr(telegram, "save_comprobante_archivo", fake_save)
+    monkeypatch.setattr(canales, "extract_transfer", fake_extract)
+    monkeypatch.setattr(canales, "save_comprobante_archivo", fake_save)
 
     response = client.post(
         "/telegram/webhook",
@@ -140,7 +151,9 @@ def test_photo_message_is_extracted_and_saved_to_test_store(monkeypatch):
         (
             "222",
             "Monto: $100.00\nFecha: 2026-08-24\nCuenta receptora: empresa.mp\nOperacion: OP-999\n"
-            "Factura/cuenta: pendiente\n\n¿El dato que vas a cargar es un numero de factura o un numero de cuenta del cliente?",
+            "Factura/cuenta: pendiente\n\nSi los datos estan bien, elegi si vas a cargar un numero de factura o un numero de cuenta del cliente. Si no, descartalo."
+            "\nTip: la proxima vez manda el comprobante con el texto \"F 12345\" o \"C 12345\" y te ahorras este paso."
+            "\n\nIndica el tipo y numero de comprobante (ej: F 12345 o C 987).",
         )
     ]
 
@@ -170,8 +183,8 @@ def test_second_photo_while_a_draft_is_pending_does_not_orphan_the_first(monkeyp
 
     monkeypatch.setattr(telegram, "send_telegram_message", fake_send)
     monkeypatch.setattr(telegram, "_download_telegram_file", fake_download)
-    monkeypatch.setattr(telegram, "extract_transfer", fake_extract)
-    monkeypatch.setattr(telegram, "save_comprobante_archivo", lambda **kwargs: 1)
+    monkeypatch.setattr(canales, "extract_transfer", fake_extract)
+    monkeypatch.setattr(canales, "save_comprobante_archivo", lambda **kwargs: 1)
 
     photo_message = {"message": {"chat": {"id": 888}, "photo": [{"file_id": "abc", "file_size": 100}]}}
     client.post("/telegram/webhook", json=photo_message)  # primer comprobante: crea el borrador
@@ -181,7 +194,7 @@ def test_second_photo_while_a_draft_is_pending_does_not_orphan_the_first(monkeyp
     assert len(extract_calls) == 1  # el segundo mensaje no debe llegar a extraer nada
     assert sent[-1] == (
         "888",
-        "Todavia estoy esperando que indiques si el dato que vas a cargar es un numero de factura o de cuenta.",
+        "Tenes movimientos pendientes. Indica el tipo y numero de comprobante (ej: F 12345) o descartalo.",
     )
 
     with SessionLocal() as session:
@@ -202,7 +215,7 @@ def test_photo_message_with_unreadable_receipt_asks_to_resend(monkeypatch):
 
     monkeypatch.setattr(telegram, "send_telegram_message", fake_send)
     monkeypatch.setattr(telegram, "_download_telegram_file", fake_download)
-    monkeypatch.setattr(telegram, "extract_transfer", lambda content_type, data: None)
+    monkeypatch.setattr(canales, "extract_transfer", lambda content_type, data: None)
 
     response = client.post(
         "/telegram/webhook",
@@ -210,7 +223,7 @@ def test_photo_message_with_unreadable_receipt_asks_to_resend(monkeypatch):
     )
 
     assert response.status_code == 200
-    assert sent == [("333", "No pude leer el comprobante. Reenvialo con mejor calidad o ingresa los datos manualmente.")]
+    assert sent == [("333", "No pude leer el comprobante. Reenvialo con mejor calidad, o pedile al administrador que lo cargue desde el panel.")]
 
 
 def test_sharing_contact_links_operator_by_matching_local_phone_suffix(monkeypatch):
@@ -326,7 +339,7 @@ def test_callback_query_confirms_tipo_like_typing_factura(monkeypatch):
 
     assert response.status_code == 200
     assert answered == ["cbq1"]
-    assert sent == [("999", "Indica el numero de factura del cliente asociado a este pago.", None)]
+    assert sent == [("999", "Indica el numero de factura del cliente asociado a este pago.", telegram.DESCARTAR_MARKUP)]
 
 
 def test_already_linked_chat_skips_phone_request(monkeypatch):
@@ -406,8 +419,8 @@ def test_cuenta_no_identificada_no_pregunta_y_sigue_el_flujo(monkeypatch):
 
     monkeypatch.setattr(telegram, "send_telegram_message", fake_send)
     monkeypatch.setattr(telegram, "_download_telegram_file", fake_download)
-    monkeypatch.setattr(telegram, "extract_transfer", fake_extract)
-    monkeypatch.setattr(telegram, "save_comprobante_archivo", lambda **kwargs: 1)
+    monkeypatch.setattr(canales, "extract_transfer", fake_extract)
+    monkeypatch.setattr(canales, "save_comprobante_archivo", lambda **kwargs: 1)
 
     response = client.post(
         "/telegram/webhook",
@@ -425,3 +438,107 @@ def test_cuenta_no_identificada_no_pregunta_y_sigue_el_flujo(monkeypatch):
         assert movimiento.cuenta_bancaria_id is None
 
     _clean_movement("OP-CUENTA-DESCONOCIDA")
+
+
+def test_error_al_interpretar_el_comprobante_avisa_y_responde_200(monkeypatch):
+    # Con un 500 Telegram reintenta la misma entrega una y otra vez; se responde
+    # 200 y se le avisa al operador.
+    _register_operator("334")
+    sent: list[tuple[str, str]] = []
+
+    async def fake_send(chat_id: str, text: str, reply_markup: dict | None = None) -> None:
+        sent.append((chat_id, text))
+
+    async def fake_download(file_id: str) -> tuple[bytes, str]:
+        return b"fake-photo-bytes", "photos/file.jpg"
+
+    def extraccion_caida(content_type: str, data: bytes):
+        raise RuntimeError("API caida")
+
+    monkeypatch.setattr(telegram, "send_telegram_message", fake_send)
+    monkeypatch.setattr(telegram, "_download_telegram_file", fake_download)
+    monkeypatch.setattr(canales, "extract_transfer", extraccion_caida)
+
+    response = client.post(
+        "/telegram/webhook",
+        json={"message": {"chat": {"id": 334}, "photo": [{"file_id": "abc", "file_size": 100}]}},
+    )
+
+    assert response.status_code == 200
+    assert sent == [("334", canales.ERROR_PROCESANDO_TEXTO)]
+
+
+_API = "https://api.telegram.org/bottoken-de-test"
+
+
+def _cliente_http_falso(monkeypatch, respuestas: dict[str, httpx.Response]) -> list[httpx.Request]:
+    """Reemplaza el cliente httpx de telegram.py por uno con MockTransport: se
+    ejercita el armado real del request sin salir a la red. Las claves de
+    `respuestas` se comparan contra la URL sin query string."""
+    recibidos: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        recibidos.append(request)
+        url = str(request.url).split("?")[0]
+        return respuestas.get(url, httpx.Response(200, json={"ok": True}))
+
+    monkeypatch.setattr(telegram, "_http_client", httpx.AsyncClient(transport=httpx.MockTransport(handler)))
+    return recibidos
+
+
+def test_send_telegram_message_con_y_sin_botones(monkeypatch):
+    recibidos = _cliente_http_falso(monkeypatch, {})
+
+    asyncio.run(telegram.send_telegram_message("123", "Hola"))
+    asyncio.run(telegram.send_telegram_message("123", "Confirmas?", telegram.SI_NO_MARKUP))
+
+    assert str(recibidos[0].url) == f"{_API}/sendMessage"
+    assert json.loads(recibidos[0].content) == {"chat_id": "123", "text": "Hola"}
+    assert json.loads(recibidos[1].content) == {"chat_id": "123", "text": "Confirmas?", "reply_markup": telegram.SI_NO_MARKUP}
+
+
+def test_send_telegram_message_propaga_el_error_de_la_api(monkeypatch):
+    _cliente_http_falso(monkeypatch, {f"{_API}/sendMessage": httpx.Response(403, json={"ok": False})})
+
+    with pytest.raises(httpx.HTTPStatusError):
+        asyncio.run(telegram.send_telegram_message("123", "Hola"))
+
+
+def test_download_telegram_file_pide_la_ruta_y_baja_el_archivo(monkeypatch):
+    recibidos = _cliente_http_falso(
+        monkeypatch,
+        {
+            f"{_API}/getFile": httpx.Response(200, json={"ok": True, "result": {"file_path": "photos/f.jpg"}}),
+            "https://api.telegram.org/file/bottoken-de-test/photos/f.jpg": httpx.Response(200, content=b"jpg"),
+        },
+    )
+
+    contenido, ruta = asyncio.run(telegram._download_telegram_file("abc"))
+
+    assert (contenido, ruta) == (b"jpg", "photos/f.jpg")
+    assert recibidos[0].url.params["file_id"] == "abc"
+
+
+def test_answer_callback_query_no_rompe_si_telegram_la_rechaza(monkeypatch):
+    # Es cosmetico (apaga el spinner del boton): un error no tiene que cortar el
+    # procesamiento de la respuesta del operador.
+    _cliente_http_falso(monkeypatch, {f"{_API}/answerCallbackQuery": httpx.Response(400, json={"ok": False})})
+
+    asyncio.run(telegram._answer_callback_query("cbq-viejo"))
+
+
+def test_notificacion_fallida_no_corta_las_demas(monkeypatch):
+    recibidos = _cliente_http_falso(monkeypatch, {})
+    enviados: list[str] = []
+
+    async def send_que_falla_para_uno(chat_id: str, text: str, reply_markup=None) -> None:
+        if chat_id == "1":
+            raise httpx.ConnectError("sin red")
+        enviados.append(chat_id)
+
+    monkeypatch.setattr(telegram, "send_telegram_message", send_que_falla_para_uno)
+
+    asyncio.run(telegram._enviar_notificaciones([("1", "cierre"), ("2", "cierre")]))
+
+    assert enviados == ["2"]
+    assert recibidos == []

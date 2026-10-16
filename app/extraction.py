@@ -7,8 +7,8 @@ from pathlib import Path
 from anthropic import Anthropic
 
 from .config import get_settings
-from .conversation import ExtractedTransfer
 from .numeros import parse_monto_ar
+from .servicios import ExtractedTransfer
 from .zona_horaria import ahora_argentina
 
 HAIKU_MODEL = "claude-haiku-4-5-20251001"
@@ -73,7 +73,7 @@ _FEW_SHOT_EXAMPLES = [
 def _build_tool() -> dict:
     """Arma el schema de la herramienta de extraccion. cuenta_receptora siempre se
     transcribe en texto libre (CBU, CVU o alias, tal como figura en el comprobante)
-    -- el matching contra las cuentas bancarias registradas (_find_cuenta_bancaria
+    -- el matching contra las cuentas bancarias registradas (buscar_cuenta_bancaria
     en conversation.py) se hace despues en Python por texto/digitos, no le pedimos
     a Claude que elija entre una lista de aliases comparando CBUs de 22 digitos a
     ojo, porque en la practica falla seguido (confirmado con comprobantes reales
@@ -195,9 +195,7 @@ def _es_numero_operacion_valido(valor: object) -> bool:
     normalizado = valor.strip()
     if len(normalizado.split()) >= 3:
         return False
-    if normalizado.isdigit() and len(normalizado) >= 20:
-        return False
-    return True
+    return not (normalizado.isdigit() and len(normalizado) >= 20)
 
 
 def _content_block(content_type: str, data: bytes) -> dict:
@@ -317,13 +315,20 @@ def _parse_fecha_o_actual(valor: object) -> datetime:
     return ahora_argentina()
 
 
+@lru_cache(maxsize=1)
+def _cliente_anthropic(api_key: str) -> Anthropic:
+    """Un solo cliente por proceso: reutiliza las conexiones HTTP a la API en vez
+    de abrir una nueva (handshake TLS incluido) en cada comprobante."""
+    return Anthropic(api_key=api_key)
+
+
 def extract_transfer(content_type: str, data: bytes) -> ExtractedTransfer | None:
     """Interpreta un comprobante con Claude. Devuelve None si no se pudo leer el monto
     con confianza (el unico dato que bloquea el registro). cuenta_receptora se
     transcribe en texto libre (CBU/CVU/alias); el matching contra las cuentas
-    bancarias registradas se hace en Python (ver _find_cuenta_bancaria en
+    bancarias registradas se hace en Python (ver buscar_cuenta_bancaria en
     conversation.py)."""
-    client = Anthropic(api_key=get_settings().anthropic_api_key)
+    client = _cliente_anthropic(get_settings().anthropic_api_key)
     tool = _build_tool()
 
     result = _call_model(client, HAIKU_MODEL, content_type, data, tool)
