@@ -107,12 +107,18 @@ html, body { height: 100%; }
   box-shadow: none !important;
 }
 .sidebar .collapse-item {
-  color: var(--sidebar-text);
   font-size: 12px;
   font-weight: 500;
 }
-.sidebar .collapse-item:hover {
-  color: #d7d8e6;
+/* SB Admin 2 pinta los items no seleccionados con un gris oscuro (#3a3b45) y un
+   hover de fondo claro, pensados para submenu blanco, con una regla mas
+   especifica que esta: sin !important no se leen sobre el fondo oscuro. */
+.sidebar .collapse-item:not(.active) {
+  color: #b4b7ca !important;
+}
+.sidebar .collapse-item:not(.active):hover {
+  color: #ffffff !important;
+  background: rgba(255, 255, 255, .06) !important;
 }
 .sidebar .collapse-item.active {
   color: var(--sidebar-active);
