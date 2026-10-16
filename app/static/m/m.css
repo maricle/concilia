@@ -147,8 +147,9 @@ input:focus, select:focus { outline: none; border-color: var(--accent); box-shad
 .m-login { max-width: 400px; margin: 24px auto 0; }
 .m-login .m-tarjeta { padding: 28px 22px; }
 .m-login-titulo { text-align: center; margin-bottom: 8px; }
-.m-login-titulo img { width: 72px; height: 72px; }
-.m-pie { margin-top: 24px; text-align: center; }
-.m-pie .txt { font-size: 11px; color: var(--text-muted); letter-spacing: .03em; margin-bottom: 8px; }
-.m-pie .logo-chip { display: inline-flex; background: #fff; border-radius: var(--radius); padding: 6px 10px; box-shadow: var(--shadow-card); }
-.m-pie img { height: 18px; width: auto; display: block; }
+.m-pie { margin-top: 24px; }
+/* Pie compartido (partials/_pie_marca.html): logo de Demonte + credito. */
+.pie-marca { text-align: center; }
+.pie-marca-logo { width: 56px; height: 56px; display: block; margin: 0 auto 8px; }
+.pie-marca-credito { font-size: 12px; letter-spacing: .03em; color: var(--text-muted); }
+.pie-marca-credito a { color: var(--accent-strong); font-weight: 600; }
