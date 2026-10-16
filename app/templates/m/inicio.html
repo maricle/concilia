@@ -1,7 +1,21 @@
 {% extends "m/base.html" %}
 {% block content %}
 <h1>Hola, {{ operador.nombre }}</h1>
-<p class="m-ayuda">Móvil: {{ operador.movil.numero if operador.movil else "sin asignar" }}</p>
-{% block acciones %}{% endblock %}
+<div class="m-tarjeta">
+  <div>Móvil: <strong>{{ operador.movil.numero if operador.movil else "sin asignar" }}</strong></div>
+  {% if salida %}
+  <div>Salida Nº <strong>{{ salida.numero_reparto }}</strong> abierta desde las {{ salida.hora_inicio.strftime("%H:%M") }} (móvil {{ salida.movil.numero }})</div>
+  {% else %}
+  <div>Sin salida abierta</div>
+  {% endif %}
+</div>
+{% block pendiente %}{% endblock %}
+{% block cargar %}{% endblock %}
+{% if salida %}
+<a href="/m/salida/cerrar" class="m-boton-secundario">Cerrar salida</a>
+{% else %}
+<a href="/m/salida/iniciar" class="m-boton-secundario">Iniciar salida</a>
+{% endif %}
+{% block comprobantes %}{% endblock %}
 <a href="/m/cambiar-pin" class="m-link-bloque">Cambiar PIN</a>
 {% endblock %}
