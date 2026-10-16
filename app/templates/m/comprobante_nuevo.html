@@ -1,0 +1,17 @@
+{% extends "m/base.html" %}
+{% block title %}Cargar comprobante - Concilia{% endblock %}
+{% block content %}
+<h1>Cargar comprobante</h1>
+<p class="m-ayuda">Sacá una foto del comprobante de la transferencia o elegí el archivo (foto o PDF, hasta {{ max_mb }} MB).</p>
+<form method="post" action="/m/comprobante" enctype="multipart/form-data" class="m-form" id="form-comprobante">
+  <label class="m-boton" for="archivo-camara">Sacar foto</label>
+  <input id="archivo-camara" class="m-oculto" name="archivo" type="file" accept="image/*" capture="environment">
+  <label class="m-boton-secundario" for="archivo-elegido">Elegir archivo</label>
+  <input id="archivo-elegido" class="m-oculto" name="archivo" type="file" accept="image/*,application/pdf">
+  <div id="vista-previa" class="m-vista-previa" hidden></div>
+  <button type="submit" class="m-boton" id="boton-enviar" disabled data-texto-enviando="Leyendo comprobante…">Enviar comprobante</button>
+</form>
+<p class="m-ayuda">Leer el comprobante puede tardar unos segundos. No cierres la pantalla.</p>
+<a href="/m/" class="m-link-bloque">Volver</a>
+<script src="/m/static/m.js" defer></script>
+{% endblock %}

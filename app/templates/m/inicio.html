@@ -9,13 +9,23 @@
   <div>Sin salida abierta</div>
   {% endif %}
 </div>
-{% block pendiente %}{% endblock %}
-{% block cargar %}{% endblock %}
+{% if borrador %}
+<div class="m-aviso">
+  <strong>Tenés un movimiento pendiente</strong>
+  <div>{{ borrador|monto_comprobante }} — operación {{ borrador.numero_operacion or "sin número" }}</div>
+  <a href="/m/comprobante/{{ borrador.id }}/revisar" class="m-boton">Continuar</a>
+  <form method="post" action="/m/comprobante/{{ borrador.id }}/descartar">
+    <button type="submit" class="m-boton-peligro">Descartar</button>
+  </form>
+</div>
+{% else %}
+<a href="/m/comprobante/nuevo" class="m-boton m-boton-grande">Cargar comprobante</a>
+{% endif %}
 {% if salida %}
 <a href="/m/salida/cerrar" class="m-boton-secundario">Cerrar salida</a>
 {% else %}
 <a href="/m/salida/iniciar" class="m-boton-secundario">Iniciar salida</a>
 {% endif %}
-{% block comprobantes %}{% endblock %}
+<a href="/m/comprobantes" class="m-boton-secundario">Mis comprobantes</a>
 <a href="/m/cambiar-pin" class="m-link-bloque">Cambiar PIN</a>
 {% endblock %}

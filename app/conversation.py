@@ -1,5 +1,4 @@
 import logging
-import re
 from datetime import datetime
 
 from sqlalchemy import select
@@ -45,29 +44,6 @@ _TIPO_POR_TEXTO = {
 
 def _parse_tipo_identificador(normalized: str) -> TipoIdentificador | None:
     return _TIPO_POR_TEXTO.get(normalized)
-
-
-_CAPTION_FACTURA_CUENTA = re.compile(
-    r"^\s*(factura|fact|fac|fc|f|cuenta|cta|c)(?![a-z])[\s.:#nº°-]*(\S+)\s*$", re.IGNORECASE
-)
-
-
-def _parse_caption_factura_cuenta(caption: str | None) -> tuple[TipoIdentificador, str] | None:
-    """Lee el texto que el operador manda junto a la foto/PDF del comprobante
-    (ej. "F 12345", "factura 12345", "C 987", "cta: 987"). Si viene, se ahorran
-    los dos pasos de preguntar tipo y numero por separado -- desde octubre de
-    2026 Meta cobra cada respuesta del bot por WhatsApp, asi que cada paso menos
-    es un mensaje menos. Sin prefijo reconocible devuelve None y se sigue el
-    flujo de preguntas normal (un numero suelto no alcanza: no se sabe si es
-    factura o cuenta)."""
-    if not caption:
-        return None
-    match = _CAPTION_FACTURA_CUENTA.match(caption)
-    if match is None:
-        return None
-    prefijo = match.group(1).lower()
-    tipo = TipoIdentificador.FACTURA if prefijo.startswith("f") else TipoIdentificador.CUENTA
-    return tipo, match.group(2)
 
 
 def _etiqueta_tipo(tipo: TipoIdentificador | None) -> str:
@@ -237,7 +213,7 @@ class ConversationService:
                 servicios.descartar_borrador(self.session, conversation)
                 self.session.commit()
                 return "Registro descartado. Puedes reenviar el comprobante."
-            factura_cuenta = _parse_caption_factura_cuenta(text)
+            factura_cuenta = servicios.interpretar_factura_cuenta(text)
             if factura_cuenta is not None:
                 # Tipo y numero en un solo mensaje ("F 12345"): se registra
                 # directo, sin el paso intermedio de pedir el numero.
@@ -383,7 +359,7 @@ class ConversationService:
         # El resumen va junto con la pregunta de factura/cuenta: elegir una de las
         # dos es la confirmacion de que los datos extraidos estan bien (o
         # "Descartar" si no), sin un paso de SI/NO aparte.
-        factura_cuenta = _parse_caption_factura_cuenta(caption)
+        factura_cuenta = servicios.interpretar_factura_cuenta(caption)
         if factura_cuenta is None:
             return self._pedir_tipo_factura_cuenta(movement)
         # El operador ya mando factura/cuenta en el texto del comprobante: un solo

@@ -31,6 +31,7 @@ from .models import (
     RecordState,
     Reparto,
     RepartoOperador,
+    TipoIdentificador,
     WhatsAppConversation,
 )
 from .zona_horaria import ahora_argentina, hoy_argentina
@@ -111,6 +112,29 @@ def buscar_cuenta_bancaria(session: Session, cuenta_receptora: str | None) -> Ba
         [(c.alias, c.numero_cuenta) for c in cuentas],
     )
     return None
+
+
+_CAPTION_FACTURA_CUENTA = re.compile(
+    r"^\s*(factura|fact|fac|fc|f|cuenta|cta|c)(?![a-z])[\s.:#nº°-]*(\S+)\s*$", re.IGNORECASE
+)
+
+
+def interpretar_factura_cuenta(caption: str | None) -> tuple[TipoIdentificador, str] | None:
+    """Lee el texto que el operador manda junto a la foto/PDF del comprobante
+    (ej. "F 12345", "factura 12345", "C 987", "cta: 987"). Si viene, se ahorran
+    los dos pasos de preguntar tipo y numero por separado -- desde octubre de
+    2026 Meta cobra cada respuesta del bot por WhatsApp, asi que cada paso menos
+    es un mensaje menos. Sin prefijo reconocible devuelve None y se sigue el
+    flujo de preguntas normal (un numero suelto no alcanza: no se sabe si es
+    factura o cuenta)."""
+    if not caption:
+        return None
+    match = _CAPTION_FACTURA_CUENTA.match(caption)
+    if match is None:
+        return None
+    prefijo = match.group(1).lower()
+    tipo = TipoIdentificador.FACTURA if prefijo.startswith("f") else TipoIdentificador.CUENTA
+    return tipo, match.group(2)
 
 
 # ---------------------------------------------------------------- conversacion

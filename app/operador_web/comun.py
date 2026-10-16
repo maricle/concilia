@@ -1,5 +1,7 @@
 """Piezas compartidas por las pantallas de /m."""
 
+from datetime import timedelta
+
 from fastapi.templating import Jinja2Templates
 
 from ..panel.comun import url_actual
@@ -8,3 +10,10 @@ from ..panel.comun import url_actual
 # comparten globals de Jinja con el panel.
 templates = Jinja2Templates(directory="app/templates")
 templates.env.globals["url_actual"] = url_actual
+templates.env.globals["timedelta"] = timedelta
+templates.env.globals["ESTADOS"] = {
+    "pendiente": "Pendiente de conciliar",
+    "conciliado": "Conciliado",
+    "conciliado_manualmente": "Conciliado",
+    "con_diferencia": "Con diferencia",
+}

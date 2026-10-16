@@ -1,0 +1,7 @@
+{% extends "m/base.html" %}
+{% block content %}
+<h1>{{ titulo }}</h1>
+<p class="m-aviso">{{ detalle }}</p>
+{% if otra_foto %}<a href="/m/comprobante/nuevo" class="m-boton">Sacar otra foto</a>{% endif %}
+<a href="/m/" class="m-boton-secundario">Volver al inicio</a>
+{% endblock %}
