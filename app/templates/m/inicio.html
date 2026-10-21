@@ -2,7 +2,6 @@
 {% block content %}
 <h1>Hola, {{ operador.nombre }}</h1>
 <div class="m-tarjeta">
-  <div>Móvil: <strong>{{ operador.movil.numero if operador.movil else "sin asignar" }}</strong></div>
   {% if salida %}
   <div>Salida Nº <strong>{{ salida.numero_reparto }}</strong> abierta desde las {{ salida.hora_inicio.strftime("%H:%M") }} (móvil {{ salida.movil.numero }})</div>
   {% else %}

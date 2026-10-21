@@ -115,35 +115,71 @@ def test_registrar_sin_salida_abierta_y_resolverla_por_numero():
     assert resultado.reparto.numero_reparto == 7
 
 
-def test_resolver_salida_por_numero_se_suma_o_crea_en_el_movil_asignado():
+def test_ubicar_salida_pide_el_movil_solo_si_la_salida_no_esta_abierta():
+    db = _base()
+    beto = db.get(Operator, 2)
+    m1, m2 = db.get(Movil, 1), db.get(Movil, 2)
+    abierta = servicios.crear_salida(db, beto, m2, 3)
+    db.commit()
+
+    assert servicios.ubicar_salida(db, 3) is abierta
+    assert servicios.ubicar_salida(db, 9) == servicios.PedirMovil(varias=False)
+    assert servicios.ubicar_salida(db, 9, m1) == servicios.SalidaNueva(m1)
+    assert servicios.ubicar_salida(db, 3, m2) is abierta
+    assert servicios.ubicar_salida(db, 9, m2) == servicios.MovilConOtraSalida(m2, abierta)
+    assert servicios.ubicar_salida(db, 3, m1) == servicios.SalidaEnOtroMovil(abierta)
+
+    servicios.crear_salida(db, db.get(Operator, 1), m1, 3)
+    db.commit()
+    assert servicios.ubicar_salida(db, 3) == servicios.PedirMovil(varias=True)
+    assert servicios.ubicar_salida(db, 3, m2) is abierta
+
+
+def test_resolver_salida_por_numero_se_suma_sin_guardar_el_movil_en_el_operador():
     db = _base()
     ana, beto = db.get(Operator, 1), db.get(Operator, 2)
     servicios.crear_salida(db, beto, db.get(Movil, 2), 3)
     db.commit()
 
     sumada = servicios.resolver_salida_por_numero(db, ana, servicios.conversacion_de(db, ana), _borrador(db, numero_operacion="OP-A"), 3)
+
     assert isinstance(sumada, servicios.Registrado)
-    assert sumada.salida == servicios.SalidaUsada.EXISTENTE
-    assert ana.movil_id == 2
+    assert (sumada.salida, sumada.movil.id, sumada.movimiento.movil_id) == (servicios.SalidaUsada.EXISTENTE, 2, 2)
+    assert ana.movil_id is None
+    assert servicios.reparto_abierto_del_operador(db, ana.id) is sumada.reparto
 
-    servicios.cerrar_salida(db, sumada.reparto, ana)
-    db.commit()
-    nueva = servicios.resolver_salida_por_numero(db, ana, servicios.conversacion_de(db, ana), _borrador(db, numero_operacion="OP-B"), 9)
+
+def test_salida_no_abierta_pide_el_movil_y_la_crea_ahi():
+    db = _base()
+    ana = db.get(Operator, 1)
+    conversacion = servicios.conversacion_de(db, ana)
+    borrador = _borrador(db)
+
+    pedido = servicios.resolver_salida_por_numero(db, ana, conversacion, borrador, 9)
+    assert isinstance(pedido, servicios.PedirMovil)
+    assert (conversacion.estado, conversacion.numero_reparto_pendiente) == (ConversationState.ESPERANDO_MOVIL, 9)
+
+    nueva = servicios.registrar_en_movil(db, ana, conversacion, borrador, db.get(Movil, 1))
     assert isinstance(nueva, servicios.Registrado)
-    assert (nueva.salida, nueva.movil.id, nueva.reparto.numero_reparto) == (servicios.SalidaUsada.NUEVA, 2, 9)
+    assert (nueva.salida, nueva.movil.id, nueva.reparto.numero_reparto) == (servicios.SalidaUsada.NUEVA, 1, 9)
 
 
-def test_resolver_salida_avisa_si_el_movil_asignado_tiene_otra_salida():
+def test_movil_con_otra_salida_vuelve_a_pedir_el_numero():
     db = _base()
     ana, beto = db.get(Operator, 1), db.get(Operator, 2)
     servicios.crear_salida(db, beto, db.get(Movil, 1), 4)
-    ana.movil_id = 1
     db.commit()
+    conversacion = servicios.conversacion_de(db, ana)
+    borrador = _borrador(db)
+    servicios.resolver_salida_por_numero(db, ana, conversacion, borrador, 9)
 
-    resultado = servicios.resolver_salida_por_numero(db, ana, servicios.conversacion_de(db, ana), _borrador(db), 9)
+    resultado = servicios.registrar_en_movil(db, ana, conversacion, borrador, db.get(Movil, 1))
 
     assert isinstance(resultado, servicios.MovilConOtraSalida)
     assert resultado.reparto.numero_reparto == 4
+    assert conversacion.estado == ConversationState.ESPERANDO_NUMERO_REPARTO_NUEVO
+    assert conversacion.numero_reparto_pendiente is None
+    assert borrador.estado_registro == RecordState.PENDIENTE_CONFIRMACION
 
 
 def test_descartar_borrador_lo_borra_y_limpia_la_conversacion():

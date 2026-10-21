@@ -8,6 +8,7 @@ from . import servicios
 from .models import (
     ConversationState,
     Movement,
+    Movil,
     Operator,
     Reparto,
     TipoIdentificador,
@@ -48,6 +49,28 @@ def _parse_tipo_identificador(normalized: str) -> TipoIdentificador | None:
 
 def _etiqueta_tipo(tipo: TipoIdentificador | None) -> str:
     return "factura" if tipo == TipoIdentificador.FACTURA else "cuenta"
+
+
+def _numero_salida(reparto: Reparto) -> int | str:
+    return reparto.numero_reparto if reparto.numero_reparto is not None else "sin numero"
+
+
+def _texto_pedir_movil(numero_reparto: int | None, varias: bool = False) -> str:
+    if varias:
+        return f"Hay mas de una Salida Nº {numero_reparto} abierta. ¿En que movil estas? Respondé con el numero del movil."
+    return f"La Salida Nº {numero_reparto} no esta abierta. ¿En que movil la vas a iniciar? Respondé con el numero del movil."
+
+
+def _texto_salida_ocupada(salida: "servicios.SalidaEnOtroMovil | servicios.MovilConOtraSalida") -> str:
+    if isinstance(salida, servicios.MovilConOtraSalida):
+        return (
+            f"El movil {salida.movil.numero} ya tiene abierta la Salida Nº {_numero_salida(salida.reparto)}. "
+            "Si vas en ese movil, indicá ese numero de salida."
+        )
+    return (
+        f"La Salida Nº {_numero_salida(salida.reparto)} esta abierta en el movil {salida.reparto.movil.numero}. "
+        "Revisá el numero de salida."
+    )
 
 
 def _formatear_fecha(fecha: datetime) -> str:
@@ -116,13 +139,11 @@ class ConversationService:
                 numero_texto = text.strip()
                 if not numero_texto.isdigit():
                     return "Ese no es un numero de salida valido. Respondé solo con el numero."
+                if conversation.movil_pendiente_numero is None:
+                    return self._entrar_a_salida(operator, conversation, int(numero_texto), None, confirmar_creacion=True)
                 conversation.numero_reparto_pendiente = int(numero_texto)
             else:
                 conversation.movil_pendiente_numero = text.strip()
-
-            if conversation.movil_pendiente_numero is None or conversation.numero_reparto_pendiente is None:
-                self.session.commit()
-                return self._prompt_dato_faltante_inicio_reparto(conversation)
 
             comando_completo = IniciarRepartoComando(
                 movil_numero=conversation.movil_pendiente_numero,
@@ -160,12 +181,14 @@ class ConversationService:
                 return f"No encontramos un movil activo con el numero {text.strip()}. Respondé con el numero correcto."
 
             resultado = servicios.registrar_en_movil(self.session, operator, conversation, movement, movil)
-            if not isinstance(resultado, servicios.MovilSinSalida):
+            if isinstance(resultado, servicios.Registrado):
                 return self._texto_registrado(resultado)
-            return (
-                f"No hay ninguna salida abierta en el movil {movil.numero}. ¿Queres iniciar una? "
-                "Respondé SI o NO."
-            )
+            if isinstance(resultado, servicios.MovilSinSalida):
+                return (
+                    f"No hay ninguna salida abierta en el movil {movil.numero}. ¿Queres iniciar una? "
+                    "Respondé SI o NO."
+                )
+            return _texto_salida_ocupada(resultado)
 
         if conversation.estado == ConversationState.ESPERANDO_CONFIRMACION_CREAR_REPARTO:
             if normalized in {"si", "sí", "ok", "confirmo"}:
@@ -340,6 +363,8 @@ class ConversationService:
         if conversation.estado == ConversationState.ESPERANDO_CONFIRMACION_FINAL:
             return f"{PENDIENTE_TEXTO} {self._resumen_corto(movement)}. ¿Lo registro? Respondé SI, o NO para descartarlo."
         if conversation.estado == ConversationState.ESPERANDO_MOVIL:
+            if conversation.numero_reparto_pendiente is not None:
+                return f"{PENDIENTE_TEXTO} {_texto_pedir_movil(conversation.numero_reparto_pendiente)}"
             return f"{PENDIENTE_TEXTO} Indica en que movil estas o descartalo."
         return None
 
@@ -394,8 +419,10 @@ class ConversationService:
                 f"Comprobante registrado correctamente. Se inicio la Salida Nº {numero} en el movil "
                 f"{resultado.movil.numero}.\n{corto}"
             )
-        etiqueta = numero if numero is not None else "sin numero"
-        return f"Comprobante registrado correctamente. Salida Nº {etiqueta} en el movil {resultado.movil.numero}.\n{corto}"
+        return (
+            f"Comprobante registrado correctamente. Salida Nº {_numero_salida(resultado.reparto)} en el movil "
+            f"{resultado.movil.numero}.\n{corto}"
+        )
 
     @staticmethod
     def _resumen_corto(movement: Movement) -> str:
@@ -405,12 +432,9 @@ class ConversationService:
     def _resolver_salida_por_numero(
         self, operator: Operator, conversation: WhatsAppConversation, numero_reparto: int
     ) -> str:
-        """El operador sin salida abierta indico solo el numero de salida: se
-        deduce el movil sin hacerle mas preguntas (cada respuesta del bot por
-        WhatsApp se cobra). Si hay una unica salida abierta con ese numero, se
-        suma a ella; si no hay ninguna, se crea en el movil que el operador tiene
-        asignado. Solo si eso no alcanza (sin movil asignado, o mas de una salida
-        abierta con el mismo numero) se le pregunta el movil."""
+        """El operador sin salida abierta indico el numero de salida: si esta
+        abierta se registra ahi sin mas preguntas; si no, se le pide el movil
+        para iniciarla."""
         movement = conversation.movimiento_borrador
         if movement is None:
             conversation.estado = ConversationState.ESPERANDO_COMPROBANTE
@@ -418,13 +442,8 @@ class ConversationService:
             return "La sesion vencio. Reenvia el comprobante, por favor."
 
         resultado = servicios.resolver_salida_por_numero(self.session, operator, conversation, movement, numero_reparto)
-        if isinstance(resultado, servicios.MovilConOtraSalida):
-            return (
-                f"El movil {resultado.movil.numero} ya tiene abierta la Salida Nº {resultado.reparto.numero_reparto}. "
-                "Indica ese numero de salida."
-            )
         if isinstance(resultado, servicios.PedirMovil):
-            return "¿En que movil estas? Respondé con el numero del movil."
+            return _texto_pedir_movil(numero_reparto, resultado.varias)
         return self._texto_registrado(resultado)
 
     @staticmethod
@@ -446,9 +465,7 @@ class ConversationService:
                     # Con el comando incompleto no sabemos si el operador quiere seguir
                     # con el reparto que ya tiene abierto o arrancar uno distinto -- se lo
                     # avisamos en vez de pedirle datos para un reparto que capaz ni queria.
-                    numero_abierto = (
-                        reparto_propio.numero_reparto if reparto_propio.numero_reparto is not None else "sin numero"
-                    )
+                    numero_abierto = _numero_salida(reparto_propio)
                     return (
                         f"Ya tenes la Salida Nº {numero_abierto} iniciada en el movil {reparto_propio.movil.numero}. "
                         f"Si queres cerrarla, mandá 'cerrar salida nro {numero_abierto}'. Si queres arrancar una "
@@ -471,7 +488,7 @@ class ConversationService:
     def _prompt_dato_faltante_inicio_reparto(conversation: WhatsAppConversation) -> str:
         if conversation.numero_reparto_pendiente is None:
             return "¿Que numero de salida es? Respondé solo con el numero."
-        return "¿En que movil vas a iniciar la salida? Respondé con el numero del movil."
+        return _texto_pedir_movil(conversation.numero_reparto_pendiente)
 
     def _iniciar_reparto(self, operator: Operator, comando: IniciarRepartoComando) -> str:
         movil = servicios.buscar_movil_activo(self.session, comando.movil_numero)
@@ -481,61 +498,69 @@ class ConversationService:
         # Un operador solo puede estar asociado a un reparto abierto a la vez -- se
         # chequea contra SU reparto propio actual (no contra el movil X recien
         # pedido), para no permitir que quede sumado a dos turnos en simultaneo.
+        conversation = servicios.conversacion_de(self.session, operator)
         reparto_propio = servicios.reparto_abierto_del_operador(self.session, operator.id)
         if reparto_propio is not None:
             if reparto_propio.movil_id == movil.id:
-                numero_abierto = (
-                    reparto_propio.numero_reparto if reparto_propio.numero_reparto is not None else "sin numero"
-                )
-                return f"Ya estas asociado a la Salida Nº {numero_abierto} en el movil {movil.numero}."
-            conversation = self.session.get(WhatsAppConversation, operator.whatsapp_numero)
-            if conversation is None:
-                conversation = WhatsAppConversation(numero=operator.whatsapp_numero)
-                self.session.add(conversation)
+                return f"Ya estas asociado a la Salida Nº {_numero_salida(reparto_propio)} en el movil {movil.numero}."
             conversation.estado = ConversationState.ESPERANDO_DECISION_REPARTO_ABIERTO
             conversation.movil_pendiente_numero = movil.numero
             conversation.numero_reparto_pendiente = comando.numero_reparto
             self.session.commit()
-            numero_abierto = reparto_propio.numero_reparto if reparto_propio.numero_reparto is not None else "sin numero"
             return (
-                f"Ya tenes una salida abierta (Nº {numero_abierto}). Responde 'cerrar' para cerrarla y arrancar "
-                "la nueva, o 'continuar' para seguir con la que ya esta abierta."
+                f"Ya tenes una salida abierta (Nº {_numero_salida(reparto_propio)}). Responde 'cerrar' para cerrarla "
+                "y arrancar la nueva, o 'continuar' para seguir con la que ya esta abierta."
             )
+        return self._entrar_a_salida(operator, conversation, comando.numero_reparto, movil, confirmar_creacion=True)
 
-        # El movil pedido puede ya tener un reparto abierto con otro operador (o con
-        # este mismo bajo otra circunstancia) -- en ese caso no se crea uno nuevo,
-        # el operador se suma al que ya esta en curso, sin pedir confirmacion.
-        reparto_movil = servicios.reparto_abierto_del_movil(self.session, movil.id)
-        if reparto_movil is not None:
-            servicios.asociar_operador(self.session, reparto_movil, operator)
-            self.session.commit()
-            numero_abierto = reparto_movil.numero_reparto if reparto_movil.numero_reparto is not None else "sin numero"
-            return f"Te asociaste a la Salida Nº {numero_abierto} en el movil {movil.numero}."
-
-        conversation = self.session.get(WhatsAppConversation, operator.whatsapp_numero)
-        if conversation is None:
-            conversation = WhatsAppConversation(numero=operator.whatsapp_numero)
-            self.session.add(conversation)
-        conversation.estado = ConversationState.ESPERANDO_CONFIRMACION_INICIO_REPARTO
-        conversation.movil_pendiente_numero = movil.numero
-        conversation.numero_reparto_pendiente = comando.numero_reparto
+    def _entrar_a_salida(
+        self,
+        operator: Operator,
+        conversation: WhatsAppConversation,
+        numero_reparto: int,
+        movil: Movil | None,
+        *,
+        confirmar_creacion: bool,
+    ) -> str:
+        """Para un operador sin salida abierta: lo suma a la salida con ese
+        numero si esta abierta (sin pedirle el movil); si no, la crea en el movil,
+        pidiendo antes el movil o la confirmacion si hace falta. Avisa si el movil
+        esta en otra salida o la salida en otro movil."""
+        salida = servicios.ubicar_salida(self.session, numero_reparto, movil)
+        self._limpiar_decision_reparto(conversation)
+        if isinstance(salida, Reparto):
+            servicios.asociar_operador(self.session, salida, operator)
+            texto = f"Te sumaste a la Salida Nº {_numero_salida(salida)} en el movil {salida.movil.numero}."
+        elif isinstance(salida, servicios.PedirMovil):
+            conversation.estado = ConversationState.ESPERANDO_DATOS_INICIO_REPARTO
+            conversation.numero_reparto_pendiente = numero_reparto
+            texto = _texto_pedir_movil(numero_reparto, salida.varias)
+        elif not isinstance(salida, servicios.SalidaNueva):
+            conversation.estado = ConversationState.ESPERANDO_DATOS_INICIO_REPARTO
+            texto = _texto_salida_ocupada(salida)
+        elif confirmar_creacion:
+            conversation.estado = ConversationState.ESPERANDO_CONFIRMACION_INICIO_REPARTO
+            conversation.movil_pendiente_numero = salida.movil.numero
+            conversation.numero_reparto_pendiente = numero_reparto
+            texto = (
+                f"Vas a iniciar la Salida Nº {numero_reparto} en el movil {salida.movil.numero}. "
+                "Respondé SI para confirmar o NO para cancelar."
+            )
+        else:
+            servicios.crear_salida(self.session, operator, salida.movil, numero_reparto)
+            texto = f"Salida Nº {numero_reparto} iniciada en el movil {salida.movil.numero}."
         self.session.commit()
-        return (
-            f"Vas a iniciar la Salida Nº {comando.numero_reparto} en el movil {movil.numero}. "
-            "Respondé SI para confirmar o NO para cancelar."
-        )
+        return texto
 
     def _confirmar_inicio_reparto(self, operator: Operator, conversation: WhatsAppConversation) -> str:
         movil = servicios.buscar_movil_activo(self.session, conversation.movil_pendiente_numero)
-        numero_reparto = conversation.numero_reparto_pendiente
-        self._limpiar_decision_reparto(conversation)
         if movil is None:
+            self._limpiar_decision_reparto(conversation)
             self.session.commit()
             return "El movil ya no esta disponible. Volve a mandar el comando de inicio."
-
-        servicios.crear_salida(self.session, operator, movil, numero_reparto)
-        self.session.commit()
-        return f"Salida Nº {numero_reparto} iniciada en el movil {movil.numero}."
+        return self._entrar_a_salida(
+            operator, conversation, conversation.numero_reparto_pendiente, movil, confirmar_creacion=False
+        )
 
     def _cerrar_y_arrancar_reparto_pendiente(self, operator: Operator, conversation: WhatsAppConversation) -> str:
         reparto_propio = servicios.reparto_abierto_del_operador(self.session, operator.id)
@@ -544,32 +569,21 @@ class ConversationService:
             self._notificar_cierre_reparto(reparto_propio, operator, otros, self._resumen_bancario_cierre(reparto_propio))
 
         movil = servicios.buscar_movil_activo(self.session, conversation.movil_pendiente_numero)
-        numero_reparto_nuevo = conversation.numero_reparto_pendiente
         if movil is None:
             self._limpiar_decision_reparto(conversation)
             self.session.commit()
             return "El movil que habias indicado ya no esta disponible. Volve a mandar el comando de inicio."
-
-        reparto_movil = servicios.reparto_abierto_del_movil(self.session, movil.id)
-        if reparto_movil is not None:
-            servicios.asociar_operador(self.session, reparto_movil, operator)
-            self._limpiar_decision_reparto(conversation)
-            self.session.commit()
-            numero_abierto = reparto_movil.numero_reparto if reparto_movil.numero_reparto is not None else "sin numero"
-            return f"Salida anterior cerrada. Te asociaste a la Salida Nº {numero_abierto} en el movil {movil.numero}."
-
-        servicios.crear_salida(self.session, operator, movil, numero_reparto_nuevo)
-        self._limpiar_decision_reparto(conversation)
-        self.session.commit()
-        return f"Salida anterior cerrada. Salida Nº {numero_reparto_nuevo} iniciada en el movil {movil.numero}."
+        texto = self._entrar_a_salida(
+            operator, conversation, conversation.numero_reparto_pendiente, movil, confirmar_creacion=False
+        )
+        return f"Salida anterior cerrada. {texto}"
 
     def _resumen_bancario_cierre(self, reparto: Reparto) -> str:
         """Texto con el total por banco de los comprobantes registrados durante la
         salida, para avisar al cerrarla -- reemplaza el PDF que se mandaba antes."""
         totales = servicios.totales_de_salida(self.session, reparto)
         sin_banco = servicios.SIN_BANCO_IDENTIFICADO
-        numero = reparto.numero_reparto if reparto.numero_reparto is not None else "sin numero"
-        lineas = [f"Cierre Salida Nº {numero}"]
+        lineas = [f"Cierre Salida Nº {_numero_salida(reparto)}"]
         for banco in sorted(banco for banco in totales.por_banco if banco != sin_banco):
             lineas.append(f"{banco}: {_formato_monto_ar(totales.por_banco[banco])}")
         if sin_banco in totales.por_banco:
@@ -583,9 +597,8 @@ class ConversationService:
     ) -> None:
         """Encola un aviso para los demas operadores de la salida -- el canal los
         envia despues via pop_notificaciones()."""
-        numero = reparto.numero_reparto if reparto.numero_reparto is not None else "sin numero"
         mensaje = (
-            f"La Salida Nº {numero} en el movil {reparto.movil.numero} fue cerrada por {quien_cierra.nombre}.\n\n"
+            f"La Salida Nº {_numero_salida(reparto)} en el movil {reparto.movil.numero} fue cerrada por {quien_cierra.nombre}.\n\n"
             f"{resumen}"
         )
         for operador in otros:

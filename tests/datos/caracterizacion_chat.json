@@ -42,7 +42,7 @@
     ],
     "operadores": {
       "Ana": {
-        "movil_id": 1
+        "movil_id": null
       },
       "Beto": {
         "movil_id": null
@@ -108,7 +108,7 @@
     ],
     "operadores": {
       "Ana": {
-        "movil_id": 1
+        "movil_id": null
       },
       "Beto": {
         "movil_id": null
@@ -166,14 +166,14 @@
     ],
     "operadores": {
       "Ana": {
-        "movil_id": 1
+        "movil_id": null
       },
       "Beto": {
         "movil_id": null
       }
     }
   },
-  "sin_salida_con_movil_asignado": {
+  "sin_salida_numero_no_abierto_pide_movil": {
     "transcripcion": [
       {
         "operador": "5491111111111",
@@ -202,6 +202,14 @@
       {
         "operador": "5491111111111",
         "entrada": "7",
+        "respuesta": "La Salida Nº 7 no esta abierta. ¿En que movil la vas a iniciar? Respondé con el numero del movil.",
+        "teclado": "descartar",
+        "estado": "esperando_movil",
+        "notificaciones": []
+      },
+      {
+        "operador": "5491111111111",
+        "entrada": "M-01",
         "respuesta": "Comprobante registrado correctamente. Se inicio la Salida Nº 7 en el movil M-01.\nFactura: 1 · $15000.00",
         "teclado": null,
         "estado": "esperando_comprobante",
@@ -232,7 +240,7 @@
     ],
     "operadores": {
       "Ana": {
-        "movil_id": 1
+        "movil_id": null
       },
       "Beto": {
         "movil_id": null
@@ -260,7 +268,7 @@
       {
         "operador": "5491111111111",
         "entrada": "8",
-        "respuesta": "¿En que movil estas? Respondé con el numero del movil.",
+        "respuesta": "La Salida Nº 8 no esta abierta. ¿En que movil la vas a iniciar? Respondé con el numero del movil.",
         "teclado": "descartar",
         "estado": "esperando_movil",
         "notificaciones": []
@@ -306,7 +314,7 @@
     ],
     "operadores": {
       "Ana": {
-        "movil_id": 1
+        "movil_id": null
       },
       "Beto": {
         "movil_id": null
@@ -365,14 +373,14 @@
     ],
     "operadores": {
       "Ana": {
-        "movil_id": 2
+        "movil_id": null
       },
       "Beto": {
-        "movil_id": 2
+        "movil_id": null
       }
     }
   },
-  "sin_salida_movil_asignado_con_otra_salida": {
+  "sin_salida_movil_elegido_con_otra_salida": {
     "transcripcion": [
       {
         "operador": "5491111111111",
@@ -393,7 +401,15 @@
       {
         "operador": "5491111111111",
         "entrada": "9",
-        "respuesta": "El movil M-01 ya tiene abierta la Salida Nº 4. Indica ese numero de salida.",
+        "respuesta": "La Salida Nº 9 no esta abierta. ¿En que movil la vas a iniciar? Respondé con el numero del movil.",
+        "teclado": "descartar",
+        "estado": "esperando_movil",
+        "notificaciones": []
+      },
+      {
+        "operador": "5491111111111",
+        "entrada": "M-01",
+        "respuesta": "El movil M-01 ya tiene abierta la Salida Nº 4. Si vas en ese movil, indicá ese numero de salida.",
         "teclado": "descartar",
         "estado": "esperando_numero_reparto_nuevo",
         "notificaciones": []
@@ -432,10 +448,51 @@
     ],
     "operadores": {
       "Ana": {
-        "movil_id": 1
+        "movil_id": null
       },
       "Beto": {
-        "movil_id": 1
+        "movil_id": null
+      }
+    }
+  },
+  "inicio_incompleto_se_suma_a_la_salida_abierta": {
+    "transcripcion": [
+      {
+        "operador": "5491111111111",
+        "entrada": "inicio",
+        "respuesta": "¿Que numero de salida es? Respondé solo con el numero.",
+        "teclado": null,
+        "estado": "esperando_datos_inicio_reparto",
+        "notificaciones": []
+      },
+      {
+        "operador": "5491111111111",
+        "entrada": "3",
+        "respuesta": "Te sumaste a la Salida Nº 3 en el movil M-02.",
+        "teclado": null,
+        "estado": "esperando_comprobante",
+        "notificaciones": []
+      }
+    ],
+    "movimientos": [],
+    "repartos": [
+      {
+        "id": 1,
+        "numero": 3,
+        "movil_id": 2,
+        "cerrado": false,
+        "operadores": [
+          1,
+          2
+        ]
+      }
+    ],
+    "operadores": {
+      "Ana": {
+        "movil_id": null
+      },
+      "Beto": {
+        "movil_id": null
       }
     }
   },
@@ -633,7 +690,7 @@
     ],
     "operadores": {
       "Ana": {
-        "movil_id": 1
+        "movil_id": null
       },
       "Beto": {
         "movil_id": null
@@ -715,15 +772,15 @@
       {
         "operador": "5491122222222",
         "entrada": "5",
-        "respuesta": "¿En que movil vas a iniciar la salida? Respondé con el numero del movil.",
+        "respuesta": "Te sumaste a la Salida Nº 5 en el movil M-01.",
         "teclado": null,
-        "estado": "esperando_datos_inicio_reparto",
+        "estado": "esperando_comprobante",
         "notificaciones": []
       },
       {
         "operador": "5491122222222",
         "entrada": "M-01",
-        "respuesta": "Te asociaste a la Salida Nº 5 en el movil M-01.",
+        "respuesta": "Envia una imagen o PDF del comprobante de transferencia.",
         "teclado": null,
         "estado": "esperando_comprobante",
         "notificaciones": []
@@ -873,10 +930,10 @@
     ],
     "operadores": {
       "Ana": {
-        "movil_id": 2
+        "movil_id": null
       },
       "Beto": {
-        "movil_id": 1
+        "movil_id": null
       }
     }
   },

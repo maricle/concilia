@@ -151,28 +151,26 @@ def list_operadores(
     request: Request, error: str = "", mensaje: str = "", db: Session = Depends(get_db), user: PanelUser = Depends(require_admin)
 ):
     operadores = db.scalars(select(Operator).order_by(Operator.id)).all()
-    moviles = db.scalars(select(Movil).where(Movil.activo.is_(True)).order_by(Movil.nombre)).all()
     return templates.TemplateResponse(
-        request, "operadores.html", {"user": user, "operadores": operadores, "moviles": moviles, "error": error or None, "mensaje": mensaje or None}
+        request, "operadores.html", {"user": user, "operadores": operadores, "error": error or None, "mensaje": mensaje or None}
     )
 
 
 @router.get("/config/operadores/exportar")
 def operadores_exportar(db: Session = Depends(get_db), user: PanelUser = Depends(require_admin)):
-    operadores = db.scalars(select(Operator).options(selectinload(Operator.movil)).order_by(Operator.id)).all()
+    operadores = db.scalars(select(Operator).order_by(Operator.id)).all()
     filas = [
         [
             o.nombre,
             o.whatsapp_numero,
             "Si" if o.telegram_chat_id else "No",
             o.tipo,
-            o.movil.numero if o.movil else "",
             "Activo" if o.activo else "Inactivo",
         ]
         for o in operadores
     ]
     return respuesta_xlsx(
-        ["Nombre", "Numero", "Telegram vinculado", "Tipo", "Movil", "Estado"], filas, "operadores.xlsx"
+        ["Nombre", "Numero", "Telegram vinculado", "Tipo", "Estado"], filas, "operadores.xlsx"
     )
 
 
@@ -199,31 +197,24 @@ def create_operador(
     nombre: str = Form(...),
     whatsapp_numero: str = Form(...),
     tipo: str = Form("Reparto"),
-    movil_id: str = Form(""),
     db: Session = Depends(get_db),
     user: PanelUser = Depends(require_admin),
 ):
     duplicado = _operador_con_el_mismo_celular(db, whatsapp_numero)
     if duplicado is not None:
         operadores = db.scalars(select(Operator).order_by(Operator.id)).all()
-        moviles = db.scalars(select(Movil).where(Movil.activo.is_(True)).order_by(Movil.nombre)).all()
         return templates.TemplateResponse(
             request,
             "operadores.html",
             {
                 "user": user,
                 "operadores": operadores,
-                "moviles": moviles,
                 "error": f"Ya existe un operador con el numero {whatsapp_numero} ({duplicado.nombre}).",
             },
             status_code=400,
         )
 
-    db.add(
-        Operator(
-            nombre=nombre, whatsapp_numero=whatsapp_numero, tipo=tipo, movil_id=int(movil_id) if movil_id else None
-        )
-    )
+    db.add(Operator(nombre=nombre, whatsapp_numero=whatsapp_numero, tipo=tipo))
     db.commit()
     return RedirectResponse(volver_a(request, "/config/operadores"), status_code=303)
 
@@ -310,10 +301,7 @@ def editar_operador_form(
     operador_id: int, request: Request, db: Session = Depends(get_db), user: PanelUser = Depends(require_admin)
 ):
     operador = obtener_o_redirigir(db, Operator, operador_id, "/config/operadores")
-    moviles = db.scalars(select(Movil).where(Movil.activo.is_(True)).order_by(Movil.nombre)).all()
-    return templates.TemplateResponse(
-        request, "editar_operador.html", {"user": user, "operador": operador, "moviles": moviles, "error": None}
-    )
+    return templates.TemplateResponse(request, "editar_operador.html", {"user": user, "operador": operador, "error": None})
 
 
 @router.post("/config/operadores/{operador_id}/editar")
@@ -323,12 +311,10 @@ def editar_operador_submit(
     nombre: str = Form(...),
     whatsapp_numero: str = Form(""),
     tipo: str = Form("Reparto"),
-    movil_id: str = Form(""),
     db: Session = Depends(get_db),
     user: PanelUser = Depends(require_admin),
 ):
     operador = obtener_o_redirigir(db, Operator, operador_id, "/config/operadores")
-    moviles = db.scalars(select(Movil).where(Movil.activo.is_(True)).order_by(Movil.nombre)).all()
 
     if not whatsapp_numero.strip():
         es_responsable = db.scalar(
@@ -342,7 +328,7 @@ def editar_operador_submit(
         return templates.TemplateResponse(
             request,
             "editar_operador.html",
-            {"user": user, "operador": operador, "moviles": moviles, "error": mensaje},
+            {"user": user, "operador": operador, "error": mensaje},
             status_code=400,
         )
 
@@ -354,7 +340,6 @@ def editar_operador_submit(
             {
                 "user": user,
                 "operador": operador,
-                "moviles": moviles,
                 "error": f"Ya existe otro operador con el numero {whatsapp_numero} ({duplicado.nombre}).",
             },
             status_code=400,
@@ -363,7 +348,6 @@ def editar_operador_submit(
     operador.nombre = nombre
     operador.whatsapp_numero = whatsapp_numero
     operador.tipo = tipo
-    operador.movil_id = int(movil_id) if movil_id else None
     db.commit()
     return RedirectResponse(volver_a(request, "/config/operadores"), status_code=303)
 

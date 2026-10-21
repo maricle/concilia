@@ -131,56 +131,62 @@ def test_numero_de_factura_invalido_vuelve_a_pedir(entorno):
     assert "Elegí Factura o Cuenta" in respuesta.text
 
 
-def test_sin_salida_pide_el_numero_y_la_crea_en_el_movil_asignado(entorno):
+def test_sin_salida_pide_el_numero_y_el_movil_solo_si_no_esta_abierta(entorno):
     fabrica = entorno["fabrica"]
-    with fabrica() as db:
-        db.get(Operator, 1).movil_id = 1
-        db.commit()
     client = _logueado()
     revisar = _subir(client).headers["location"]
+    registrar = revisar.replace("revisar", "registrar")
     pantalla = client.get(revisar).text
     assert 'name="numero_salida"' in pantalla and 'name="movil_id"' not in pantalla
 
-    sin_numero = client.post(revisar.replace("revisar", "registrar"), data={"tipo": "cuenta", "numero": "987"})
+    sin_numero = client.post(registrar, data={"tipo": "cuenta", "numero": "987"})
     assert sin_numero.status_code == 400
     with fabrica() as db:
         # La web nunca deja la conversacion en un paso del chat que ella no usa.
         assert db.get(WhatsAppConversation, ANA).estado == ConversationState.ESPERANDO_TIPO_FACTURA_CUENTA
 
-    registrado = client.post(revisar.replace("revisar", "registrar"), data={"tipo": "cuenta", "numero": "987", "numero_salida": "7"})
+    pide_movil = client.post(registrar, data={"tipo": "cuenta", "numero": "987", "numero_salida": "7"})
+    assert "La Salida Nº 7 no está abierta. Elegí el móvil para iniciarla." in pide_movil.text
+    assert 'name="movil_id"' in pide_movil.text and 'value="987"' in pide_movil.text
+    with fabrica() as db:
+        assert db.get(WhatsAppConversation, ANA).estado == ConversationState.ESPERANDO_TIPO_FACTURA_CUENTA
+
+    registrado = client.post(registrar, data={"tipo": "cuenta", "numero": "987", "numero_salida": "7", "movil_id": "1"})
     assert "Salida Nº 7" in registrado.text and "salida nueva" in registrado.text
+    with fabrica() as db:
+        assert db.query(Movement).one().movil_id == 1
+        assert db.get(Operator, 1).movil_id is None
 
 
-def test_sin_salida_ni_movil_pide_tambien_el_movil(entorno):
-    client = _logueado()
-    revisar = _subir(client).headers["location"]
-    assert 'name="movil_id"' in client.get(revisar).text
-
-    registrado = client.post(
-        revisar.replace("revisar", "registrar"), data={"tipo": "factura", "numero": "1", "numero_salida": "8", "movil_id": "1"}
-    )
-
-    assert "Salida Nº 8" in registrado.text
-    with entorno["fabrica"]() as db:
-        assert db.get(Operator, 1).movil_id == 1
-
-
-def test_movil_asignado_con_otra_salida_avisa_y_conserva_lo_cargado(entorno):
+def test_sin_salida_con_la_salida_abierta_por_otro_se_suma_sin_pedir_el_movil(entorno):
     fabrica = entorno["fabrica"]
     with fabrica() as db:
         servicios.crear_salida(db, db.get(Operator, 2), db.get(Movil, 1), 4)
-        db.get(Operator, 1).movil_id = 1
         db.commit()
     client = _logueado()
     revisar = _subir(client).headers["location"]
 
-    respuesta = client.post(revisar.replace("revisar", "registrar"), data={"tipo": "factura", "numero": "55", "numero_salida": "9"})
+    registrado = client.post(revisar.replace("revisar", "registrar"), data={"tipo": "factura", "numero": "1", "numero_salida": "4"})
 
-    assert "ya tiene abierta la Salida Nº 4" in respuesta.text
+    assert "Comprobante registrado" in registrado.text and "Salida Nº 4" in registrado.text
+    with fabrica() as db:
+        assert servicios.reparto_abierto_del_operador(db, 1).numero_reparto == 4
+
+
+def test_movil_elegido_con_otra_salida_avisa_y_conserva_lo_cargado(entorno):
+    fabrica = entorno["fabrica"]
+    with fabrica() as db:
+        servicios.crear_salida(db, db.get(Operator, 2), db.get(Movil, 1), 4)
+        db.commit()
+    client = _logueado()
+    revisar = _subir(client).headers["location"]
+    registrar = revisar.replace("revisar", "registrar")
+
+    respuesta = client.post(registrar, data={"tipo": "factura", "numero": "55", "numero_salida": "9", "movil_id": "1"})
+
+    assert "El móvil M-01 ya tiene abierta la Salida Nº 4" in respuesta.text
     assert 'value="55"' in respuesta.text
-    assert "Salida Nº 4" in client.post(
-        revisar.replace("revisar", "registrar"), data={"tipo": "factura", "numero": "55", "numero_salida": "4"}
-    ).text
+    assert "Salida Nº 4" in client.post(registrar, data={"tipo": "factura", "numero": "55", "numero_salida": "4"}).text
 
 
 def test_comprobante_ilegible_ofrece_otra_foto(entorno):

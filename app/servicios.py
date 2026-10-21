@@ -170,15 +170,13 @@ def reparto_abierto_del_operador(session: Session, operador_id: int) -> Reparto 
 
 def asociar_operador(session: Session, reparto: Reparto, operador: Operator) -> None:
     """Suma al operador como participante del reparto (chofer, ayudante, o el
-    que entra en un cambio de turno) si todavia no estaba. movil_id del
-    operador se actualiza como referencia -- no es la fuente de verdad para
-    nada, solo un dato de conveniencia de "en que movil arranco el dia"."""
+    que entra en un cambio de turno) si todavia no estaba. El movil no se guarda
+    en el operador: queda en la salida y en cada comprobante."""
     ya_asociado = session.scalar(
         select(RepartoOperador).where(RepartoOperador.reparto_id == reparto.id, RepartoOperador.operador_id == operador.id)
     )
     if ya_asociado is None:
         session.add(RepartoOperador(reparto_id=reparto.id, operador_id=operador.id))
-    operador.movil_id = reparto.movil_id
 
 
 def buscar_movil_activo(session: Session, texto: str | None) -> Movil | None:
@@ -208,6 +206,52 @@ def crear_salida(session: Session, operador: Operator, movil: Movil, numero_repa
     session.flush()
     asociar_operador(session, reparto, operador)
     return reparto
+
+
+@dataclass
+class PedirMovil:
+    """No alcanza con el numero de salida para saber el movil: hay que pedirlo
+    (la salida no esta abierta, o hay mas de una abierta con ese numero)."""
+
+    varias: bool = False
+
+
+@dataclass
+class SalidaNueva:
+    """No hay salida abierta con ese numero y el movil esta libre: se puede crear."""
+
+    movil: Movil
+
+
+@dataclass
+class SalidaEnOtroMovil:
+    reparto: Reparto
+
+
+@dataclass
+class MovilConOtraSalida:
+    movil: Movil
+    reparto: Reparto
+
+
+def ubicar_salida(
+    session: Session, numero_reparto: int, movil: Movil | None = None
+) -> Reparto | PedirMovil | SalidaNueva | SalidaEnOtroMovil | MovilConOtraSalida:
+    """Regla unica (web y chat) para empezar a trabajar en una salida a partir de
+    su numero. Si hay una sola salida abierta con ese numero, es esa (el operador
+    se suma sin indicar el movil). Si no esta abierta, recien ahi hace falta el
+    movil para crearla, y el movil no puede estar en otra salida abierta."""
+    abiertas = session.scalars(
+        select(Reparto).where(Reparto.numero_reparto == numero_reparto, Reparto.hora_fin.is_(None))
+    ).all()
+    if movil is None:
+        return abiertas[0] if len(abiertas) == 1 else PedirMovil(varias=len(abiertas) > 1)
+    en_el_movil = reparto_abierto_del_movil(session, movil.id)
+    if en_el_movil is not None:
+        return en_el_movil if en_el_movil.numero_reparto == numero_reparto else MovilConOtraSalida(movil, en_el_movil)
+    if abiertas:
+        return SalidaEnOtroMovil(abiertas[0])
+    return SalidaNueva(movil)
 
 
 def cerrar_salida(session: Session, reparto: Reparto, quien_cierra: Operator) -> list[Operator]:
@@ -328,17 +372,6 @@ class SinSalidaAbierta:
 
 
 @dataclass
-class PedirMovil:
-    """No alcanza con el numero de salida para saber el movil: hay que pedirlo."""
-
-
-@dataclass
-class MovilConOtraSalida:
-    movil: Movil
-    reparto: Reparto
-
-
-@dataclass
 class MovilSinSalida:
     """El movil indicado no tiene salida abierta y no hay numero de salida para crearla."""
 
@@ -381,51 +414,53 @@ def registrar(
 
 def resolver_salida_por_numero(
     session: Session, operador: Operator, conversacion: WhatsAppConversation, movimiento: Movement, numero_reparto: int
-) -> Registrado | PedirMovil | MovilConOtraSalida:
-    """El operador sin salida abierta indico solo el numero de salida: se deduce
-    el movil sin hacerle mas preguntas. Si hay una unica salida abierta con ese
-    numero, se suma a ella; si no hay ninguna, se crea en el movil que el
-    operador tiene asignado. Solo si eso no alcanza (sin movil asignado, o mas de
-    una salida abierta con el mismo numero) hay que pedirle el movil."""
-    abiertas = session.scalars(
-        select(Reparto).where(Reparto.numero_reparto == numero_reparto, Reparto.hora_fin.is_(None))
-    ).all()
-    if len(abiertas) == 1:
-        reparto = abiertas[0]
-        asociar_operador(session, reparto, operador)
-        return _confirmar(session, conversacion, movimiento, reparto, session.get(Movil, reparto.movil_id), SalidaUsada.EXISTENTE)
-
-    movil = session.get(Movil, operador.movil_id) if operador.movil_id is not None else None
-    if not abiertas and movil is not None and movil.activo:
-        otra_abierta = reparto_abierto_del_movil(session, movil.id)
-        if otra_abierta is not None:
-            return MovilConOtraSalida(movil, otra_abierta)
-        reparto = crear_salida(session, operador, movil, numero_reparto)
-        return _confirmar(session, conversacion, movimiento, reparto, movil, SalidaUsada.NUEVA)
-
+) -> Registrado | PedirMovil:
+    """El operador sin salida abierta indico el numero de salida: si esta
+    abierta, se suma a ella y queda registrado. Si no, queda esperando el movil
+    (con el numero guardado) para crearla."""
+    salida = ubicar_salida(session, numero_reparto)
+    if isinstance(salida, Reparto):
+        asociar_operador(session, salida, operador)
+        return _confirmar(session, conversacion, movimiento, salida, salida.movil, SalidaUsada.EXISTENTE)
     conversacion.numero_reparto_pendiente = numero_reparto
     conversacion.estado = ConversationState.ESPERANDO_MOVIL
     session.commit()
-    return PedirMovil()
+    return salida
 
 
 def registrar_en_movil(
     session: Session, operador: Operator, conversacion: WhatsAppConversation, movimiento: Movement, movil: Movil
-) -> Registrado | MovilSinSalida:
-    """El operador indico en que movil esta: se suma a su salida abierta, o se
-    crea una con el numero de salida que ya habia indicado. Si no hay salida
-    abierta ni numero, queda pendiente confirmar la creacion."""
-    reparto = reparto_abierto_del_movil(session, movil.id)
-    if reparto is not None:
-        asociar_operador(session, reparto, operador)
-        return _confirmar(session, conversacion, movimiento, reparto, movil, SalidaUsada.EXISTENTE)
-    conversacion.movil_pendiente_numero = movil.numero
-    if conversacion.numero_reparto_pendiente is not None:
-        reparto = crear_salida(session, operador, movil, conversacion.numero_reparto_pendiente)
+) -> Registrado | MovilSinSalida | SalidaEnOtroMovil | MovilConOtraSalida:
+    """El operador indico en que movil esta, despues del numero de salida: se
+    suma a esa salida o se crea en el movil. Si el movil esta en otra salida (o
+    la salida en otro movil), vuelve a pedir el numero de salida.
+
+    Sin numero de salida previo (conversaciones de antes de pedir siempre el
+    numero primero): se suma a la salida abierta del movil, o queda pendiente
+    confirmar la creacion."""
+    numero = conversacion.numero_reparto_pendiente
+    if numero is None:
+        reparto = reparto_abierto_del_movil(session, movil.id)
+        if reparto is not None:
+            asociar_operador(session, reparto, operador)
+            return _confirmar(session, conversacion, movimiento, reparto, movil, SalidaUsada.EXISTENTE)
+        conversacion.movil_pendiente_numero = movil.numero
+        conversacion.estado = ConversationState.ESPERANDO_CONFIRMACION_CREAR_REPARTO
+        session.commit()
+        return MovilSinSalida(movil)
+
+    salida = ubicar_salida(session, numero, movil)
+    if isinstance(salida, Reparto):
+        asociar_operador(session, salida, operador)
+        return _confirmar(session, conversacion, movimiento, salida, movil, SalidaUsada.EXISTENTE)
+    if isinstance(salida, SalidaNueva):
+        reparto = crear_salida(session, operador, movil, numero)
         return _confirmar(session, conversacion, movimiento, reparto, movil, SalidaUsada.NUEVA)
-    conversacion.estado = ConversationState.ESPERANDO_CONFIRMACION_CREAR_REPARTO
+    conversacion.numero_reparto_pendiente = None
+    conversacion.movil_pendiente_numero = None
+    conversacion.estado = ConversationState.ESPERANDO_NUMERO_REPARTO_NUEVO
     session.commit()
-    return MovilSinSalida(movil)
+    return salida
 
 
 def crear_salida_y_registrar(
@@ -440,6 +475,7 @@ def crear_salida_y_registrar(
     if movil is None:
         conversacion.estado = ConversationState.ESPERANDO_MOVIL
         conversacion.movil_pendiente_numero = None
+        conversacion.numero_reparto_pendiente = numero_reparto
         session.commit()
         return MovilNoDisponible()
     reparto = crear_salida(session, operador, movil, numero_reparto)

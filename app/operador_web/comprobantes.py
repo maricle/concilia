@@ -40,14 +40,13 @@ from ..panel.comun import del_dia
 from ..storage import save_comprobante_archivo
 from ..zona_horaria import hoy_argentina
 from .archivos import ArchivoInvalido, validar_comprobante
-from .comun import templates
+from .comun import moviles_activos, templates, texto_pedir_movil, texto_salida_ocupada
 from .sesion import get_db, require_operator
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
 ORIGEN_WEB = "web"
-ELEGIR_MOVIL = "Elegí en qué móvil estás."
 
 
 # -------------------------------------------------------------------- helpers
@@ -189,7 +188,7 @@ def _pantalla_revision(
     tipo: str | None = None, numero: str | None = None, numero_salida: str = "", pedir_movil: bool = False,
 ):
     salida = servicios.reparto_abierto_del_operador(db, operador.id)
-    movil_asignado = db.get(Movil, operador.movil_id) if operador.movil_id else None
+    pedir_movil = salida is None and pedir_movil
     return templates.TemplateResponse(
         request,
         "m/comprobante_revisar.html",
@@ -197,8 +196,8 @@ def _pantalla_revision(
             "operador": operador,
             "borrador": borrador,
             "salida": salida,
-            "pedir_movil": salida is None and (pedir_movil or movil_asignado is None or not movil_asignado.activo),
-            "moviles": list(db.scalars(select(Movil).where(Movil.activo.is_(True)).order_by(Movil.numero))),
+            "pedir_movil": pedir_movil,
+            "moviles": moviles_activos(db) if pedir_movil else [],
             "tipo": tipo if tipo is not None else (borrador.factura_o_cuenta_tipo.value if borrador.factura_o_cuenta_tipo else ""),
             "numero": numero if numero is not None else (borrador.factura_o_cuenta_numero or ""),
             "numero_salida": numero_salida,
@@ -244,7 +243,7 @@ async def registrar(
             resultado = servicios.registrar(db, operador, conversacion, borrador)
         else:
             resultado = _registrar_resolviendo_la_salida(db, operador, conversacion, borrador, numero_salida, movil_id)
-        if isinstance(resultado, str):
+        if not isinstance(resultado, servicios.Registrado):
             # No se pudo resolver la salida: la conversacion vuelve a quedar
             # esperando factura/cuenta (nunca en un paso del chat que la web no
             # usa), con lo cargado guardado para no volver a escribirlo.
@@ -252,33 +251,33 @@ async def registrar(
             conversacion.numero_reparto_pendiente = None
             conversacion.movil_pendiente_numero = None
             db.commit()
+            error, pedir_movil = resultado
             return _pantalla_revision(
-                request, db, operador, borrador, error=resultado, tipo=tipo, numero=numero,
-                numero_salida=numero_salida, pedir_movil=resultado == ELEGIR_MOVIL,
+                request, db, operador, borrador, error=error, tipo=tipo, numero=numero,
+                numero_salida=numero_salida, pedir_movil=pedir_movil,
             )
     return templates.TemplateResponse(request, "m/comprobante_registrado.html", {"operador": operador, "registrado": resultado})
 
 
 def _registrar_resolviendo_la_salida(
     db: Session, operador: Operator, conversacion: WhatsAppConversation, borrador: Movement, numero_salida: str, movil_id: str
-) -> servicios.Registrado | str:
-    """Sin salida abierta, el numero de salida (y el movil si el operador no
-    tiene uno) vienen en el mismo envio. Devuelve el error a mostrar si no alcanza."""
+) -> servicios.Registrado | tuple[str, bool]:
+    """Sin salida abierta: con el numero de salida alcanza si esa salida esta
+    abierta; si no, la pantalla vuelve pidiendo el movil para iniciarla. Si no
+    alcanza, devuelve (error a mostrar, si hay que pedir el movil)."""
     if not numero_salida.strip().isdigit():
-        return "No tenés una salida abierta: indicá el número de salida."
+        return "No tenés una salida abierta: indicá el número de salida.", False
     numero = int(numero_salida.strip())
     movil = db.get(Movil, int(movil_id)) if movil_id.isdigit() else None
     if movil is not None and movil.activo:
         conversacion.numero_reparto_pendiente = numero
-        return servicios.registrar_en_movil(db, operador, conversacion, borrador, movil)
-    resultado = servicios.resolver_salida_por_numero(db, operador, conversacion, borrador, numero)
-    if isinstance(resultado, servicios.MovilConOtraSalida):
-        return (
-            f"El móvil {resultado.movil.numero} ya tiene abierta la Salida Nº {resultado.reparto.numero_reparto}. "
-            "Indicá ese número de salida."
-        )
+        resultado = servicios.registrar_en_movil(db, operador, conversacion, borrador, movil)
+    else:
+        resultado = servicios.resolver_salida_por_numero(db, operador, conversacion, borrador, numero)
     if isinstance(resultado, servicios.PedirMovil):
-        return ELEGIR_MOVIL
+        return texto_pedir_movil(numero, resultado.varias), True
+    if isinstance(resultado, servicios.SalidaEnOtroMovil | servicios.MovilConOtraSalida):
+        return texto_salida_ocupada(resultado), False
     return resultado
 
 

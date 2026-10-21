@@ -900,7 +900,8 @@ def test_editar_movil_updates_fields():
         assert movil.responsable_operador_id == 2
 
 
-def test_editar_operador_asigna_y_limpia_movil():
+def test_operadores_no_tienen_movil_en_el_panel():
+    # El movil queda en la salida y en cada comprobante, no en el operador.
     client, test_session = _client_with_admin()
     with test_session() as session:
         session.add(Operator(nombre="Ana", whatsapp_numero="111"))
@@ -909,23 +910,17 @@ def test_editar_operador_asigna_y_limpia_movil():
         session.commit()
 
     client.post("/login", data={"email": "admin@concilia.test", "password": "secreta123"})
+    assert 'name="movil_id"' not in client.get("/config/operadores").text
+    assert 'name="movil_id"' not in client.get("/config/operadores/1/editar").text
     response = client.post(
         "/config/operadores/1/editar",
-        data={"nombre": "Ana", "whatsapp_numero": "111", "tipo": "Reparto", "movil_id": "1"},
+        data={"nombre": "Ana B", "whatsapp_numero": "111", "tipo": "Reparto", "movil_id": "1"},
         follow_redirects=False,
     )
     assert response.status_code == 303
     with test_session() as session:
-        assert session.get(Operator, 1).movil_id == 1
-
-    response = client.post(
-        "/config/operadores/1/editar",
-        data={"nombre": "Ana", "whatsapp_numero": "111", "tipo": "Reparto", "movil_id": ""},
-        follow_redirects=False,
-    )
-    assert response.status_code == 303
-    with test_session() as session:
-        assert session.get(Operator, 1).movil_id is None
+        operador = session.get(Operator, 1)
+        assert (operador.nombre, operador.movil_id) == ("Ana B", None)
 
 
 def test_editar_operador_rechaza_celular_vacio_si_es_responsable():

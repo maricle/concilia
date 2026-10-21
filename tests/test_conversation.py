@@ -43,7 +43,6 @@ def _asociar_a_reparto_abierto(db: Session, operador_id: int, movil_id: int, num
     db.add(reparto)
     db.flush()
     db.add(RepartoOperador(reparto_id=reparto.id, operador_id=operador_id))
-    db.get(Operator, operador_id).movil_id = movil_id
     db.commit()
     return reparto
 
@@ -343,7 +342,7 @@ def test_boton_descartar_en_paso_factura_cuenta():
     assert db.query(Movement).count() == 0
 
 
-def test_iniciar_reparto_asigna_movil_y_crea_reparto():
+def test_iniciar_reparto_crea_la_salida_sin_guardar_el_movil_en_el_operador():
     db = session()
     db.add(Operator(nombre="Ana", whatsapp_numero="5491112345678"))
     db.commit()
@@ -358,14 +357,14 @@ def test_iniciar_reparto_asigna_movil_y_crea_reparto():
     response = service.handle_text("5491112345678", "SI")
 
     assert "Salida Nº 5 iniciada" in response
-    assert db.get(Operator, 1).movil_id == 1
+    assert db.get(Operator, 1).movil_id is None
     reparto = db.query(Reparto).one()
     assert reparto.movil_id == 1
     assert reparto.numero_reparto == 5
     assert reparto.hora_fin is None
 
 
-def test_iniciar_reparto_se_asocia_directo_si_el_movil_ya_tiene_uno_abierto():
+def test_iniciar_reparto_se_suma_directo_si_esa_salida_ya_esta_abierta():
     db = session()
     db.add_all(
         [
@@ -380,14 +379,11 @@ def test_iniciar_reparto_se_asocia_directo_si_el_movil_ya_tiene_uno_abierto():
     service.handle_text("5491112345678", "inicio movil M-01 reparto nro 5")
     service.handle_text("5491112345678", "SI")
 
-    respuesta = service.handle_text("5491100000000", "inicio movil M-01 reparto nro 9")
+    respuesta = service.handle_text("5491100000000", "inicio movil M-01 reparto nro 5")
 
-    # se asocia directo al reparto Nº 5 que ya estaba abierto, sin pedir confirmacion
-    # y sin importar que Beto haya tipeado el numero 9.
-    assert respuesta == "Te asociaste a la Salida Nº 5 en el movil M-01."
+    # se suma directo a la Salida Nº 5 que ya estaba abierta, sin pedir confirmacion.
+    assert respuesta == "Te sumaste a la Salida Nº 5 en el movil M-01."
     assert db.query(Reparto).count() == 1
-    beto = db.scalar(select(Operator).where(Operator.whatsapp_numero == "5491100000000"))
-    assert beto.movil_id == 1
     reparto = db.query(Reparto).one()
     asociados = db.scalars(select(RepartoOperador).where(RepartoOperador.reparto_id == reparto.id)).all()
     assert {a.operador_id for a in asociados} == {1, 2}
@@ -450,7 +446,6 @@ def test_iniciar_reparto_confirmacion_no_cancela():
 
     assert "Inicio de salida cancelado" in respuesta
     assert db.query(Reparto).count() == 0
-    assert db.get(Operator, 1).movil_id is None
 
 
 def test_iniciar_reparto_acepta_numero_de_movil_sin_prefijo_m():
@@ -642,6 +637,95 @@ def test_pending_prompt_reshows_confirmacion_inicio_reparto():
     assert "Vas a iniciar la Salida Nº 5 en el movil M-01" in prompt
 
 
+def test_iniciar_reparto_en_un_movil_con_otra_salida_avisa_y_pide_el_numero():
+    db = session()
+    db.add_all(
+        [
+            Operator(nombre="Ana", whatsapp_numero="5491112345678"),
+            Operator(nombre="Beto", whatsapp_numero="5491100000000"),
+        ]
+    )
+    db.commit()
+    db.add(Movil(numero="M-01", nombre="Camion 1", responsable_operador_id=1))
+    db.commit()
+    _asociar_a_reparto_abierto(db, operador_id=1, movil_id=1, numero_reparto=5)
+    service = ConversationService(db)
+
+    respuesta = service.handle_text("5491100000000", "inicio movil M-01 reparto nro 9")
+
+    assert respuesta == "El movil M-01 ya tiene abierta la Salida Nº 5. Si vas en ese movil, indicá ese numero de salida."
+    assert servicios.reparto_abierto_del_operador(db, 2) is None
+    assert service.handle_text("5491100000000", "5") == "Te sumaste a la Salida Nº 5 en el movil M-01."
+    assert db.query(Reparto).count() == 1
+
+
+def test_iniciar_reparto_con_una_salida_abierta_en_otro_movil_avisa():
+    db = session()
+    db.add_all(
+        [
+            Operator(nombre="Ana", whatsapp_numero="5491112345678"),
+            Operator(nombre="Beto", whatsapp_numero="5491100000000"),
+        ]
+    )
+    db.commit()
+    db.add_all(
+        [
+            Movil(numero="M-01", nombre="Camion 1", responsable_operador_id=1),
+            Movil(numero="M-02", nombre="Camion 2", responsable_operador_id=1),
+        ]
+    )
+    db.commit()
+    _asociar_a_reparto_abierto(db, operador_id=1, movil_id=1, numero_reparto=5)
+    service = ConversationService(db)
+
+    respuesta = service.handle_text("5491100000000", "inicio movil M-02 reparto nro 5")
+
+    assert respuesta == "La Salida Nº 5 esta abierta en el movil M-01. Revisá el numero de salida."
+    assert db.query(Reparto).count() == 1
+
+
+def test_inicio_incompleto_con_la_salida_abierta_se_suma_sin_pedir_el_movil():
+    db = session()
+    db.add_all(
+        [
+            Operator(nombre="Ana", whatsapp_numero="5491112345678"),
+            Operator(nombre="Beto", whatsapp_numero="5491100000000"),
+        ]
+    )
+    db.commit()
+    db.add(Movil(numero="M-01", nombre="Camion 1", responsable_operador_id=1))
+    db.commit()
+    _asociar_a_reparto_abierto(db, operador_id=1, movil_id=1, numero_reparto=5)
+    service = ConversationService(db)
+
+    assert "numero de salida" in service.handle_text("5491100000000", "inicio")
+    respuesta = service.handle_text("5491100000000", "5")
+
+    assert respuesta == "Te sumaste a la Salida Nº 5 en el movil M-01."
+    assert servicios.reparto_abierto_del_operador(db, 2).numero_reparto == 5
+    assert db.get(WhatsAppConversation, "5491100000000").estado == ConversationState.ESPERANDO_COMPROBANTE
+
+
+def test_inicio_incompleto_con_la_salida_cerrada_pide_el_movil_y_confirma():
+    db = session()
+    db.add(Operator(nombre="Ana", whatsapp_numero="5491112345678"))
+    db.commit()
+    db.add(Movil(numero="M-01", nombre="Camion 1", responsable_operador_id=1))
+    db.commit()
+    service = ConversationService(db)
+
+    service.handle_text("5491112345678", "inicio")
+    respuesta = service.handle_text("5491112345678", "7")
+
+    assert respuesta == (
+        "La Salida Nº 7 no esta abierta. ¿En que movil la vas a iniciar? Respondé con el numero del movil."
+    )
+    assert service.pending_prompt("5491112345678") == respuesta
+    assert "Vas a iniciar la Salida Nº 7 en el movil M-01" in service.handle_text("5491112345678", "M-01")
+    assert service.handle_text("5491112345678", "SI") == "Salida Nº 7 iniciada en el movil M-01."
+    assert db.query(Reparto).one().numero_reparto == 7
+
+
 def test_iniciar_reparto_con_reparto_abierto_pregunta_y_cierra():
     db = session()
     db.add(Operator(nombre="Ana", whatsapp_numero="5491112345678"))
@@ -661,13 +745,11 @@ def test_iniciar_reparto_con_reparto_abierto_pregunta_y_cierra():
 
     assert "Ya tenes una salida abierta" in respuesta
     assert "Nº 1" in respuesta
-    assert db.get(Operator, 1).movil_id == 1  # todavia no cambio
 
     respuesta_cerrar = service.handle_text("5491112345678", "cerrar")
 
     assert "Salida anterior cerrada" in respuesta_cerrar
     assert "Nº 2" in respuesta_cerrar
-    assert db.get(Operator, 1).movil_id == 2
     repartos = db.query(Reparto).order_by(Reparto.id).all()
     assert len(repartos) == 2
     assert repartos[0].hora_fin is not None
@@ -699,10 +781,10 @@ def test_cerrar_y_arrancar_se_asocia_si_el_movil_nuevo_ya_tiene_reparto_abierto(
     service.handle_text("5491100000000", "SI")
 
     # Ana quiere pasarse al M-02, que Beto ya tiene abierto.
-    service.handle_text("5491112345678", "inicio movil M-02 reparto nro 9")
+    service.handle_text("5491112345678", "inicio movil M-02 reparto nro 2")
     respuesta = service.handle_text("5491112345678", "cerrar")
 
-    assert respuesta == "Salida anterior cerrada. Te asociaste a la Salida Nº 2 en el movil M-02."
+    assert respuesta == "Salida anterior cerrada. Te sumaste a la Salida Nº 2 en el movil M-02."
     assert db.query(Reparto).count() == 2  # no se creo un tercero
     reparto_m02 = db.query(Reparto).where(Reparto.movil_id == 2).one()
     asociados = db.scalars(select(RepartoOperador).where(RepartoOperador.reparto_id == reparto_m02.id)).all()
@@ -729,7 +811,6 @@ def test_iniciar_reparto_con_reparto_abierto_continuar_no_cambia_nada():
     respuesta = service.handle_text("5491112345678", "continuar")
 
     assert "Seguis con la salida" in respuesta
-    assert db.get(Operator, 1).movil_id == 1
     assert db.query(Reparto).count() == 1
 
 
@@ -953,13 +1034,11 @@ def _borrador_listo_para_registrar(service: ConversationService, numero: str = "
     return service.handle_text(numero, "F FAC-9")
 
 
-def test_sin_salida_abierta_pide_solo_el_numero_y_la_crea_en_el_movil_asignado():
+def test_sin_salida_abierta_pide_el_numero_y_el_movil_solo_si_no_esta_abierta():
     db = session()
     db.add(Operator(nombre="Ana", whatsapp_numero="5491112345678"))
     _con_cuenta_registrada(db)
     db.add(Movil(numero="M-01", nombre="Camion 1", responsable_operador_id=1))
-    db.commit()
-    db.get(Operator, 1).movil_id = 1
     db.commit()
     service = ConversationService(db)
 
@@ -968,7 +1047,10 @@ def test_sin_salida_abierta_pide_solo_el_numero_y_la_crea_en_el_movil_asignado()
     assert respuesta == SIN_SALIDA_ABIERTA_TEXTO
     assert db.query(Movement).one().estado_registro == RecordState.PENDIENTE_CONFIRMACION
 
-    respuesta_final = service.handle_text("5491112345678", "8")
+    pedir_movil = service.handle_text("5491112345678", "8")
+    assert pedir_movil.startswith("La Salida Nº 8 no esta abierta.")
+    assert service.pending_prompt("5491112345678").endswith(pedir_movil)
+    respuesta_final = service.handle_text("5491112345678", "M-01")
 
     assert respuesta_final == (
         "Comprobante registrado correctamente. Se inicio la Salida Nº 8 en el movil M-01.\nFactura: FAC-9 · $500.00"
@@ -991,7 +1073,7 @@ def test_sin_salida_abierta_se_suma_a_la_salida_abierta_con_ese_numero():
     db.add(Movil(numero="M-01", nombre="Camion 1", responsable_operador_id=1))
     db.commit()
     service = ConversationService(db)
-    # Ana arranca la salida -- Beto (sin movil asignado) todavia no esta asociado.
+    # Ana arranca la salida -- Beto todavia no esta asociado.
     service.handle_text("5491112345678", "inicio movil M-01 reparto nro 3")
     service.handle_text("5491112345678", "SI")
     reparto = db.query(Reparto).one()
@@ -1005,11 +1087,10 @@ def test_sin_salida_abierta_se_suma_a_la_salida_abierta_con_ese_numero():
     movement = db.query(Movement).one()
     assert movement.reparto_id == reparto.id
     assert movement.movil_id == 1
-    beto = db.scalar(select(Operator).where(Operator.whatsapp_numero == "5491100000000"))
-    assert beto.movil_id == 1
+    assert servicios.reparto_abierto_del_operador(db, 2).id == reparto.id
 
 
-def test_sin_salida_ni_movil_asignado_pide_el_movil_y_crea_la_salida_sin_mas_preguntas():
+def test_sin_salida_pide_el_movil_y_crea_la_salida_sin_mas_preguntas():
     db = session()
     db.add(Operator(nombre="Ana", whatsapp_numero="5491112345678"))
     _con_cuenta_registrada(db)
@@ -1026,7 +1107,7 @@ def test_sin_salida_ni_movil_asignado_pide_el_movil_y_crea_la_salida_sin_mas_pre
     assert db.query(Movement).one().estado_registro == RecordState.CONFIRMADO
 
 
-def test_movil_asignado_con_otra_salida_abierta_indica_ese_numero():
+def test_movil_elegido_con_otra_salida_abierta_indica_ese_numero():
     db = session()
     db.add_all(
         [
@@ -1037,17 +1118,14 @@ def test_movil_asignado_con_otra_salida_abierta_indica_ese_numero():
     _con_cuenta_registrada(db)
     db.add(Movil(numero="M-01", nombre="Camion 1", responsable_operador_id=1))
     db.commit()
-    db.get(Operator, 2).movil_id = 1
-    db.commit()
     _asociar_a_reparto_abierto(db, operador_id=1, movil_id=1, numero_reparto=4)
-    db.get(Operator, 2).movil_id = 1
-    db.commit()
     service = ConversationService(db)
     _borrador_listo_para_registrar(service, "5491100000000")
 
-    respuesta = service.handle_text("5491100000000", "9")
+    assert service.handle_text("5491100000000", "9").startswith("La Salida Nº 9 no esta abierta.")
+    respuesta = service.handle_text("5491100000000", "M-01")
 
-    assert respuesta == "El movil M-01 ya tiene abierta la Salida Nº 4. Indica ese numero de salida."
+    assert respuesta == "El movil M-01 ya tiene abierta la Salida Nº 4. Si vas en ese movil, indicá ese numero de salida."
     assert db.query(Reparto).count() == 1
     assert service.handle_text("5491100000000", "4").startswith("Comprobante registrado correctamente. Salida Nº 4")
 
@@ -1145,8 +1223,6 @@ def test_confirmacion_sin_reparto_abierto_deja_reparto_id_nulo():
     db.add(Operator(nombre="Ana", whatsapp_numero="5491112345678"))
     _con_cuenta_registrada(db)
     db.add(Movil(numero="M-01", nombre="Camion 1", responsable_operador_id=1))
-    db.commit()
-    db.get(Operator, 1).movil_id = 1  # tiene movil asignado, pero nunca inicio un reparto
     db.commit()
     service = ConversationService(db)
     transfer = ExtractedTransfer(Decimal("500"), datetime(2026, 8, 21), "OP-1", cuenta_receptora="empresa.mp")

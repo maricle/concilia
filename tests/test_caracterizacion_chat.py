@@ -53,7 +53,7 @@ def _transfer(numero_operacion: str, monto: str = "15000.00", cuenta: str = "emp
     )
 
 
-def _base(*, con_cuentas: bool = True, movil_asignado: bool = False) -> Session:
+def _base(*, con_cuentas: bool = True) -> Session:
     engine = create_engine("sqlite://")
     Base.metadata.create_all(engine)
     db = Session(engine)
@@ -73,9 +73,6 @@ def _base(*, con_cuentas: bool = True, movil_asignado: bool = False) -> Session:
         ]
     )
     db.commit()
-    if movil_asignado:
-        db.get(Operator, 1).movil_id = 1
-        db.commit()
     return db
 
 
@@ -84,7 +81,6 @@ def _salida_abierta(db: Session, operador_id: int, movil_id: int, numero: int) -
     db.add(reparto)
     db.flush()
     db.add(RepartoOperador(reparto_id=reparto.id, operador_id=operador_id))
-    db.get(Operator, operador_id).movil_id = movil_id
     db.commit()
 
 
@@ -172,9 +168,16 @@ def _escenarios() -> dict:
         db, [("foto", ANA, _transfer("OP-1"), "c 987"), ("texto", ANA, "tal vez"), ("texto", ANA, "si")]
     )
 
-    db = _base(movil_asignado=True)
-    escenarios["sin_salida_con_movil_asignado"] = _correr(
-        db, [("foto", ANA, _transfer("OP-1"), "F 1"), ("texto", ANA, "si"), ("texto", ANA, "siete"), ("texto", ANA, "7")]
+    db = _base()
+    escenarios["sin_salida_numero_no_abierto_pide_movil"] = _correr(
+        db,
+        [
+            ("foto", ANA, _transfer("OP-1"), "F 1"),
+            ("texto", ANA, "si"),
+            ("texto", ANA, "siete"),
+            ("texto", ANA, "7"),
+            ("texto", ANA, "M-01"),
+        ],
     )
 
     db = _base()
@@ -195,12 +198,23 @@ def _escenarios() -> dict:
         db, [("foto", ANA, _transfer("OP-1"), "F 1"), ("texto", ANA, "si"), ("texto", ANA, "3")]
     )
 
-    db = _base(movil_asignado=True)
+    db = _base()
     _salida_abierta(db, 2, 1, 4)
-    db.get(Operator, 1).movil_id = 1
-    db.commit()
-    escenarios["sin_salida_movil_asignado_con_otra_salida"] = _correr(
-        db, [("foto", ANA, _transfer("OP-1"), "F 1"), ("texto", ANA, "si"), ("texto", ANA, "9"), ("texto", ANA, "4")]
+    escenarios["sin_salida_movil_elegido_con_otra_salida"] = _correr(
+        db,
+        [
+            ("foto", ANA, _transfer("OP-1"), "F 1"),
+            ("texto", ANA, "si"),
+            ("texto", ANA, "9"),
+            ("texto", ANA, "M-01"),
+            ("texto", ANA, "4"),
+        ],
+    )
+
+    db = _base()
+    _salida_abierta(db, 2, 2, 3)
+    escenarios["inicio_incompleto_se_suma_a_la_salida_abierta"] = _correr(
+        db, [("texto", ANA, "inicio"), ("texto", ANA, "3")]
     )
 
     db = _base()

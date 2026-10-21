@@ -3,19 +3,18 @@
 {% block content %}
 <h1>Iniciar salida</h1>
 {% if error %}<p class="m-error" role="alert">{{ error }}</p>{% endif %}
+{% if aviso %}<p class="m-aviso" role="status">{{ aviso }}</p>{% endif %}
 <form method="post" action="/m/salida/iniciar" class="m-form">
   <label for="numero">Número de salida</label>
   <input id="numero" name="numero" type="text" inputmode="numeric" pattern="[0-9]*" required value="{{ numero }}" autofocus>
-  {% if movil_asignado %}
-  <p class="m-tarjeta">Móvil: <strong>{{ movil_asignado.numero }}</strong> ({{ movil_asignado.nombre }})</p>
-  {% else %}
+  {% if moviles %}
   <label for="movil_id">Móvil</label>
   <select id="movil_id" name="movil_id" required>
     <option value="">Elegí el móvil</option>
     {% for movil in moviles %}<option value="{{ movil.id }}">{{ movil.numero }} - {{ movil.nombre }}</option>{% endfor %}
   </select>
   {% endif %}
-  <button type="submit" class="m-boton">Iniciar salida</button>
+  <button type="submit" class="m-boton">{{ "Iniciar salida" if moviles else "Continuar" }}</button>
 </form>
 <a href="/m/" class="m-link-bloque">Volver</a>
 {% endblock %}
