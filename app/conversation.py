@@ -462,15 +462,10 @@ class ConversationService:
             if comando.movil_numero is None or comando.numero_reparto is None:
                 reparto_propio = servicios.reparto_abierto_del_operador(self.session, operator.id)
                 if reparto_propio is not None:
-                    # Con el comando incompleto no sabemos si el operador quiere seguir
-                    # con el reparto que ya tiene abierto o arrancar uno distinto -- se lo
-                    # avisamos en vez de pedirle datos para un reparto que capaz ni queria.
-                    numero_abierto = _numero_salida(reparto_propio)
-                    return (
-                        f"Ya tenes la Salida Nº {numero_abierto} iniciada en el movil {reparto_propio.movil.numero}. "
-                        f"Si queres cerrarla, mandá 'cerrar salida nro {numero_abierto}'. Si queres arrancar una "
-                        "distinta, mandá el comando completo con el movil y el numero de salida nuevo."
-                    )
+                    # Antes de pedirle datos para una salida nueva, se le pregunta si
+                    # sigue con la que ya tiene abierta; si la cierra, recien ahi se
+                    # piden los datos que falten.
+                    return self._preguntar_cerrar_o_continuar(conversation, reparto_propio, comando)
                 return self._recopilar_datos_inicio_reparto(conversation, comando)
             return self._iniciar_reparto(operator, comando)
         return self._cerrar_reparto(operator, comando)
@@ -503,15 +498,24 @@ class ConversationService:
         if reparto_propio is not None:
             if reparto_propio.movil_id == movil.id:
                 return f"Ya estas asociado a la Salida Nº {_numero_salida(reparto_propio)} en el movil {movil.numero}."
-            conversation.estado = ConversationState.ESPERANDO_DECISION_REPARTO_ABIERTO
-            conversation.movil_pendiente_numero = movil.numero
-            conversation.numero_reparto_pendiente = comando.numero_reparto
-            self.session.commit()
-            return (
-                f"Ya tenes una salida abierta (Nº {_numero_salida(reparto_propio)}). Responde 'cerrar' para cerrarla "
-                "y arrancar la nueva, o 'continuar' para seguir con la que ya esta abierta."
+            return self._preguntar_cerrar_o_continuar(
+                conversation, reparto_propio, IniciarRepartoComando(movil.numero, comando.numero_reparto)
             )
         return self._entrar_a_salida(operator, conversation, comando.numero_reparto, movil, confirmar_creacion=True)
+
+    def _preguntar_cerrar_o_continuar(
+        self, conversation: WhatsAppConversation, reparto_propio: Reparto, comando: IniciarRepartoComando
+    ) -> str:
+        """El operador quiere iniciar otra salida teniendo una abierta: se guarda
+        lo que indico (puede faltar el movil o el numero) y se le pregunta."""
+        conversation.estado = ConversationState.ESPERANDO_DECISION_REPARTO_ABIERTO
+        conversation.movil_pendiente_numero = comando.movil_numero
+        conversation.numero_reparto_pendiente = comando.numero_reparto
+        self.session.commit()
+        return (
+            f"Ya tenes una salida abierta (Nº {_numero_salida(reparto_propio)}). Responde 'cerrar' para cerrarla "
+            "y arrancar la nueva, o 'continuar' para seguir con la que ya esta abierta."
+        )
 
     def _entrar_a_salida(
         self,
@@ -568,14 +572,19 @@ class ConversationService:
             otros = servicios.cerrar_salida(self.session, reparto_propio, operator)
             self._notificar_cierre_reparto(reparto_propio, operator, otros, self._resumen_bancario_cierre(reparto_propio))
 
+        numero_reparto = conversation.numero_reparto_pendiente
+        if numero_reparto is None:
+            comando = IniciarRepartoComando(conversation.movil_pendiente_numero, None)
+            return f"Salida anterior cerrada. {self._recopilar_datos_inicio_reparto(conversation, comando)}"
+        if conversation.movil_pendiente_numero is None:
+            texto = self._entrar_a_salida(operator, conversation, numero_reparto, None, confirmar_creacion=True)
+            return f"Salida anterior cerrada. {texto}"
         movil = servicios.buscar_movil_activo(self.session, conversation.movil_pendiente_numero)
         if movil is None:
             self._limpiar_decision_reparto(conversation)
             self.session.commit()
             return "El movil que habias indicado ya no esta disponible. Volve a mandar el comando de inicio."
-        texto = self._entrar_a_salida(
-            operator, conversation, conversation.numero_reparto_pendiente, movil, confirmar_creacion=False
-        )
+        texto = self._entrar_a_salida(operator, conversation, numero_reparto, movil, confirmar_creacion=False)
         return f"Salida anterior cerrada. {texto}"
 
     def _resumen_bancario_cierre(self, reparto: Reparto) -> str:

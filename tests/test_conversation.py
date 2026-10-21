@@ -475,36 +475,56 @@ def test_iniciar_reparto_con_movil_inexistente():
     assert db.query(Reparto).count() == 0
 
 
-def test_iniciar_bare_con_reparto_ya_abierto_avisa_en_vez_de_pedir_datos():
+def _con_salida_5_abierta() -> tuple[Session, ConversationService]:
     db = session()
     db.add(Operator(nombre="Ana", whatsapp_numero="5491112345678"))
     db.commit()
-    db.add(Movil(numero="M-01", nombre="Camion 1", responsable_operador_id=1))
+    db.add_all(
+        [
+            Movil(numero="M-01", nombre="Camion 1", responsable_operador_id=1),
+            Movil(numero="M-02", nombre="Camion 2", responsable_operador_id=1),
+        ]
+    )
     db.commit()
     service = ConversationService(db)
     service.handle_text("5491112345678", "inicio movil M-01 reparto nro 5")
     service.handle_text("5491112345678", "SI")
+    return db, service
+
+
+def test_inicio_incompleto_con_salida_abierta_pregunta_si_sigue_con_esa():
+    db, service = _con_salida_5_abierta()
 
     respuesta = service.handle_text("5491112345678", "iniciar")
 
-    assert "Ya tenes la Salida Nº 5 iniciada en el movil M-01" in respuesta
-    # no debe haber entrado a pedir datos para un reparto nuevo
-    assert db.get(WhatsAppConversation, "5491112345678").estado == ConversationState.ESPERANDO_COMPROBANTE
+    assert respuesta == (
+        "Ya tenes una salida abierta (Nº 5). Responde 'cerrar' para cerrarla y arrancar la nueva, "
+        "o 'continuar' para seguir con la que ya esta abierta."
+    )
+    assert service.handle_text("5491112345678", "continuar") == "Seguis con la salida que ya estaba abierta."
+    assert servicios.reparto_abierto_del_operador(db, 1).numero_reparto == 5
 
 
-def test_iniciar_con_solo_movil_y_reparto_ya_abierto_avisa_en_vez_de_pedir_numero():
-    db = session()
-    db.add(Operator(nombre="Ana", whatsapp_numero="5491112345678"))
-    db.commit()
-    db.add(Movil(numero="M-01", nombre="Camion 1", responsable_operador_id=1))
-    db.commit()
-    service = ConversationService(db)
-    service.handle_text("5491112345678", "inicio movil M-01 reparto nro 5")
-    service.handle_text("5491112345678", "SI")
+def test_inicio_incompleto_con_salida_abierta_al_cerrar_pide_los_datos_de_la_nueva():
+    db, service = _con_salida_5_abierta()
+    service.handle_text("5491112345678", "iniciar")
 
-    respuesta = service.handle_text("5491112345678", "iniciar movil M-01")
+    respuesta = service.handle_text("5491112345678", "cerrar")
 
-    assert "Ya tenes la Salida Nº 5 iniciada en el movil M-01" in respuesta
+    assert respuesta == "Salida anterior cerrada. ¿Que numero de salida es? Respondé solo con el numero."
+    assert servicios.reparto_abierto_del_operador(db, 1) is None
+    assert service.handle_text("5491112345678", "6").startswith("La Salida Nº 6 no esta abierta.")
+    assert "Vas a iniciar la Salida Nº 6 en el movil M-02" in service.handle_text("5491112345678", "M-02")
+    assert service.handle_text("5491112345678", "SI") == "Salida Nº 6 iniciada en el movil M-02."
+
+
+def test_inicio_con_solo_el_numero_y_salida_abierta_al_cerrar_pide_el_movil():
+    _, service = _con_salida_5_abierta()
+
+    assert "Ya tenes una salida abierta (Nº 5)" in service.handle_text("5491112345678", "inicio salida nro 6")
+    respuesta = service.handle_text("5491112345678", "cerrar")
+
+    assert respuesta.startswith("Salida anterior cerrada. La Salida Nº 6 no esta abierta.")
 
 
 def test_iniciar_reparto_solo_palabra_clave_pide_numero_y_luego_movil():
