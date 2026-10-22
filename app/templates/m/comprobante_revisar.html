@@ -1,0 +1,41 @@
+{% extends "m/base.html" %}
+{% block title %}Revisar comprobante - Concilia{% endblock %}
+{% block content %}
+<h1>Revisá el comprobante</h1>
+{% if error %}<p class="m-error" role="alert">{{ error }}</p>{% endif %}
+<div class="m-tarjeta">
+  <div>Monto: <strong>{{ borrador|monto_comprobante }}</strong></div>
+  <div>Fecha: {{ borrador.fecha_transaccion|fecha_comprobante }}</div>
+  <div>Cuenta receptora: {{ borrador.cuenta_bancaria.alias if borrador.cuenta_bancaria else "no identificada" }}</div>
+  <div>Operación: {{ borrador.numero_operacion or "no detectada" }}</div>
+  {% if borrador.banco_emisor %}<div>Banco emisor: {{ borrador.banco_emisor }}</div>{% endif %}
+  {% if borrador.titular %}<div>Emisor: {{ borrador.titular }}</div>{% endif %}
+</div>
+<p class="m-ayuda">Si algún dato está mal, descartalo y sacá otra foto.</p>
+<form method="post" action="/m/comprobante/{{ borrador.id }}/registrar" class="m-form">
+  <fieldset class="m-opciones">
+    <legend>¿Es una factura o una cuenta del cliente?</legend>
+    <label class="m-opcion"><input type="radio" name="tipo" value="factura" required {{ "checked" if tipo == "factura" }}> Factura</label>
+    <label class="m-opcion"><input type="radio" name="tipo" value="cuenta" {{ "checked" if tipo == "cuenta" }}> Cuenta</label>
+  </fieldset>
+  <label for="numero">Número</label>
+  <input id="numero" name="numero" type="text" inputmode="numeric" required value="{{ numero }}" autocomplete="off">
+  {% if salida %}
+  <p class="m-tarjeta">Salida Nº <strong>{{ salida.numero_reparto }}</strong> (móvil {{ salida.movil.numero }})</p>
+  {% else %}
+  <label for="numero_salida">Número de salida</label>
+  <input id="numero_salida" name="numero_salida" type="text" inputmode="numeric" pattern="[0-9]*" required value="{{ numero_salida }}">
+  {% if pedir_movil %}
+  <label for="movil_id">Móvil</label>
+  <select id="movil_id" name="movil_id" required>
+    <option value="">Elegí el móvil</option>
+    {% for movil in moviles %}<option value="{{ movil.id }}">{{ movil.numero }} - {{ movil.nombre }}</option>{% endfor %}
+  </select>
+  {% endif %}
+  {% endif %}
+  <button type="submit" class="m-boton">Registrar</button>
+</form>
+<form method="post" action="/m/comprobante/{{ borrador.id }}/descartar">
+  <button type="submit" class="m-boton-peligro">Descartar</button>
+</form>
+{% endblock %}

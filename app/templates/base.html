@@ -4,12 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{% block title %}Concilia{% endblock %}</title>
+<link rel="icon" href="/static/iconos/favicon.ico" sizes="any">
+<link rel="icon" type="image/png" sizes="32x32" href="/static/iconos/favicon-32.png">
 <link href="https://cdn.jsdelivr.net/gh/StartBootstrap/startbootstrap-sb-admin-2@4.1.4/vendor/fontawesome-free/css/all.min.css" rel="stylesheet">
 <link href="https://cdn.jsdelivr.net/gh/StartBootstrap/startbootstrap-sb-admin-2@4.1.4/css/sb-admin-2.min.css" rel="stylesheet">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Inter+Tight:wght@600;700;800&display=swap" rel="stylesheet">
-<link href="/static/css/custom.css" rel="stylesheet">
+<link href="/static/css/custom.css?v={{ version_estatico('css/custom.css') }}" rel="stylesheet">
 </head>
 <body id="page-top">
 {% if user %}
@@ -29,6 +31,7 @@
     <li class="nav-item {{ 'active' if request.url.path == '/repartos' }}">
       <a class="nav-link" href="/repartos"><i class="fas fa-fw fa-route"></i><span>Salidas</span></a>
     </li>
+    {% if es_admin(user) %}
     {% set en_conciliaciones = request.url.path in ['/conciliaciones', '/conciliaciones/resumenes'] %}
     <li class="nav-item {{ 'active' if en_conciliaciones }}" id="menu-conciliaciones">
       <a class="nav-link collapsed" href="#" data-toggle="collapse" data-target="#collapseConciliaciones"
@@ -58,13 +61,13 @@
         </div>
       </div>
     </li>
+    {% endif %}
     <hr class="sidebar-divider d-none d-md-block">
     <div class="text-center d-none d-md-inline">
       <button class="rounded-circle border-0" id="sidebarToggle" title="Plegar/expandir menu"></button>
     </div>
     <li class="sidebar-footer">
-      <div class="txt">Desarrollado por</div>
-      <div class="logo-chip"><img src="/static/img/kleba-logo.png" alt="Kleba Dev"></div>
+      {% include "partials/_pie_marca.html" %}
     </li>
   </ul>
   <div id="content-wrapper" class="d-flex flex-column">

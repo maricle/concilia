@@ -15,7 +15,29 @@
 </th>
 {% endmacro %}
 {% block content %}
-<h1 class="h3 mb-4 text-gray-800">Comprobantes registrados</h1>
+<div class="d-flex justify-content-between align-items-center flex-wrap mb-4" style="gap: 8px;">
+  <h1 class="h3 mb-0 text-gray-800">Comprobantes registrados</h1>
+  {% if hay_rango_de_fechas %}
+  <span class="text-muted small">Filtrando por rango de fechas</span>
+  {% elif dia %}
+  <div class="d-flex align-items-center" style="gap: 8px;" id="selector-dia">
+    <a class="btn btn-outline-secondary" href="{{ url_con(request, fecha=dia_anterior, page=none) }}" title="Dia anterior"><i class="fas fa-chevron-left"></i></a>
+    <form method="get" action="/comprobantes" class="d-inline">
+      {% for clave, valor in request.query_params.multi_items() if clave not in ("fecha", "page") %}
+      <input type="hidden" name="{{ clave }}" value="{{ valor }}">
+      {% endfor %}
+      <input type="date" class="form-control" name="fecha" value="{{ dia.isoformat() }}" onchange="this.form.submit()">
+    </form>
+    <a class="btn btn-outline-secondary" href="{{ url_con(request, fecha=dia_siguiente, page=none) }}" title="Dia siguiente"><i class="fas fa-chevron-right"></i></a>
+    <a class="btn btn-outline-secondary" href="{{ url_con(request, fecha='todos', page=none) }}">Todos los dias</a>
+  </div>
+  {% else %}
+  <div class="d-flex align-items-center" style="gap: 8px;" id="selector-dia">
+    <span class="text-muted small">Todos los dias</span>
+    <a class="btn btn-outline-secondary" href="{{ url_con(request, fecha=none, page=none) }}">Hoy</a>
+  </div>
+  {% endif %}
+</div>
 
 {% call filtros.form(
   "/comprobantes",
@@ -24,6 +46,7 @@
   banco or estado_conciliacion or operador_id or movil_id or fecha_transaccion_desde or fecha_transaccion_hasta or fecha_subida_desde or fecha_subida_hasta,
   "/comprobantes/exportar"
 ) %}
+<input type="hidden" name="fecha" value="{{ fecha }}">
 <div class="form-row align-items-end">
   <div class="form-group col-md-3">
     <label>Banco</label>
@@ -87,7 +110,9 @@
   <div class="card-header py-3 d-flex justify-content-between align-items-center">
     <h6 class="m-0 font-weight-bold text-primary">Movimientos confirmados</h6>
     <div class="d-flex" style="gap: 8px;">
-      <button type="submit" form="form-comprobantes" formaction="/comprobantes/eliminar-lote" class="btn btn-sm btn-outline-danger" onclick="return confirm('¿Eliminar los comprobantes seleccionados? Esta accion no se puede deshacer.');"><i class="fas fa-trash-alt mr-1"></i>Eliminar seleccionados</button>
+      {% if es_admin(user) %}
+      <button type="submit" form="form-comprobantes" formaction="/comprobantes/eliminar-lote?volver={{ url_actual(request)|urlencode }}" class="btn btn-sm btn-outline-danger" onclick="return confirm('¿Eliminar los comprobantes seleccionados? Esta accion no se puede deshacer.');"><i class="fas fa-trash-alt mr-1"></i>Eliminar seleccionados</button>
+      {% endif %}
       <a href="/comprobantes/nuevo" class="btn btn-sm btn-primary"><i class="fas fa-plus mr-1"></i>Nuevo comprobante</a>
     </div>
   </div>
@@ -113,7 +138,7 @@
         </thead>
         <tbody>
           {% for movimiento in movimientos %}
-          <tr class="fila-comprobante" data-href="/comprobantes/{{ movimiento.id }}/editar">
+          <tr class="fila-comprobante"{% if es_admin(user) %} data-href="/comprobantes/{{ movimiento.id }}/editar?volver={{ url_actual(request)|urlencode }}"{% endif %}>
             <td><input type="checkbox" name="movimiento_ids" value="{{ movimiento.id }}" class="chk-comprobante"></td>
             <td>{{ movimiento.fecha_transaccion|fecha_transaccion }}</td>
             <td>
@@ -158,6 +183,18 @@
       </table>
     </div>
     </form>
+    <div class="d-flex justify-content-between align-items-center mt-2">
+      <span class="text-muted small">Mostrando {{ movimientos|length }} de {{ total_movimientos }} comprobantes</span>
+      {% if total_paginas > 1 %}
+      <nav><ul class="pagination pagination-sm mb-0">
+        {% if pagina > 1 %}<li class="page-item"><a class="page-link" href="{{ url_con(request, page=pagina - 1) }}">&laquo;</a></li>{% endif %}
+        {% for p in range([1, pagina - 3]|max, [total_paginas, pagina + 3]|min + 1) %}
+        <li class="page-item{{ ' active' if p == pagina }}"><a class="page-link" href="{{ url_con(request, page=p) }}">{{ p }}</a></li>
+        {% endfor %}
+        {% if pagina < total_paginas %}<li class="page-item"><a class="page-link" href="{{ url_con(request, page=pagina + 1) }}">&raquo;</a></li>{% endif %}
+      </ul></nav>
+      {% endif %}
+    </div>
   </div>
 </div>
 <script>
@@ -168,7 +205,7 @@
   });
   document.querySelectorAll(".fila-comprobante").forEach(function (fila) {
     fila.addEventListener("click", function (e) {
-      if (e.target.closest("a, button, input")) return;
+      if (!fila.dataset.href || e.target.closest("a, button, input")) return;
       window.location.href = fila.dataset.href;
     });
   });

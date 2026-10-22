@@ -1,12 +1,15 @@
 {% extends "base.html" %}
 {% block title %}Editar cuenta bancaria - Concilia{% endblock %}
 {% block content %}
-<h1 class="h3 mb-4 text-gray-800">Editar cuenta bancaria</h1>
+<div class="d-flex justify-content-between align-items-center mb-4" style="max-width: 500px;">
+  <h1 class="h3 mb-0 text-gray-800">Editar cuenta bancaria</h1>
+  <a href="{{ volver_a(request, '/config/cuentas') }}" class="btn btn-outline-secondary btn-sm"><i class="fas fa-arrow-left mr-1"></i>Volver al listado</a>
+</div>
 
 <div class="card shadow mb-4" style="max-width: 500px;">
   <div class="card-body">
     {% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
-    <form method="post" action="/config/cuentas/{{ cuenta.id }}/editar">
+    <form method="post" action="{{ url_actual(request) }}">
       <div class="form-group">
         <label>Banco</label>
         <input type="text" class="form-control" name="banco" value="{{ cuenta.banco }}" required>
@@ -24,6 +27,7 @@
         <input type="text" class="form-control" name="moneda" value="{{ cuenta.moneda }}">
       </div>
       <button type="submit" class="btn btn-primary">Guardar cambios</button>
+      <a href="{{ volver_a(request, '/config/cuentas') }}" class="btn btn-outline-secondary">Cancelar</a>
     </form>
   </div>
 </div>
