@@ -46,7 +46,7 @@ def _cliente():
         )
         db.commit()
     client = TestClient(app)
-    client.post("/m/login", data={"celular": "3794500000", "pin": PIN})
+    client.post("/m/login", data={"usuario": "3794500000", "pin": PIN})
     return client, fabrica
 
 

@@ -79,7 +79,7 @@ def entorno(monkeypatch):
 
 def _logueado(celular: str = ANA) -> TestClient:
     client = TestClient(app)
-    client.post("/m/login", data={"celular": celular, "pin": PIN})
+    client.post("/m/login", data={"usuario": celular, "pin": PIN})
     return client
 
 

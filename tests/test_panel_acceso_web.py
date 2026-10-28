@@ -58,7 +58,7 @@ def test_generar_pin_lo_muestra_una_vez_y_el_operador_entra_y_lo_cambia():
     assert "PIN temporal pendiente" in admin.get("/config/operadores").text
 
     operador = TestClient(app)
-    login = operador.post("/m/login", data={"celular": "3794500000", "pin": pin}, follow_redirects=False)
+    login = operador.post("/m/login", data={"usuario": "3794500000", "pin": pin}, follow_redirects=False)
     assert login.headers["location"] == "/m/cambiar-pin"
     operador.post("/m/cambiar-pin", data={"pin_nuevo": "583920", "pin_repetido": "583920"})
     assert "Hola, Ana" in operador.get("/m/").text
@@ -73,7 +73,7 @@ def test_resetear_pin_quitar_acceso_cerrar_sesiones_y_desactivar_cortan_las_sesi
             db.get(Operator, 1).activo = True
             db.commit()
         operador = TestClient(app)
-        operador.post("/m/login", data={"celular": "3794500000", "pin": pin})
+        operador.post("/m/login", data={"usuario": "3794500000", "pin": pin})
         operador.post("/m/cambiar-pin", data={"pin_nuevo": "583920", "pin_repetido": "583920"})
         assert operador.get("/m/").status_code == 200, accion
 

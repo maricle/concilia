@@ -1,5 +1,5 @@
-"""Autenticacion de operadores en la interfaz web (/m): celular + PIN de 6
-digitos, bloqueo por intentos fallidos y sesiones en la base.
+"""Autenticacion de operadores en la interfaz web (/m): DNI o celular + PIN de
+6 digitos, bloqueo por intentos fallidos y sesiones en la base.
 
 Es independiente de la sesion del panel (require_user): una sesion de panel no
 da acceso a /m ni al reves. Nunca se loguean PIN ni tokens.
@@ -25,8 +25,11 @@ from ..zona_horaria import ahora_argentina
 COOKIE_SESION = "concilia_operador"
 RUTA_COOKIE = "/m"
 LARGO_PIN = 6
-# Hash de un PIN cualquiera, para gastar el mismo tiempo cuando el celular no
-# existe y no revelar por la demora si hay un operador con ese numero.
+# Un DNI argentino tiene 7 u 8 digitos; un celular, al menos 10 (ver
+# ultimos_digitos). Por el largo nunca se confunde uno con otro en el login.
+LARGOS_DNI = (7, 8)
+# Hash de un PIN cualquiera, para gastar el mismo tiempo cuando el DNI o celular
+# no existe y no revelar por la demora si hay un operador con ese dato.
 _HASH_DE_RELLENO = bcrypt.hashpw(b"000000", bcrypt.gensalt()).decode()
 
 
@@ -79,14 +82,28 @@ def cambiar_pin(operador: Operator, pin_nuevo: str) -> None:
 # ---------------------------------------------------------------------- login
 
 
-def autenticar(db: Session, celular: str, pin: str) -> Operator | None:
-    """El operador si celular y PIN son correctos, esta activo, tiene acceso web
-    y no esta bloqueado; si no, None (sin decir por que: el mensaje al usuario es
-    siempre el mismo). Cuenta los intentos fallidos y bloquea al llegar al
-    maximo. Hace commit."""
+def normalizar_dni(texto: str) -> str | None:
+    """El DNI solo con digitos ("30.123.456" -> "30123456"), o None si no tiene
+    el largo de un DNI."""
+    digitos = re.sub(r"\D", "", texto)
+    return digitos if len(digitos) in LARGOS_DNI else None
+
+
+def buscar_operador_por_dni(db: Session, texto: str) -> Operator | None:
+    dni = normalizar_dni(texto)
+    if dni is None:
+        return None
+    return db.scalar(select(Operator).where(Operator.dni == dni, Operator.activo.is_(True)))
+
+
+def autenticar(db: Session, usuario: str, pin: str) -> Operator | None:
+    """El operador si el DNI o celular y el PIN son correctos, esta activo,
+    tiene acceso web y no esta bloqueado; si no, None (sin decir por que: el
+    mensaje al usuario es siempre el mismo). Cuenta los intentos fallidos y
+    bloquea al llegar al maximo. Hace commit."""
     settings = get_settings()
     ahora = ahora_argentina()
-    operador = buscar_operador_por_telefono(db, celular)
+    operador = buscar_operador_por_dni(db, usuario) or buscar_operador_por_telefono(db, usuario)
     if operador is None or not operador.web_habilitado or operador.pin_hash is None:
         verify_password(pin, _HASH_DE_RELLENO)
         return None

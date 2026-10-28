@@ -1827,3 +1827,36 @@ def test_no_se_puede_cargar_dos_operadores_con_el_mismo_celular_en_distinto_form
 
     with test_session() as session:
         assert session.query(Operator).count() == 2
+
+
+def test_dni_del_operador_se_guarda_normalizado_y_no_se_repite():
+    client, test_session = _client_with_admin()
+    client.post("/login", data={"email": "admin@concilia.test", "password": "secreta123"})
+
+    client.post(
+        "/config/operadores",
+        data={"nombre": "Ana", "whatsapp_numero": "3794500000", "dni": "30.123.456", "tipo": "Reparto"},
+    )
+    repetido = client.post(
+        "/config/operadores",
+        data={"nombre": "Beto", "whatsapp_numero": "3794511111", "dni": "30123456", "tipo": "Reparto"},
+    )
+    invalido = client.post(
+        "/config/operadores",
+        data={"nombre": "Beto", "whatsapp_numero": "3794511111", "dni": "123", "tipo": "Reparto"},
+    )
+    client.post("/config/operadores", data={"nombre": "Carla", "whatsapp_numero": "3794522222", "tipo": "Reparto"})
+    edicion_repetida = client.post(
+        "/config/operadores/2/editar",
+        data={"nombre": "Carla", "whatsapp_numero": "3794522222", "dni": "30123456", "tipo": "Reparto"},
+    )
+
+    assert repetido.status_code == invalido.status_code == edicion_repetida.status_code == 400
+    assert "Ya existe otro operador con el DNI 30123456 (Ana)" in repetido.text
+    assert "7 u 8 numeros" in invalido.text
+    with test_session() as session:
+        assert [(o.nombre, o.dni) for o in session.query(Operator).order_by(Operator.id)] == [
+            ("Ana", "30123456"),
+            ("Carla", None),
+        ]
+    assert "30123456" in client.get("/config/operadores").text

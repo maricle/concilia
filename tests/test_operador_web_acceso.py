@@ -1,4 +1,4 @@
-"""Ingreso de operadores a la interfaz web (/m): login con celular + PIN, PIN
+"""Ingreso de operadores a la interfaz web (/m): login con DNI o celular + PIN, PIN
 temporal, bloqueo por intentos, sesiones y su separacion del panel."""
 
 from datetime import timedelta
@@ -17,6 +17,7 @@ from app.operador_web import sesion
 from app.zona_horaria import ahora_argentina
 
 CELULAR = "+54 9 379 450-0000"
+DNI = "30123456"
 PIN = "482915"
 
 
@@ -36,6 +37,7 @@ def _cliente(*, web_habilitado: bool = True, pin_temporal: bool = False, activo:
             Operator(
                 nombre="Ana",
                 whatsapp_numero=CELULAR,
+                dni=DNI,
                 activo=activo,
                 web_habilitado=web_habilitado,
                 pin_hash=hash_password(PIN),
@@ -52,7 +54,7 @@ def teardown_function():
 
 
 def _login(client, celular: str = "3794500000", pin: str = PIN):
-    return client.post("/m/login", data={"celular": celular, "pin": pin}, follow_redirects=False)
+    return client.post("/m/login", data={"usuario": celular, "pin": pin}, follow_redirects=False)
 
 
 def test_login_con_celular_en_cualquier_formato_y_pin():
@@ -74,12 +76,34 @@ def test_login_con_celular_en_cualquier_formato_y_pin():
         assert guardada.token_hash not in cookie  # en la base, solo el hash
 
 
+def test_login_con_dni_con_o_sin_puntos():
+    for dni in ("30123456", "30.123.456"):
+        client, _ = _cliente()
+
+        respuesta = _login(client, celular=dni)
+
+        assert respuesta.status_code == 303, dni
+        assert respuesta.headers["location"] == "/m/"
+        assert "Hola, Ana" in client.get("/m/").text
+        teardown_function()
+
+
+def test_dni_incorrecto_da_el_mismo_error_generico():
+    client, _ = _cliente()
+
+    respuesta = _login(client, celular="30123457")
+
+    assert respuesta.status_code == 401
+    assert "No pudimos ingresar con esos datos" in respuesta.text
+    assert 'value="30123457"' in respuesta.text
+
+
 def test_cookie_secure_detras_del_proxy_https():
     client, _ = _cliente()
 
     respuesta = client.post(
         "/m/login",
-        data={"celular": "3794500000", "pin": PIN},
+        data={"usuario": "3794500000", "pin": PIN},
         headers={"x-forwarded-proto": "https"},
         follow_redirects=False,
     )
@@ -225,7 +249,7 @@ def test_login_desde_otro_sitio_es_rechazado():
     client, _ = _cliente()
 
     respuesta = client.post(
-        "/m/login", data={"celular": "3794500000", "pin": PIN}, headers={"origin": "https://otro-sitio.test"}
+        "/m/login", data={"usuario": "3794500000", "pin": PIN}, headers={"origin": "https://otro-sitio.test"}
     )
 
     assert respuesta.status_code == 403

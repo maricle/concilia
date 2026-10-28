@@ -15,7 +15,7 @@ from ..models import (
     Operator,
     PanelUser,
 )
-from ..operador_web.sesion import generar_pin_temporal, revocar_sesiones
+from ..operador_web.sesion import generar_pin_temporal, normalizar_dni, revocar_sesiones
 from .comun import (
     con_parametros,
     existe_duplicado,
@@ -163,6 +163,7 @@ def operadores_exportar(db: Session = Depends(get_db), user: PanelUser = Depends
         [
             o.nombre,
             o.whatsapp_numero,
+            o.dni or "",
             "Si" if o.telegram_chat_id else "No",
             o.tipo,
             "Activo" if o.activo else "Inactivo",
@@ -170,7 +171,7 @@ def operadores_exportar(db: Session = Depends(get_db), user: PanelUser = Depends
         for o in operadores
     ]
     return respuesta_xlsx(
-        ["Nombre", "Numero", "Telegram vinculado", "Tipo", "Estado"], filas, "operadores.xlsx"
+        ["Nombre", "Numero", "DNI", "Telegram vinculado", "Tipo", "Estado"], filas, "operadores.xlsx"
     )
 
 
@@ -191,30 +192,48 @@ def _operador_con_el_mismo_celular(db: Session, celular: str, excluir_id: int | 
     return None
 
 
+def _dni_o_error(db: Session, texto: str, excluir_id: int | None = None) -> tuple[str | None, str | None]:
+    """(DNI normalizado o None si se dejo vacio, mensaje de error o None). El DNI
+    es opcional, pero si se carga tiene que ser valido y no repetirse: con el se
+    entra a /m."""
+    if not texto.strip():
+        return None, None
+    dni = normalizar_dni(texto)
+    if dni is None:
+        return None, "El DNI tiene que tener 7 u 8 numeros."
+    consulta = select(Operator).where(Operator.dni == dni)
+    if excluir_id is not None:
+        consulta = consulta.where(Operator.id != excluir_id)
+    duplicado = db.scalar(consulta)
+    if duplicado is not None:
+        return None, f"Ya existe otro operador con el DNI {dni} ({duplicado.nombre})."
+    return dni, None
+
+
 @router.post("/config/operadores")
 def create_operador(
     request: Request,
     nombre: str = Form(...),
     whatsapp_numero: str = Form(...),
+    dni: str = Form(""),
     tipo: str = Form("Reparto"),
     db: Session = Depends(get_db),
     user: PanelUser = Depends(require_admin),
 ):
     duplicado = _operador_con_el_mismo_celular(db, whatsapp_numero)
+    dni_normalizado, error = _dni_o_error(db, dni)
     if duplicado is not None:
+        error = f"Ya existe un operador con el numero {whatsapp_numero} ({duplicado.nombre})."
+    if error:
         operadores = db.scalars(select(Operator).order_by(Operator.id)).all()
         return templates.TemplateResponse(
             request,
             "operadores.html",
-            {
-                "user": user,
-                "operadores": operadores,
-                "error": f"Ya existe un operador con el numero {whatsapp_numero} ({duplicado.nombre}).",
-            },
+            {"user": user, "operadores": operadores, "error": error},
             status_code=400,
         )
 
-    db.add(Operator(nombre=nombre, whatsapp_numero=whatsapp_numero, tipo=tipo))
+    db.add(Operator(nombre=nombre, whatsapp_numero=whatsapp_numero, dni=dni_normalizado, tipo=tipo))
     db.commit()
     return RedirectResponse(volver_a(request, "/config/operadores"), status_code=303)
 
@@ -246,14 +265,19 @@ def toggle_operador(
 # aca la habilitacion, el reseteo de PIN y el cierre de sesiones.
 
 
+def _puede_entrar_a_la_web(operador: Operator) -> bool:
+    """Tiene algun dato con el que el login de /m lo encuentra."""
+    return bool(operador.dni) or ultimos_digitos(operador.whatsapp_numero) is not None
+
+
 @router.post("/config/operadores/{operador_id}/acceso-web")
 def alternar_acceso_web(
     operador_id: int, request: Request, db: Session = Depends(get_db), user: PanelUser = Depends(require_admin)
 ):
     operador = obtener_o_redirigir(db, Operator, operador_id, "/config/operadores")
     volver = volver_a(request, "/config/operadores")
-    if not operador.web_habilitado and ultimos_digitos(operador.whatsapp_numero) is None:
-        mensaje = f"{operador.nombre} necesita un celular de al menos 10 digitos para entrar a la web."
+    if not operador.web_habilitado and not _puede_entrar_a_la_web(operador):
+        mensaje = f"{operador.nombre} necesita un DNI o un celular de al menos 10 digitos para entrar a la web."
         return RedirectResponse(con_parametros(volver, error=mensaje), status_code=303)
     operador.web_habilitado = not operador.web_habilitado
     if not operador.web_habilitado:
@@ -270,8 +294,8 @@ def generar_pin(
     solo el hash. Corta las sesiones abiertas y, si hacia falta, habilita el
     acceso web (generar un PIN es para que el operador entre)."""
     operador = obtener_o_redirigir(db, Operator, operador_id, "/config/operadores")
-    if ultimos_digitos(operador.whatsapp_numero) is None:
-        mensaje = f"{operador.nombre} necesita un celular de al menos 10 digitos para entrar a la web."
+    if not _puede_entrar_a_la_web(operador):
+        mensaje = f"{operador.nombre} necesita un DNI o un celular de al menos 10 digitos para entrar a la web."
         return RedirectResponse(con_parametros(volver_a(request, "/config/operadores"), error=mensaje), status_code=303)
     pin = generar_pin_temporal(db, operador)
     operador.web_habilitado = True
@@ -310,11 +334,21 @@ def editar_operador_submit(
     request: Request,
     nombre: str = Form(...),
     whatsapp_numero: str = Form(""),
+    dni: str = Form(""),
     tipo: str = Form("Reparto"),
     db: Session = Depends(get_db),
     user: PanelUser = Depends(require_admin),
 ):
     operador = obtener_o_redirigir(db, Operator, operador_id, "/config/operadores")
+
+    dni_normalizado, error_dni = _dni_o_error(db, dni, excluir_id=operador.id)
+    if error_dni:
+        return templates.TemplateResponse(
+            request,
+            "editar_operador.html",
+            {"user": user, "operador": operador, "error": error_dni},
+            status_code=400,
+        )
 
     if not whatsapp_numero.strip():
         es_responsable = db.scalar(
@@ -347,6 +381,7 @@ def editar_operador_submit(
 
     operador.nombre = nombre
     operador.whatsapp_numero = whatsapp_numero
+    operador.dni = dni_normalizado
     operador.tipo = tipo
     db.commit()
     return RedirectResponse(volver_a(request, "/config/operadores"), status_code=303)

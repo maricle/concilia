@@ -19,6 +19,10 @@
         <input type="text" class="form-control" name="whatsapp_numero" value="{{ operador.whatsapp_numero }}" required>
       </div>
       <div class="form-group">
+        <label>DNI (opcional, para entrar a la web)</label>
+        <input type="text" class="form-control" name="dni" inputmode="numeric" value="{{ operador.dni or '' }}">
+      </div>
+      <div class="form-group">
         <label>Tipo</label>
         <select class="form-control" name="tipo">
           <option value="Reparto" {{ "selected" if operador.tipo == "Reparto" }}>Reparto</option>

@@ -63,6 +63,9 @@ class Operator(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     nombre: Mapped[str] = mapped_column(String(150))
     whatsapp_numero: Mapped[str] = mapped_column(String(30), unique=True, index=True)
+    # Opcional, solo digitos (ver normalizar_dni). Sirve para entrar a /m con DNI
+    # en vez de celular. Columna agregada con ALTER TABLE manual (sin Alembic).
+    dni: Mapped[str | None] = mapped_column(String(20), unique=True, index=True)
     telegram_chat_id: Mapped[str | None] = mapped_column(String(30), unique=True, index=True)
     tipo: Mapped[str] = mapped_column(String(50), default="Reparto")
     activo: Mapped[bool] = mapped_column(default=True)

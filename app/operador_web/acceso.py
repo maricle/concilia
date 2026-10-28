@@ -24,7 +24,7 @@ from .sesion import (
 router = APIRouter()
 
 ERROR_LOGIN = (
-    "No pudimos ingresar con esos datos. Revisá el celular y el PIN. "
+    "No pudimos ingresar con esos datos. Revisá el DNI o celular y el PIN. "
     "Después de varios intentos fallidos el acceso se bloquea por unos minutos."
 )
 
@@ -33,20 +33,20 @@ ERROR_LOGIN = (
 def login_form(request: Request, db: Session = Depends(get_db)):
     if operador_de_la_sesion(request, db) is not None:
         return RedirectResponse("/m/", status_code=303)
-    return templates.TemplateResponse(request, "m/login.html", {"error": None, "celular": ""})
+    return templates.TemplateResponse(request, "m/login.html", {"error": None, "usuario": ""})
 
 
 @router.post("/m/login")
 def login_submit(
     request: Request,
-    celular: str = Form(...),
+    usuario: str = Form(...),
     pin: str = Form(...),
     db: Session = Depends(get_db),
 ):
-    operador = autenticar(db, celular, pin.strip())
+    operador = autenticar(db, usuario, pin.strip())
     if operador is None:
         return templates.TemplateResponse(
-            request, "m/login.html", {"error": ERROR_LOGIN, "celular": celular}, status_code=401
+            request, "m/login.html", {"error": ERROR_LOGIN, "usuario": usuario}, status_code=401
         )
     token = abrir_sesion(db, operador, request.headers.get("user-agent"))
     destino = "/m/cambiar-pin" if operador.pin_temporal else "/m/"
