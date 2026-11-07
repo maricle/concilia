@@ -88,6 +88,16 @@ html, body { height: 100%; }
 }
 .sidebar.toggled .sidebar-footer { display: none; }
 .sidebar .sidebar-brand { color: #fff; font-family: "Inter Tight", "Inter", sans-serif; font-weight: 800; }
+/* Logo blanco sobre el fondo del sidebar; plegado (o en pantallas chicas, donde
+   sb-admin lo angosta) queda solo la "C". */
+.sidebar .sidebar-brand-logo { height: 34px; width: auto; max-width: 100%; }
+.sidebar .sidebar-brand-logo-icono { height: 34px; width: auto; display: none; }
+.sidebar.toggled .sidebar-brand-logo { display: none; }
+.sidebar.toggled .sidebar-brand-logo-icono { display: inline; }
+@media (max-width: 767.98px) {
+  .sidebar .sidebar-brand-logo { display: none; }
+  .sidebar .sidebar-brand-logo-icono { display: inline; }
+}
 .sidebar .nav-item .nav-link { color: var(--sidebar-text); font-size: 13.5px; font-weight: 500; }
 .sidebar .nav-item .nav-link:hover { color: #d7d8e6; }
 .sidebar .nav-item.active .nav-link {
@@ -178,6 +188,12 @@ html, body { height: 100%; }
   width: 30px; height: 30px;
   font-size: 13px;
 }
+/* Iconos SVG de static/img/icons: ya traen su propio fondo redondeado, asi que
+   van sin el chip de .kpi-icon. El SVG deja 2/64 de margen, por eso 32px para
+   que el cuadrado visible mida lo mismo que el chip (30px). */
+.kpi-icon-img { width: 32px; height: 32px; flex-shrink: 0; margin: -1px; }
+.card-header-titulo { display: flex; align-items: center; }
+.card-header-icon { width: 26px; height: 26px; margin-right: .5rem; flex-shrink: 0; }
 /* Excepcion deliberada al radio unificado: estos chips e icon-pills quedan
    mas redondeados (pedido explicito), como estaban antes de unificar todo a
    var(--radius). */

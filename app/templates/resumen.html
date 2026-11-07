@@ -15,7 +15,7 @@
     <div class="kpi-card">
       <div class="kpi-top">
         <span class="kpi-label">Comprobantes de hoy</span>
-        <span class="kpi-icon acc"><i class="fas fa-file-invoice-dollar"></i></span>
+        <img class="kpi-icon-img" src="/static/img/icons/01_comprobantes.svg" alt="">
       </div>
       <div class="kpi-value">{{ kpis_hoy.comprobantes_hoy }}</div>
       <div class="kpi-foot">{{ kpis_hoy.comprobantes_hoy_variacion or "sin datos de ayer" }}</div>
@@ -25,7 +25,7 @@
     <div class="kpi-card">
       <div class="kpi-top">
         <span class="kpi-label">Monto total (hoy)</span>
-        <span class="kpi-icon acc"><i class="fas fa-dollar-sign"></i></span>
+        <img class="kpi-icon-img" src="/static/img/icons/02_monto_total.svg" alt="">
       </div>
       <div class="kpi-value">${{ "{:,.2f}".format(kpis_hoy.monto_hoy).replace(",", "_").replace(".", ",").replace("_", ".") }}</div>
       <div class="kpi-foot">{{ kpis_hoy.monto_hoy_variacion or "sin datos de ayer" }}</div>
@@ -35,7 +35,7 @@
     <div class="kpi-card">
       <div class="kpi-top">
         <span class="kpi-label">Salidas activas</span>
-        <span class="kpi-icon acc"><i class="fas fa-route"></i></span>
+        <img class="kpi-icon-img" src="/static/img/icons/03_salidas_activas.svg" alt="">
       </div>
       <div class="kpi-value">{{ kpis_hoy.salidas_activas }}</div>
       <div class="kpi-foot">{{ kpis_hoy.operadores_en_salida }} operador{{ "es" if kpis_hoy.operadores_en_salida != 1 }}</div>
@@ -45,7 +45,7 @@
     <div class="kpi-card">
       <div class="kpi-top">
         <span class="kpi-label">Bancos en uso</span>
-        <span class="kpi-icon acc"><i class="fas fa-university"></i></span>
+        <img class="kpi-icon-img" src="/static/img/icons/04_bancos_en_uso.svg" alt="">
       </div>
       <div class="kpi-value">{{ kpis_hoy.bancos_en_uso }}</div>
       <div class="kpi-foot">{{ bancos_del_dia|map(attribute="banco")|join(", ") if bancos_del_dia else "sin actividad hoy" }}</div>
@@ -55,7 +55,7 @@
     <div class="kpi-card">
       <div class="kpi-top">
         <span class="kpi-label">Bancos conciliados</span>
-        <span class="kpi-icon good"><i class="fas fa-check"></i></span>
+        <img class="kpi-icon-img" src="/static/img/icons/05_bancos_conciliados.svg" alt="">
       </div>
       <div class="kpi-value">{{ kpis_hoy.bancos_conciliados }} / {{ kpis_hoy.bancos_en_uso }}</div>
       <div class="kpi-foot">{{ "%.0f"|format(kpis_hoy.bancos_conciliados / kpis_hoy.bancos_en_uso * 100) if kpis_hoy.bancos_en_uso else 0 }}%</div>
@@ -67,7 +67,7 @@
   <div class="col-lg-6 mb-4">
     <div class="card shadow h-100">
       <div class="card-header py-3">
-        <h6 class="m-0 font-weight-bold text-primary">Comprobantes y montos</h6>
+        <h6 class="m-0 font-weight-bold text-primary card-header-titulo"><img class="card-header-icon" src="/static/img/icons/06_comprobantes_y_montos.svg" alt="">Comprobantes y montos</h6>
       </div>
       <div class="card-body" style="height: 280px;">
         <canvas id="chart-comprobantes-montos"></canvas>
@@ -77,7 +77,7 @@
   <div class="col-lg-3 mb-4">
     <div class="card shadow h-100">
       <div class="card-header py-3">
-        <h6 class="m-0 font-weight-bold text-primary">Comprobantes por banco (hoy)</h6>
+        <h6 class="m-0 font-weight-bold text-primary card-header-titulo"><img class="card-header-icon" src="/static/img/icons/08_comprobantes_por_banco.svg" alt="">Comprobantes por banco (hoy)</h6>
       </div>
       <div class="card-body" style="height: 280px;">
         {% if comprobantes_por_banco_hoy %}
@@ -91,7 +91,7 @@
   <div class="col-lg-3 mb-4">
     <div class="card shadow h-100">
       <div class="card-header py-3">
-        <h6 class="m-0 font-weight-bold text-primary">Estado de conciliacion (hoy)</h6>
+        <h6 class="m-0 font-weight-bold text-primary card-header-titulo"><img class="card-header-icon" src="/static/img/icons/09_estado_conciliacion.svg" alt="">Estado de conciliacion (hoy)</h6>
       </div>
       <div class="card-body d-flex flex-column align-items-center justify-content-center" style="height: 280px;">
         {% set pct = (kpis_hoy.bancos_conciliados / kpis_hoy.bancos_en_uso * 100) if kpis_hoy.bancos_en_uso else 0 %}
@@ -233,7 +233,7 @@
     <div class="kpi-card">
       <div class="kpi-top">
         <span class="kpi-label">Comprobantes</span>
-        <span class="kpi-icon acc"><i class="fas fa-file-invoice-dollar"></i></span>
+        <img class="kpi-icon-img" src="/static/img/icons/01_comprobantes.svg" alt="">
       </div>
       <div class="kpi-value">{{ cantidad_comprobantes }}</div>
       <div class="kpi-foot">en el periodo filtrado</div>
@@ -243,7 +243,7 @@
     <div class="kpi-card">
       <div class="kpi-top">
         <span class="kpi-label">Monto total</span>
-        <span class="kpi-icon acc"><i class="fas fa-dollar-sign"></i></span>
+        <img class="kpi-icon-img" src="/static/img/icons/02_monto_total.svg" alt="">
       </div>
       <div class="kpi-value">${{ "%.2f"|format(monto_total) }}</div>
       <div class="kpi-foot">{{ cantidad_vendedores }} vendedor{{ "es" if cantidad_vendedores != 1 }}</div>
@@ -253,7 +253,7 @@
     <div class="kpi-card">
       <div class="kpi-top">
         <span class="kpi-label">Conciliados</span>
-        <span class="kpi-icon good"><i class="fas fa-check"></i></span>
+        <img class="kpi-icon-img" src="/static/img/icons/05_bancos_conciliados.svg" alt="">
       </div>
       <div class="kpi-value">{{ conciliados }}</div>
       <div class="kpi-foot">{{ "%.1f"|format(conciliados / cantidad_comprobantes * 100) if cantidad_comprobantes else "0,0" }}% del total</div>
@@ -283,7 +283,7 @@
 
 <div class="card shadow mb-4">
   <div class="card-header py-3 d-flex justify-content-between align-items-center">
-    <h6 class="m-0 font-weight-bold text-primary">Actividad — ultimos 14 dias</h6>
+    <h6 class="m-0 font-weight-bold text-primary card-header-titulo"><img class="card-header-icon" src="/static/img/icons/07_calendario.svg" alt="">Actividad — ultimos 14 dias</h6>
     <span class="hint text-muted small">comprobantes recibidos por dia</span>
   </div>
   <div class="card-body spark-wrap">
