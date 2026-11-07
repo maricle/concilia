@@ -58,7 +58,8 @@ def test_parse_csv_mercado_pago_format():
     assert fila.referencia == "174085816489"
     assert fila.monto == Decimal("127782.00")
     assert fila.fecha == datetime(2026, 8, 21)
-    assert fila.descripcion == "DON JUAN Pesca Camping"
+    assert fila.titular == "DON JUAN Pesca Camping"
+    assert fila.cuit == "20149811118"
 
 
 def test_parse_xlsx_reads_header_and_rows():

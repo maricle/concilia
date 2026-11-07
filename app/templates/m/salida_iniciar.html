@@ -7,14 +7,13 @@
 <form method="post" action="/m/salida/iniciar" class="m-form">
   <label for="numero">Número de salida</label>
   <input id="numero" name="numero" type="text" inputmode="numeric" pattern="[0-9]*" required value="{{ numero }}" autofocus>
-  {% if moviles %}
   <label for="movil_id">Móvil</label>
   <select id="movil_id" name="movil_id" required>
     <option value="">Elegí el móvil</option>
-    {% for movil in moviles %}<option value="{{ movil.id }}">{{ movil.numero }} - {{ movil.nombre }}</option>{% endfor %}
+    {% for movil in moviles %}<option value="{{ movil.id }}"{% if movil.id|string == movil_id %} selected{% endif %}>{{ movil.numero }} - {{ movil.nombre }}</option>{% endfor %}
   </select>
-  {% endif %}
-  <button type="submit" class="m-boton">{{ "Iniciar salida" if moviles else "Continuar" }}</button>
+  <p class="m-ayuda">Si la salida ya está abierta en ese móvil, te sumás a ella.</p>
+  <button type="submit" class="m-boton">Iniciar salida</button>
 </form>
 <a href="/m/" class="m-link-bloque">Volver</a>
 {% endblock %}

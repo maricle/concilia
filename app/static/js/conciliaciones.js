@@ -84,7 +84,9 @@
             "<tr>" +
             "<td>" + escapeHtml(m.fecha_hora) + "</td>" +
             "<td>" + escapeHtml(m.comprobante) + "</td>" +
-            "<td>" + escapeHtml(m.titular) + "</td>" +
+            "<td>" + escapeHtml(m.titular) +
+            (m.cuit ? '<div class="small text-muted text-nowrap">CUIT ' + escapeHtml(m.cuit) + "</div>" : "") +
+            "</td>" +
             '<td class="num">' + formatoMonto(m.monto) + "</td>" +
             "<td>" + escapeHtml(m.reparto_label) + "</td>" +
             "<td>" + badgeMovimiento(m.estado) + "</td>" +

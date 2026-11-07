@@ -10,6 +10,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from ..conversation import buscar_cuenta_bancaria
+from ..cuit import formato_cuit, normalizar_cuit
 from ..extraction import extract_transfer
 from ..models import (
     BankAccount,
@@ -40,6 +41,8 @@ from .comun import (
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
+ERROR_CUIT = "El CUIT/CUIL no es valido: tiene que tener 11 numeros (ej. 20-12345678-9)."
+
 COMPROBANTES_POR_PAGINA = 50
 TODOS_LOS_DIAS = "todos"
 
@@ -58,7 +61,7 @@ def _dia_seleccionado(fecha: str, hay_rango_de_fechas: bool) -> date | None:
 
 _COLUMNAS_ORDENABLES = {
     "fecha_transaccion": Movement.fecha_transaccion,
-    "fecha_subida": Movement.fecha_subida,
+    "fecha_alta": Movement.fecha_alta,
     "monto": Movement.monto,
     "numero_operacion": Movement.numero_operacion,
     "conciliacion": Movement.estado_conciliacion,
@@ -71,8 +74,8 @@ def _comprobantes_query(
     operador_id: str,
     fecha_transaccion_desde: str,
     fecha_transaccion_hasta: str,
-    fecha_subida_desde: str,
-    fecha_subida_hasta: str,
+    fecha_alta_desde: str,
+    fecha_alta_hasta: str,
     q: str,
     sort: str = "",
     order: str = "asc",
@@ -105,20 +108,23 @@ def _comprobantes_query(
         query = query.where(
             Movement.fecha_transaccion < datetime.strptime(fecha_transaccion_hasta, "%Y-%m-%d") + timedelta(days=1)
         )
-    if fecha_subida_desde:
-        query = query.where(Movement.fecha_subida >= datetime.strptime(fecha_subida_desde, "%Y-%m-%d"))
-    if fecha_subida_hasta:
-        query = query.where(Movement.fecha_subida < datetime.strptime(fecha_subida_hasta, "%Y-%m-%d") + timedelta(days=1))
+    if fecha_alta_desde:
+        query = query.where(Movement.fecha_alta >= datetime.strptime(fecha_alta_desde, "%Y-%m-%d"))
+    if fecha_alta_hasta:
+        query = query.where(Movement.fecha_alta < datetime.strptime(fecha_alta_hasta, "%Y-%m-%d") + timedelta(days=1))
     if q.strip():
         needle = f"%{q.strip()}%"
-        query = query.where(
-            or_(
-                Movement.numero_operacion.ilike(needle),
-                Movement.factura_o_cuenta_numero.ilike(needle),
-                Movement.titular.ilike(needle),
-                Movement.banco_emisor.ilike(needle),
-            )
-        )
+        condiciones = [
+            Movement.numero_operacion.ilike(needle),
+            Movement.factura_o_cuenta_numero.ilike(needle),
+            Movement.titular.ilike(needle),
+            Movement.cuenta_receptora_extraida.ilike(needle),
+        ]
+        # El CUIT se guarda sin guiones: "20-12345678-9" tambien lo encuentra.
+        digitos = "".join(c for c in q if c.isdigit())
+        if digitos:
+            condiciones.append(Movement.cuit.like(f"%{digitos}%"))
+        query = query.where(or_(*condiciones))
     if sort == "vendedor":
         query = query.join(Operator, Movement.operador_id == Operator.id)
         columna_orden = Operator.nombre
@@ -126,8 +132,8 @@ def _comprobantes_query(
         query = query.outerjoin(BankAccount, Movement.cuenta_bancaria_id == BankAccount.id)
         columna_orden = BankAccount.banco
     else:
-        columna_orden = _COLUMNAS_ORDENABLES.get(sort, Movement.fecha_subida)
-    descendente = order == "desc" if sort else True  # sin sort explicito, default = fecha_subida desc (como antes)
+        columna_orden = _COLUMNAS_ORDENABLES.get(sort, Movement.fecha_alta)
+    descendente = order == "desc" if sort else True  # sin sort explicito, default = fecha_alta desc (como antes)
     orden = columna_orden.desc() if descendente else columna_orden.asc()
     return query.order_by(orden.nullslast())
 
@@ -140,8 +146,8 @@ def list_movimientos(
     operador_id: str = "",
     fecha_transaccion_desde: str = "",
     fecha_transaccion_hasta: str = "",
-    fecha_subida_desde: str = "",
-    fecha_subida_hasta: str = "",
+    fecha_alta_desde: str = "",
+    fecha_alta_hasta: str = "",
     q: str = "",
     sort: str = "",
     order: str = "asc",
@@ -152,11 +158,11 @@ def list_movimientos(
     user: PanelUser = Depends(require_user),
 ):
     dia = _dia_seleccionado(
-        fecha, any((fecha_transaccion_desde, fecha_transaccion_hasta, fecha_subida_desde, fecha_subida_hasta))
+        fecha, any((fecha_transaccion_desde, fecha_transaccion_hasta, fecha_alta_desde, fecha_alta_hasta))
     )
     query = _comprobantes_query(
         banco, estado_conciliacion, operador_id,
-        fecha_transaccion_desde, fecha_transaccion_hasta, fecha_subida_desde, fecha_subida_hasta, q,
+        fecha_transaccion_desde, fecha_transaccion_hasta, fecha_alta_desde, fecha_alta_hasta, q,
         sort, order, movil_id, dia,
     )
     # Paginado: el listado crece todos los dias y antes se traia entero (con sus
@@ -178,7 +184,7 @@ def list_movimientos(
             "dia": dia,
             "fecha": fecha,
             "hay_rango_de_fechas": any(
-                (fecha_transaccion_desde, fecha_transaccion_hasta, fecha_subida_desde, fecha_subida_hasta)
+                (fecha_transaccion_desde, fecha_transaccion_hasta, fecha_alta_desde, fecha_alta_hasta)
             ),
             "dia_anterior": (dia - timedelta(days=1)).isoformat() if dia else None,
             "dia_siguiente": (dia + timedelta(days=1)).isoformat() if dia else None,
@@ -193,8 +199,8 @@ def list_movimientos(
             "operador_id": operador_id,
             "fecha_transaccion_desde": fecha_transaccion_desde,
             "fecha_transaccion_hasta": fecha_transaccion_hasta,
-            "fecha_subida_desde": fecha_subida_desde,
-            "fecha_subida_hasta": fecha_subida_hasta,
+            "fecha_alta_desde": fecha_alta_desde,
+            "fecha_alta_hasta": fecha_alta_hasta,
             "q": q,
             "sort": sort,
             "order": order,
@@ -210,8 +216,8 @@ def comprobantes_exportar(
     operador_id: str = "",
     fecha_transaccion_desde: str = "",
     fecha_transaccion_hasta: str = "",
-    fecha_subida_desde: str = "",
-    fecha_subida_hasta: str = "",
+    fecha_alta_desde: str = "",
+    fecha_alta_hasta: str = "",
     q: str = "",
     sort: str = "",
     order: str = "asc",
@@ -221,12 +227,12 @@ def comprobantes_exportar(
     user: PanelUser = Depends(require_user),
 ):
     dia = _dia_seleccionado(
-        fecha, any((fecha_transaccion_desde, fecha_transaccion_hasta, fecha_subida_desde, fecha_subida_hasta))
+        fecha, any((fecha_transaccion_desde, fecha_transaccion_hasta, fecha_alta_desde, fecha_alta_hasta))
     )
     movimientos = db.scalars(
         _comprobantes_query(
             banco, estado_conciliacion, operador_id,
-            fecha_transaccion_desde, fecha_transaccion_hasta, fecha_subida_desde, fecha_subida_hasta, q,
+            fecha_transaccion_desde, fecha_transaccion_hasta, fecha_alta_desde, fecha_alta_hasta, q,
             sort, order, movil_id, dia,
         )
     ).all()
@@ -234,12 +240,14 @@ def comprobantes_exportar(
     filas = [
         [
             movimiento.fecha_transaccion.strftime("%Y-%m-%d %H:%M") if movimiento.fecha_transaccion else "",
-            movimiento.fecha_subida.strftime("%Y-%m-%d %H:%M"),
+            "Si" if movimiento.fecha_no_leida else "",
+            movimiento.fecha_alta.strftime("%Y-%m-%d %H:%M"),
             movimiento.factura_o_cuenta_tipo.value if movimiento.factura_o_cuenta_tipo else "",
             movimiento.factura_o_cuenta_numero or "",
             movimiento.cuenta_bancaria.banco if movimiento.cuenta_bancaria else "Sin banco",
-            movimiento.banco_emisor or "",
+            movimiento.cuenta_receptora_extraida or "",
             movimiento.titular or "",
+            formato_cuit(movimiento.cuit) if movimiento.cuit else "",
             movimiento.numero_operacion or "",
             movimiento.monto if movimiento.monto is not None else "",
             movimiento.operador.nombre,
@@ -251,8 +259,8 @@ def comprobantes_exportar(
     ]
     return respuesta_xlsx(
         [
-            "Fecha transaccion", "Fecha subida", "Tipo", "Nro. factura/cuenta", "Cuenta banco", "Banco emisor",
-            "Titular/Emisor", "N. operacion", "Monto", "Vendedor", "Movil", "Nro. Salida", "Conciliacion",
+            "Fecha transaccion", "Fecha no leida", "Fecha alta", "Tipo", "Nro. factura/cuenta", "Cuenta banco", "Destino leido",
+            "Titular/Emisor", "CUIT/CUIL", "N. operacion", "Monto", "Vendedor", "Movil", "Nro. Salida", "Conciliacion",
         ],
         filas,
         "comprobantes.xlsx",
@@ -312,10 +320,13 @@ async def extraer_datos_comprobante(
         "ok": True,
         "monto": str(transfer.monto) if transfer.monto is not None else None,
         "fecha_transaccion": transfer.fecha_transaccion.strftime("%Y-%m-%dT%H:%M"),
+        "fecha_no_leida": transfer.fecha_no_leida,
         "numero_operacion": transfer.numero_operacion,
-        "banco_emisor": transfer.banco_emisor,
         "titular": transfer.titular,
+        "cuit": formato_cuit(transfer.cuit) if transfer.cuit else None,
+        "cuenta_receptora": transfer.cuenta_receptora,
         "cuenta_bancaria_id": cuenta.id if cuenta is not None else None,
+        "cuenta_bancaria": f"{cuenta.alias} ({cuenta.banco})" if cuenta is not None else None,
     }
 
 
@@ -341,10 +352,11 @@ async def nuevo_movimiento_submit(
     fecha_transaccion: str = Form(...),
     monto: str = Form(...),
     numero_operacion: str = Form(""),
-    banco_emisor: str = Form(""),
     titular: str = Form(""),
+    cuit: str = Form(""),
     factura_o_cuenta_tipo: str = Form(""),
     factura_o_cuenta_numero: str = Form(""),
+    cuenta_receptora_extraida: str = Form(""),
     archivo: UploadFile | None = None,
     db: Session = Depends(get_db),
     user: PanelUser = Depends(require_user),
@@ -367,6 +379,8 @@ async def nuevo_movimiento_submit(
         nuevo_monto = Decimal(monto)
     except (ValueError, InvalidOperation):
         return _reformar("Fecha o monto invalido.")
+    if cuit.strip() and normalizar_cuit(cuit) is None:
+        return _reformar(ERROR_CUIT)
 
     numero_operacion = numero_operacion.strip() or None
     if numero_operacion and existe_duplicado(db, Movement.numero_operacion, numero_operacion):
@@ -384,8 +398,9 @@ async def nuevo_movimiento_submit(
         fecha_transaccion=nueva_fecha,
         monto=nuevo_monto,
         numero_operacion=numero_operacion,
-        banco_emisor=banco_emisor or None,
+        cuenta_receptora_extraida=cuenta_receptora_extraida.strip()[:150] or None,
         titular=titular or None,
+        cuit=normalizar_cuit(cuit),
         factura_o_cuenta_tipo=TipoIdentificador(factura_o_cuenta_tipo) if factura_o_cuenta_tipo else None,
         factura_o_cuenta_numero=factura_o_cuenta_numero or None,
         archivo_id=archivo_id,
@@ -415,9 +430,9 @@ def editar_movimiento_submit(
     fecha_transaccion: str = Form(...),
     monto: str = Form(""),
     numero_operacion: str = Form(""),
-    banco_emisor: str = Form(""),
     cuenta_bancaria_id: str = Form(""),
     titular: str = Form(""),
+    cuit: str = Form(""),
     factura_o_cuenta_tipo: str = Form(""),
     factura_o_cuenta_numero: str = Form(""),
     db: Session = Depends(get_db),
@@ -434,6 +449,13 @@ def editar_movimiento_submit(
             request,
             "editar_movimiento.html",
             {"user": user, "movimiento": movimiento, "cuentas": cuentas, "error": "Fecha o monto invalido."},
+            status_code=400,
+        )
+    if cuit.strip() and normalizar_cuit(cuit) is None:
+        return templates.TemplateResponse(
+            request,
+            "editar_movimiento.html",
+            {"user": user, "movimiento": movimiento, "cuentas": cuentas, "error": ERROR_CUIT},
             status_code=400,
         )
 
@@ -454,9 +476,11 @@ def editar_movimiento_submit(
     movimiento.fecha_transaccion = nueva_fecha
     movimiento.monto = nuevo_monto
     movimiento.numero_operacion = numero_operacion
-    movimiento.banco_emisor = banco_emisor or None
+    # Quien guarda desde aca reviso la fecha: deja de figurar como no leida.
+    movimiento.fecha_no_leida = False
     movimiento.cuenta_bancaria_id = int(cuenta_bancaria_id) if cuenta_bancaria_id else None
     movimiento.titular = titular or None
+    movimiento.cuit = normalizar_cuit(cuit)
     movimiento.factura_o_cuenta_tipo = TipoIdentificador(factura_o_cuenta_tipo) if factura_o_cuenta_tipo else None
     movimiento.factura_o_cuenta_numero = factura_o_cuenta_numero or None
     db.commit()

@@ -13,9 +13,11 @@ from sqlalchemy import case, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from ..bancos import icono_banco
+from ..cuit import formato_cuit
 from ..models import (
     BankAccount,
     CierreDiario,
+    FormatoExtracto,
     ImportedStatement,
     Movement,
     Operator,
@@ -28,7 +30,17 @@ from ..models import (
     StatementLineState,
 )
 from ..numeros import parse_monto_ar
-from ..reconciliation import StatementParseError, match_statement, parse_statement_file
+from ..reconciliation import (
+    CAMPOS_EXTRACTO,
+    ColumnasExtracto,
+    StatementParseError,
+    buscar_encabezado,
+    leer_filas,
+    leer_sin_formato,
+    leer_tabla,
+    match_statement,
+    sugerir_columnas,
+)
 from ..storage import get_comprobante_archivo, save_comprobante_archivo
 from ..zona_horaria import hoy_argentina
 from .comun import del_dia, get_db, require_admin, respuesta_xlsx, templates, volver_a
@@ -248,6 +260,9 @@ def _movimientos_del_dia_query(fecha: date, cuenta_ids: list[int], estado: str, 
             Movement.titular.ilike(like),
             Movement.factura_o_cuenta_numero.ilike(like),
         ]
+        digitos = "".join(c for c in search if c.isdigit())
+        if digitos:
+            condiciones.append(Movement.cuit.like(f"%{digitos}%"))
         with contextlib.suppress(ValueError):
             condiciones.append(Movement.monto == parse_monto_ar(search))
         query = query.where(or_(*condiciones))
@@ -263,6 +278,7 @@ def _movimiento_row_dict(movimiento: Movement) -> dict:
         "fecha_hora": movimiento.fecha_transaccion.strftime("%d/%m %H:%M") if movimiento.fecha_transaccion else "-",
         "comprobante": movimiento.factura_o_cuenta_numero or movimiento.numero_operacion or "-",
         "titular": movimiento.titular or "-",
+        "cuit": formato_cuit(movimiento.cuit) if movimiento.cuit else None,
         "monto": str(movimiento.monto) if movimiento.monto is not None else None,
         "reparto_id": movimiento.reparto_id,
         "reparto_label": reparto_label,
@@ -549,6 +565,7 @@ def conciliaciones_movimientos_exportar(
             movimiento.fecha_transaccion.strftime("%Y-%m-%d %H:%M") if movimiento.fecha_transaccion else "",
             movimiento.factura_o_cuenta_numero or movimiento.numero_operacion or "",
             movimiento.titular or "",
+            formato_cuit(movimiento.cuit) if movimiento.cuit else "",
             movimiento.monto if movimiento.monto is not None else "",
             movimiento.reparto.numero_reparto if movimiento.reparto and movimiento.reparto.numero_reparto is not None else "",
             movimiento.operador.nombre,
@@ -557,7 +574,7 @@ def conciliaciones_movimientos_exportar(
         for movimiento in movimientos
     ]
     return respuesta_xlsx(
-        ["Fecha / Hora", "Comprobante", "Titular", "Importe", "Salida", "Operador", "Estado"],
+        ["Fecha / Hora", "Comprobante", "Titular", "CUIT/CUIL", "Importe", "Salida", "Operador", "Estado"],
         filas,
         f"conciliaciones_{banco or 'todos'}_{fecha_obj.isoformat()}.xlsx",
     )
@@ -692,12 +709,15 @@ async def importar_resumen(
     archivo: UploadFile,
     cuenta_bancaria_id: int = Form(...),
     fecha: str = Form(...),
+    elegir_columnas: str = Form(""),
     db: Session = Depends(get_db),
     user: PanelUser = Depends(require_admin),
 ):
     fecha_obj = datetime.strptime(fecha, "%Y-%m-%d").date()
     cuenta = db.get(BankAccount, cuenta_bancaria_id)
-    banco = cuenta.banco if cuenta is not None else ""
+    if cuenta is None:
+        return _pantalla_conciliaciones(request, db, user, fecha_obj, error="Elegí la cuenta del extracto.")
+    banco = cuenta.banco
 
     error_cierre = _dia_cerrado_error(db, fecha_obj)
     if error_cierre:
@@ -705,16 +725,197 @@ async def importar_resumen(
 
     contenido = await archivo.read()
     try:
-        filas, formato = parse_statement_file(archivo.filename or "", contenido)
+        tabla, formato = leer_tabla(archivo.filename or "", contenido)
     except StatementParseError as exc:
         return _pantalla_conciliaciones(request, db, user, fecha_obj, banco, error=str(exc))
 
+    # Con las columnas ya guardadas para este banco se importa directo. La primera
+    # vez (o si el archivo no las tiene, o si se pidio revisarlas) se muestra la
+    # pantalla para elegirlas; el archivo queda guardado mientras tanto.
+    guardado = _formato_del_banco(db, banco)
+    columnas_guardadas = _columnas_de(guardado) if guardado is not None else None
+    indice = buscar_encabezado(tabla, columnas_guardadas) if columnas_guardadas is not None else None
+    aviso = None
+    if columnas_guardadas is not None and indice is None:
+        aviso = (
+            f"Este archivo no tiene las columnas que se usan para {banco} "
+            f"({columnas_guardadas.fecha} y {columnas_guardadas.monto}). Elegilas de nuevo."
+        )
     archivo_id = _guardar_archivo_resumen(archivo, contenido, formato, "resumen")
+    if indice is None or elegir_columnas:
+        return _pantalla_columnas(
+            request, db, user, cuenta=cuenta, fecha=fecha_obj, archivo_id=archivo_id, tabla=tabla,
+            columnas=columnas_guardadas if indice is not None else None, aviso=aviso,
+        )
+    try:
+        filas = leer_filas(tabla, indice, columnas_guardadas)
+    except StatementParseError as exc:
+        return _pantalla_conciliaciones(request, db, user, fecha_obj, banco, error=str(exc))
+    return _importar_filas(
+        request, db, user, cuenta=cuenta, fecha=fecha_obj, nombre_archivo=archivo.filename or "resumen",
+        formato=formato, archivo_id=archivo_id, filas=filas,
+    )
 
+
+def _formato_del_banco(db: Session, banco: str) -> FormatoExtracto | None:
+    return db.scalar(select(FormatoExtracto).where(FormatoExtracto.banco == banco))
+
+
+def _columnas_de(formato: FormatoExtracto) -> ColumnasExtracto:
+    return ColumnasExtracto(
+        fecha=formato.col_fecha,
+        monto=formato.col_monto,
+        descripcion=formato.col_descripcion,
+        referencia=formato.col_referencia,
+        titular=formato.col_titular,
+        cuit=formato.col_cuit,
+    )
+
+
+def _texto_vista_previa(celda: object) -> str:
+    if celda is None:
+        return ""
+    if isinstance(celda, datetime):
+        return celda.strftime("%d/%m/%Y")
+    return str(celda)
+
+
+def _pantalla_columnas(
+    request: Request,
+    db: Session,
+    user: PanelUser,
+    *,
+    cuenta: BankAccount,
+    fecha: date,
+    archivo_id: int,
+    tabla: list[list],
+    columnas: ColumnasExtracto | None = None,
+    aviso: str | None = None,
+    error: str | None = None,
+):
+    """Pantalla para indicar en que columna del extracto esta cada dato, con las
+    primeras filas del archivo como ayuda."""
+    indice = buscar_encabezado(tabla)
+    if indice is None:
+        return _pantalla_conciliaciones(
+            request, db, user, fecha, cuenta.banco,
+            error="No se encontro la fila de titulos del extracto (Fecha, Importe, etc.).",
+        )
+    encabezados = [str(c).strip() for c in tabla[indice] if c not in (None, "") and str(c).strip()]
+    ejemplos = [
+        [_texto_vista_previa(c) for c in fila]
+        for fila in tabla[indice + 1 :]
+        if any(c not in (None, "") for c in fila)
+    ][:5]
+    return templates.TemplateResponse(
+        request,
+        "conciliaciones_columnas.html",
+        {
+            "user": user,
+            "cuenta": cuenta,
+            "fecha": fecha,
+            "archivo_id": archivo_id,
+            "encabezados_tabla": [_texto_vista_previa(c) for c in tabla[indice]],
+            "encabezados": encabezados,
+            "ejemplos": ejemplos,
+            "campos": CAMPOS_EXTRACTO,
+            "elegidas": columnas or sugerir_columnas(tabla[indice]),
+            "primera_vez": _formato_del_banco(db, cuenta.banco) is None,
+            "aviso": aviso,
+            "error": error,
+        },
+        status_code=400 if error else 200,
+    )
+
+
+@router.post("/conciliaciones/importar/columnas")
+def importar_con_columnas(
+    request: Request,
+    archivo_id: int = Form(...),
+    cuenta_bancaria_id: int = Form(...),
+    fecha: str = Form(...),
+    col_fecha: str = Form(""),
+    col_monto: str = Form(""),
+    col_descripcion: str = Form(""),
+    col_referencia: str = Form(""),
+    col_titular: str = Form(""),
+    col_cuit: str = Form(""),
+    db: Session = Depends(get_db),
+    user: PanelUser = Depends(require_admin),
+):
+    """Confirma las columnas elegidas: las guarda para el banco y termina de
+    importar el archivo que quedo guardado en el paso anterior."""
+    fecha_obj = datetime.strptime(fecha, "%Y-%m-%d").date()
+    cuenta = db.get(BankAccount, cuenta_bancaria_id)
+    archivo = get_comprobante_archivo(archivo_id)
+    if cuenta is None or archivo is None:
+        return _pantalla_conciliaciones(request, db, user, fecha_obj, error="No se encontro el archivo. Subilo de nuevo.")
+    error_cierre = _dia_cerrado_error(db, fecha_obj)
+    if error_cierre:
+        return _pantalla_conciliaciones(request, db, user, fecha_obj, cuenta.banco, error=error_cierre)
+
+    tabla, formato = leer_tabla(archivo.nombre_archivo, archivo.contenido)
+    columnas = ColumnasExtracto(
+        fecha=col_fecha or None,
+        monto=col_monto or None,
+        descripcion=col_descripcion or None,
+        referencia=col_referencia or None,
+        titular=col_titular or None,
+        cuit=col_cuit or None,
+    )
+
+    def _de_nuevo(error: str):
+        return _pantalla_columnas(
+            request, db, user, cuenta=cuenta, fecha=fecha_obj, archivo_id=archivo_id, tabla=tabla,
+            columnas=columnas, error=error,
+        )
+
+    if columnas.fecha is None or columnas.monto is None:
+        return _de_nuevo("Elegí las columnas de fecha y de monto: son obligatorias.")
+    indice = buscar_encabezado(tabla, columnas)
+    if indice is None:
+        return _de_nuevo("No se encontraron esas columnas en el archivo.")
+    try:
+        filas = leer_filas(tabla, indice, columnas)
+    except StatementParseError as exc:
+        return _de_nuevo(f"{exc} Revisá que las columnas de fecha y monto sean las correctas.")
+
+    guardado = _formato_del_banco(db, cuenta.banco)
+    if guardado is None:
+        guardado = FormatoExtracto(banco=cuenta.banco, col_fecha=columnas.fecha, col_monto=columnas.monto)
+        db.add(guardado)
+    guardado.col_fecha = columnas.fecha
+    guardado.col_monto = columnas.monto
+    guardado.col_descripcion = columnas.descripcion
+    guardado.col_referencia = columnas.referencia
+    guardado.col_titular = columnas.titular
+    guardado.col_cuit = columnas.cuit
+    guardado.actualizado_por_id = user.id
+    return _importar_filas(
+        request, db, user, cuenta=cuenta, fecha=fecha_obj, nombre_archivo=archivo.nombre_archivo,
+        formato=formato, archivo_id=archivo_id, filas=filas,
+    )
+
+
+def _importar_filas(
+    request: Request,
+    db: Session,
+    user: PanelUser,
+    *,
+    cuenta: BankAccount,
+    fecha: date,
+    nombre_archivo: str,
+    formato: str,
+    archivo_id: int,
+    filas: list,
+):
+    fecha_obj = fecha
+    banco = cuenta.banco
+    cuenta_bancaria_id = cuenta.id
     resumen = ImportedStatement(
         cuenta_bancaria_id=cuenta_bancaria_id,
-        fecha=datetime.strptime(fecha, "%Y-%m-%d"),
-        archivo_nombre=archivo.filename or "resumen",
+        fecha=datetime(fecha.year, fecha.month, fecha.day),
+        archivo_nombre=nombre_archivo,
         formato=formato,
         usuario_id=user.id,
         archivo_id=archivo_id,
@@ -781,7 +982,11 @@ async def actualizar_resumen(
 
     contenido = await archivo.read()
     try:
-        filas, formato = parse_statement_file(archivo.filename or "", contenido)
+        tabla, formato = leer_tabla(archivo.filename or "", contenido)
+        guardado = _formato_del_banco(db, banco)
+        columnas = _columnas_de(guardado) if guardado is not None else None
+        indice = buscar_encabezado(tabla, columnas) if columnas is not None else None
+        filas = leer_filas(tabla, indice, columnas) if indice is not None else leer_sin_formato(tabla)
     except StatementParseError as exc:
         return _pantalla_conciliaciones(request, db, user, fecha_obj, banco, error=str(exc))
 
@@ -839,6 +1044,8 @@ def _lineas_nuevas(
                 monto=fila.monto,
                 descripcion=fila.descripcion,
                 referencia=fila.referencia,
+                titular=fila.titular,
+                cuit=fila.cuit,
             )
         )
     return nuevas, duplicadas

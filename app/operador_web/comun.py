@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .. import servicios
+from ..cuit import formato_cuit
 from ..estaticos import version_estatico
 from ..models import Movil
 from ..panel.comun import url_actual
@@ -17,6 +18,7 @@ templates = Jinja2Templates(directory="app/templates")
 templates.env.globals["url_actual"] = url_actual
 templates.env.globals["version_estatico"] = version_estatico
 templates.env.globals["timedelta"] = timedelta
+templates.env.globals["formato_cuit"] = formato_cuit
 templates.env.globals["ESTADOS"] = {
     "pendiente": "Pendiente de conciliar",
     "conciliado": "Conciliado",

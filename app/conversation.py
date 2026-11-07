@@ -5,6 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from . import servicios
+from .cuit import formato_cuit
 from .models import (
     ConversationState,
     Movement,
@@ -466,6 +467,13 @@ class ConversationService:
                     # sigue con la que ya tiene abierta; si la cierra, recien ahi se
                     # piden los datos que falten.
                     return self._preguntar_cerrar_o_continuar(conversation, reparto_propio, comando)
+                if comando.numero_reparto is not None:
+                    # Solo el numero: si esa salida ya esta abierta (la abrio un
+                    # companero o un administrador desde el panel) se suma sin
+                    # pedirle el movil; si no, recien ahi se lo pide.
+                    return self._entrar_a_salida(
+                        operator, conversation, comando.numero_reparto, None, confirmar_creacion=True
+                    )
                 return self._recopilar_datos_inicio_reparto(conversation, comando)
             return self._iniciar_reparto(operator, comando)
         return self._cerrar_reparto(operator, comando)
@@ -658,11 +666,14 @@ class ConversationService:
             factura_cuenta = "pendiente"
         lineas = [
             f"Monto: {monto}",
-            f"Fecha: {_formatear_fecha(movement.fecha_transaccion)}",
+            f"Fecha: {_formatear_fecha(movement.fecha_transaccion)}"
+            + (" (no figura en el comprobante, se usa la de recepcion)" if movement.fecha_no_leida else ""),
             f"Cuenta receptora: {cuenta}",
             f"Operacion: {movement.numero_operacion or 'no detectado'}",
         ]
         if movement.titular:
             lineas.append(f"Emisor: {movement.titular}")
+        if movement.cuit:
+            lineas.append(f"CUIT/CUIL: {formato_cuit(movement.cuit)}")
         lineas.append(f"Factura/cuenta: {factura_cuenta}")
         return "\n".join(lineas)

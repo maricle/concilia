@@ -3,7 +3,9 @@
 {% block content %}
 <h1 class="h3 mb-4 text-gray-800">Nuevo comprobante</h1>
 
-<div class="card shadow mb-4" style="max-width: 700px;">
+<div class="row">
+<div class="col-lg-6 mb-4">
+<div class="card shadow h-100">
   <div class="card-body">
     {% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
     <form method="post" action="/comprobantes/nuevo" enctype="multipart/form-data" id="form-nuevo-comprobante">
@@ -24,19 +26,22 @@
           </select>
         </div>
         <div class="form-group col-md-6">
-          <label>Cuenta receptora *</label>
+          <label>Cuenta receptora (de la empresa) *</label>
           <select class="form-control" name="cuenta_bancaria_id" id="input-cuenta-bancaria" required>
             <option value="">-- Elegir --</option>
             {% for cuenta in cuentas %}
             <option value="{{ cuenta.id }}">{{ cuenta.alias }} ({{ cuenta.banco }})</option>
             {% endfor %}
           </select>
+          <input type="hidden" name="cuenta_receptora_extraida" id="input-cuenta-receptora-extraida">
+          <small class="form-text" id="destino-leido" hidden></small>
         </div>
       </div>
       <div class="form-row">
         <div class="form-group col-md-6">
           <label>Fecha y hora de transaccion *</label>
           <input type="datetime-local" class="form-control" name="fecha_transaccion" id="input-fecha-transaccion" required>
+          <small class="form-text text-warning" id="aviso-fecha" hidden>El comprobante no muestra la fecha: completala a mano.</small>
         </div>
         <div class="form-group col-md-6">
           <label>Monto *</label>
@@ -48,12 +53,12 @@
         <input type="text" class="form-control" name="numero_operacion" id="input-numero-operacion">
       </div>
       <div class="form-group">
-        <label>Banco emisor</label>
-        <input type="text" class="form-control" name="banco_emisor" id="input-banco-emisor">
+        <label>Cliente que transfiere (titular)</label>
+        <input type="text" class="form-control" name="titular" id="input-titular">
       </div>
       <div class="form-group">
-        <label>Titular / Emisor</label>
-        <input type="text" class="form-control" name="titular" id="input-titular">
+        <label>CUIT/CUIL del cliente</label>
+        <input type="text" class="form-control" name="cuit" id="input-cuit" inputmode="numeric" placeholder="20-12345678-9">
       </div>
       <div class="form-row">
         <div class="form-group col-md-4">
@@ -74,10 +79,64 @@
     </form>
   </div>
 </div>
+</div>
+<div class="col-lg-6 mb-4">
+  <div class="card shadow h-100">
+    <div class="card-header py-3">
+      <h6 class="m-0 font-weight-bold text-primary">Comprobante</h6>
+    </div>
+    <div class="card-body text-center" id="vista-comprobante">
+      <p class="text-muted" id="vista-vacia">Elegí el archivo para verlo acá.</p>
+      <img id="vista-imagen" alt="Comprobante" hidden style="max-width: 100%; max-height: 75vh; border: 1px solid var(--border); border-radius: var(--radius);">
+      <embed id="vista-pdf" type="application/pdf" width="100%" hidden style="height: 70vh; border: 1px solid var(--border); border-radius: var(--radius);">
+    </div>
+  </div>
+</div>
+</div>
 <script>
+  var urlVista = null;
+  function mostrarArchivo(archivo) {
+    var imagen = document.getElementById("vista-imagen");
+    var pdf = document.getElementById("vista-pdf");
+    if (urlVista) URL.revokeObjectURL(urlVista);
+    urlVista = archivo ? URL.createObjectURL(archivo) : null;
+    var esPdf = !!archivo && archivo.type === "application/pdf";
+    imagen.hidden = !archivo || esPdf;
+    pdf.hidden = !esPdf;
+    document.getElementById("vista-vacia").hidden = !!archivo;
+    if (esPdf) {
+      // Un <embed> no recarga al cambiarle el src: se reemplaza por uno nuevo.
+      var nuevo = pdf.cloneNode();
+      nuevo.src = urlVista;
+      nuevo.hidden = false;
+      pdf.replaceWith(nuevo);
+    } else if (archivo) {
+      imagen.src = urlVista;
+    }
+  }
+
+  function mostrarDestinoLeido(data) {
+    var $destino = document.getElementById("destino-leido");
+    document.getElementById("input-cuenta-receptora-extraida").value = data.cuenta_receptora || "";
+    $destino.hidden = false;
+    if (!data.cuenta_receptora) {
+      $destino.className = "form-text text-warning";
+      $destino.textContent = "El comprobante no muestra la cuenta de destino: elegila a mano.";
+    } else if (data.cuenta_bancaria_id) {
+      $destino.className = "form-text text-muted";
+      $destino.textContent = "Destino leido: " + data.cuenta_receptora + " (coincide con " + data.cuenta_bancaria + ").";
+    } else {
+      $destino.className = "form-text text-warning";
+      $destino.textContent = "Destino leido: " + data.cuenta_receptora + ". No coincide con ninguna cuenta registrada: elegila a mano o revisa el numero de cuenta y el CBU/CVU en Configuracion > Cuentas.";
+    }
+  }
+
   document.getElementById("input-archivo").addEventListener("change", function () {
     var archivo = this.files[0];
     var $estado = document.getElementById("extraccion-estado");
+    mostrarArchivo(archivo);
+    document.getElementById("destino-leido").hidden = true;
+    document.getElementById("input-cuenta-receptora-extraida").value = "";
     if (!archivo) {
       $estado.hidden = true;
       return;
@@ -98,11 +157,14 @@
           return;
         }
         if (data.monto) document.getElementById("input-monto").value = data.monto;
-        if (data.fecha_transaccion) document.getElementById("input-fecha-transaccion").value = data.fecha_transaccion;
+        // Sin fecha en el comprobante no se precompleta: la elige quien carga.
+        document.getElementById("aviso-fecha").hidden = !data.fecha_no_leida;
+        if (data.fecha_transaccion && !data.fecha_no_leida) document.getElementById("input-fecha-transaccion").value = data.fecha_transaccion;
         if (data.numero_operacion) document.getElementById("input-numero-operacion").value = data.numero_operacion;
-        if (data.banco_emisor) document.getElementById("input-banco-emisor").value = data.banco_emisor;
         if (data.titular) document.getElementById("input-titular").value = data.titular;
+        if (data.cuit) document.getElementById("input-cuit").value = data.cuit;
         if (data.cuenta_bancaria_id) document.getElementById("input-cuenta-bancaria").value = data.cuenta_bancaria_id;
+        mostrarDestinoLeido(data);
         $estado.className = "small mt-1 text-success";
         $estado.textContent = "Datos completados -- revisalos antes de guardar.";
       })

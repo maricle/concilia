@@ -42,8 +42,8 @@
 {% call filtros.form(
   "/comprobantes",
   q,
-  "Buscar N. operacion, factura/cuenta, titular, banco...",
-  banco or estado_conciliacion or operador_id or movil_id or fecha_transaccion_desde or fecha_transaccion_hasta or fecha_subida_desde or fecha_subida_hasta,
+  "Buscar N. operacion, factura/cuenta, titular, CUIT, banco...",
+  banco or estado_conciliacion or operador_id or movil_id or fecha_transaccion_desde or fecha_transaccion_hasta or fecha_alta_desde or fecha_alta_hasta,
   "/comprobantes/exportar"
 ) %}
 <input type="hidden" name="fecha" value="{{ fecha }}">
@@ -96,12 +96,12 @@
     <input type="date" class="form-control" name="fecha_transaccion_hasta" value="{{ fecha_transaccion_hasta }}">
   </div>
   <div class="form-group col-md-3">
-    <label>Fecha subida desde</label>
-    <input type="date" class="form-control" name="fecha_subida_desde" value="{{ fecha_subida_desde }}">
+    <label>Fecha de alta desde</label>
+    <input type="date" class="form-control" name="fecha_alta_desde" value="{{ fecha_alta_desde }}">
   </div>
   <div class="form-group col-md-3">
-    <label>Fecha subida hasta</label>
-    <input type="date" class="form-control" name="fecha_subida_hasta" value="{{ fecha_subida_hasta }}">
+    <label>Fecha de alta hasta</label>
+    <input type="date" class="form-control" name="fecha_alta_hasta" value="{{ fecha_alta_hasta }}">
   </div>
 </div>
 {% endcall %}
@@ -140,7 +140,7 @@
           {% for movimiento in movimientos %}
           <tr class="fila-comprobante"{% if es_admin(user) %} data-href="/comprobantes/{{ movimiento.id }}/editar?volver={{ url_actual(request)|urlencode }}"{% endif %}>
             <td><input type="checkbox" name="movimiento_ids" value="{{ movimiento.id }}" class="chk-comprobante"></td>
-            <td>{{ movimiento.fecha_transaccion|fecha_transaccion }}</td>
+            <td>{{ movimiento.fecha_transaccion|fecha_transaccion }}{% if movimiento.fecha_no_leida %}<br><span class="badge badge-warning" title="El comprobante no mostraba la fecha: es la de recepcion. Revisala.">Fecha no leida</span>{% endif %}</td>
             <td>
               {% if movimiento.factura_o_cuenta_numero %}
               {{ "F: " if movimiento.factura_o_cuenta_tipo and movimiento.factura_o_cuenta_tipo.value == "factura" else "Cta: " }}{{ movimiento.factura_o_cuenta_numero }}
@@ -155,7 +155,7 @@
               <span class="text-muted">Sin banco</span>
               {% endif %}
             </td>
-            <td>{{ movimiento.titular or "-" }}</td>
+            <td>{{ movimiento.titular or "-" }}{% if movimiento.cuit %}<div class="small text-muted text-nowrap">CUIT {{ formato_cuit(movimiento.cuit) }}</div>{% endif %}</td>
             <td>{{ movimiento.numero_operacion or "-" }}</td>
             <td class="num">{{ "$" + movimiento.monto|string if movimiento.monto is not none else "-" }}</td>
             <td>{{ movimiento.operador.nombre }}</td>

@@ -1,6 +1,7 @@
 """Salidas desde la interfaz web: iniciar y cerrar, con las mismas reglas que los
-comandos del chat (app/servicios.py). Para iniciar se pide solo el numero de
-salida; el movil, unicamente si esa salida no esta abierta. Cerrar desde la web
+comandos del chat (app/servicios.py). Para iniciar se piden de entrada el numero
+de salida y el movil: si esa salida ya esta abierta en el movil, el operador se
+suma (y se le avisa); si no, se registra la salida nueva. Cerrar desde la web
 no avisa a los companeros de la salida (decision del cliente; el chat sigue
 avisando)."""
 
@@ -12,7 +13,7 @@ from .. import servicios
 from ..canales import turno_de
 from ..models import Movil, Operator
 from ..numeros import formato_monto_ar
-from .comun import moviles_activos, templates, texto_pedir_movil, texto_salida_ocupada
+from .comun import moviles_activos, templates, texto_salida_ocupada
 from .sesion import get_db, require_operator
 
 router = APIRouter()
@@ -20,15 +21,16 @@ router = APIRouter()
 
 def _formulario(
     request: Request, db: Session, operador: Operator, *, error: str | None = None, aviso: str | None = None,
-    numero: str = "", pedir_movil: bool = False,
+    numero: str = "", movil_id: str = "",
 ):
     return templates.TemplateResponse(
         request,
         "m/salida_iniciar.html",
         {
             "operador": operador,
-            "moviles": moviles_activos(db) if pedir_movil else [],
+            "moviles": moviles_activos(db),
             "numero": numero,
+            "movil_id": movil_id,
             "error": error,
             "aviso": aviso,
         },
@@ -63,10 +65,14 @@ async def iniciar(
 ):
     numero = numero.strip()
     if not numero.isdigit():
-        return _formulario(request, db, operador, error="Indicá el número de salida (solo números).", numero=numero)
+        return _formulario(
+            request, db, operador, error="Indicá el número de salida (solo números).", numero=numero, movil_id=movil_id
+        )
     movil = db.get(Movil, int(movil_id)) if movil_id.isdigit() else None
-    if movil is not None and not movil.activo:
-        return _formulario(request, db, operador, error="Ese móvil ya no está activo.", numero=numero, pedir_movil=True)
+    if movil is None:
+        return _formulario(request, db, operador, error="Elegí el móvil.", numero=numero)
+    if not movil.activo:
+        return _formulario(request, db, operador, error="Ese móvil ya no está activo.", numero=numero)
 
     async with turno_de(operador.whatsapp_numero):
         abierta = servicios.reparto_abierto_del_operador(db, operador.id)
@@ -87,20 +93,21 @@ async def iniciar(
             db.commit()
 
         salida = servicios.ubicar_salida(db, int(numero), movil)
-        if isinstance(salida, servicios.PedirMovil):
-            return _formulario(
-                request, db, operador, aviso=texto_pedir_movil(int(numero), salida.varias), numero=numero, pedir_movil=True
-            )
         if isinstance(salida, servicios.SalidaEnOtroMovil | servicios.MovilConOtraSalida):
-            return _formulario(request, db, operador, error=texto_salida_ocupada(salida))
+            return _formulario(request, db, operador, error=texto_salida_ocupada(salida), numero=numero, movil_id=movil_id)
         if isinstance(salida, servicios.SalidaNueva):
             nueva = servicios.crear_salida(db, operador, salida.movil, int(numero))
             db.commit()
             return _resultado(request, operador, f"Salida Nº {nueva.numero_reparto} iniciada", f"Móvil {salida.movil.numero}.")
-        # Abierta (ej. la abrio el chofer): el operador se suma sin indicar el movil.
+        # Ya abierta en ese movil (ej. la abrio el chofer o el panel): se suma.
         servicios.asociar_operador(db, salida, operador)
         db.commit()
-    return _resultado(request, operador, f"Te sumaste a la Salida Nº {salida.numero_reparto}", f"Móvil {salida.movil.numero}.")
+    return _resultado(
+        request,
+        operador,
+        f"Te sumaste a la Salida Nº {salida.numero_reparto}",
+        f"La salida ya estaba abierta en el móvil {salida.movil.numero}.",
+    )
 
 
 def _lineas_totales(db: Session, reparto) -> list[str]:

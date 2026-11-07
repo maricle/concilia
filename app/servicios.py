@@ -47,6 +47,8 @@ class ExtractedTransfer:
     banco_emisor: str | None = None
     cuenta_receptora: str | None = None
     titular: str | None = None
+    cuit: str | None = None  # CUIT/CUIL de quien paga, solo digitos (ver app/cuit.py)
+    fecha_no_leida: bool = False  # fecha_transaccion es la de recepcion
 
 
 def _levenshtein(a: str, b: str) -> int:
@@ -67,6 +69,33 @@ def _levenshtein(a: str, b: str) -> int:
 
 _LARGO_CBU_CVU = 22
 _TOLERANCIA_DIGITOS_CBU_CVU = 2
+
+
+_MASCARA = re.compile(r"[*xX•·#…]+|\.{3,}")
+_MINIMO_DIGITOS_PARCIAL = 4
+
+
+def _numeros_de_cuenta(cuenta: BankAccount) -> list[str]:
+    """Digitos de los identificadores numericos de una cuenta registrada: CBU/CVU
+    y numero de cuenta del banco (los que tenga cargados)."""
+    numeros = (re.sub(r"\D", "", valor or "") for valor in (cuenta.cbu, cuenta.numero_cuenta))
+    return [numero for numero in numeros if numero]
+
+
+def _coincide_parcial(leido: str, numero: str) -> bool:
+    """El comprobante muestra el destino recortado u oculto (ej. "***4391",
+    "0070****4391", "...14194391"): los digitos visibles del principio y del
+    final tienen que coincidir con el numero registrado. Sin mascara, un numero
+    mas corto que el registrado tiene que coincidir con su final."""
+    if _MASCARA.search(leido):
+        partes = [re.sub(r"\D", "", parte) for parte in _MASCARA.split(leido)]
+        prefijo, sufijo = partes[0], partes[-1]
+    else:
+        prefijo, sufijo = "", re.sub(r"\D", "", leido)
+    visibles = len(prefijo) + len(sufijo)
+    if visibles < _MINIMO_DIGITOS_PARCIAL or visibles >= len(numero):
+        return False
+    return numero.startswith(prefijo) and numero.endswith(sufijo)
 
 
 def buscar_cuenta_bancaria(session: Session, cuenta_receptora: str | None) -> BankAccount | None:
@@ -92,24 +121,35 @@ def buscar_cuenta_bancaria(session: Session, cuenta_receptora: str | None) -> Ba
     for cuenta in cuentas:
         if cuenta.alias.strip().lower() == normalizado:
             return cuenta
-        if digitos and digitos == re.sub(r"\D", "", cuenta.numero_cuenta):
+        if digitos and digitos in _numeros_de_cuenta(cuenta):
             return cuenta
 
     if digitos and len(digitos) == _LARGO_CBU_CVU:
-        candidatas = []
-        for cuenta in cuentas:
-            digitos_cuenta = re.sub(r"\D", "", cuenta.numero_cuenta)
-            if len(digitos_cuenta) != _LARGO_CBU_CVU:
-                continue
-            if _levenshtein(digitos, digitos_cuenta) <= _TOLERANCIA_DIGITOS_CBU_CVU:
-                candidatas.append(cuenta)
+        candidatas = [
+            cuenta
+            for cuenta in cuentas
+            if any(
+                len(numero) == _LARGO_CBU_CVU and _levenshtein(digitos, numero) <= _TOLERANCIA_DIGITOS_CBU_CVU
+                for numero in _numeros_de_cuenta(cuenta)
+            )
+        ]
+        if len(candidatas) == 1:
+            return candidatas[0]
+
+    # Destino recortado u oculto en el comprobante: solo si una unica cuenta encaja.
+    if digitos and len(digitos) < _LARGO_CBU_CVU:
+        candidatas = [
+            cuenta
+            for cuenta in cuentas
+            if any(_coincide_parcial(cuenta_receptora, numero) for numero in _numeros_de_cuenta(cuenta))
+        ]
         if len(candidatas) == 1:
             return candidatas[0]
 
     logger.warning(
         "Cuenta receptora sin match: extraida=%r cuentas_registradas=%r",
         cuenta_receptora,
-        [(c.alias, c.numero_cuenta) for c in cuentas],
+        [(c.alias, c.cbu, c.numero_cuenta) for c in cuentas],
     )
     return None
 
@@ -201,7 +241,13 @@ def buscar_movil_activo(session: Session, texto: str | None) -> Movil | None:
 
 def crear_salida(session: Session, operador: Operator, movil: Movil, numero_reparto: int | None) -> Reparto:
     """Abre una salida nueva en el movil y asocia al operador (sin commit)."""
-    reparto = Reparto(movil_id=movil.id, fecha=hoy_argentina(), hora_inicio=ahora_argentina(), numero_reparto=numero_reparto)
+    reparto = Reparto(
+        movil_id=movil.id,
+        fecha=hoy_argentina(),
+        hora_inicio=ahora_argentina(),
+        numero_reparto=numero_reparto,
+        abierta_por_operador_id=operador.id,
+    )
     session.add(reparto)
     session.flush()
     asociar_operador(session, reparto, operador)
@@ -320,10 +366,11 @@ def crear_borrador(
         operador_id=operador.id,
         monto=transfer.monto,
         fecha_transaccion=transfer.fecha_transaccion,
+        fecha_no_leida=transfer.fecha_no_leida,
         numero_operacion=transfer.numero_operacion,
-        banco_emisor=transfer.banco_emisor,
         cuenta_receptora_extraida=transfer.cuenta_receptora,
         titular=transfer.titular,
+        cuit=transfer.cuit,
         archivo_id=archivo_id,
         # Si no se pudo identificar la cuenta, el comprobante sigue sin cuenta y
         # un administrador la completa despues desde el panel.

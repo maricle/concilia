@@ -138,7 +138,7 @@ def _ultimos_movimientos(db: Session, limite: int = 8) -> list[Movement]:
         select(Movement)
         .where(Movement.estado_registro == RecordState.CONFIRMADO)
         .options(selectinload(Movement.operador))
-        .order_by(Movement.fecha_subida.desc())
+        .order_by(Movement.fecha_alta.desc())
         .limit(limite)
     ).all()
 

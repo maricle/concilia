@@ -1,6 +1,7 @@
 """Configuracion: usuarios del panel, operadores, moviles y cuentas bancarias."""
 
 import logging
+import re
 
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import RedirectResponse
@@ -519,21 +520,39 @@ def list_cuentas(request: Request, db: Session = Depends(get_db), user: PanelUse
 @router.get("/config/cuentas/exportar")
 def cuentas_exportar(db: Session = Depends(get_db), user: PanelUser = Depends(require_admin)):
     cuentas = db.scalars(select(BankAccount).order_by(BankAccount.id)).all()
-    filas = [[c.banco, c.numero_cuenta, c.alias, c.moneda] for c in cuentas]
-    return respuesta_xlsx(["Banco", "Numero de cuenta", "Alias", "Moneda"], filas, "cuentas.xlsx")
+    filas = [[c.banco, c.numero_cuenta, c.cbu or "", c.alias, c.moneda] for c in cuentas]
+    return respuesta_xlsx(["Banco", "Numero de cuenta", "CBU/CVU", "Alias", "Moneda"], filas, "cuentas.xlsx")
+
+
+ERROR_CBU = "El CBU/CVU tiene que tener 22 digitos."
+
+
+def _cbu_valido(cbu: str) -> str | None | bool:
+    """Devuelve los 22 digitos, None si vino vacio, o False si no es valido."""
+    if not cbu.strip():
+        return None
+    digitos = re.sub(r"\D", "", cbu)
+    return digitos if len(digitos) == 22 else False
 
 
 @router.post("/config/cuentas")
 def create_cuenta(
     request: Request,
     banco: str = Form(...),
-    numero_cuenta: str = Form(...),
+    numero_cuenta: str = Form(""),
+    cbu: str = Form(""),
     alias: str = Form(...),
     moneda: str = Form("ARS"),
     db: Session = Depends(get_db),
     user: PanelUser = Depends(require_admin),
 ):
-    db.add(BankAccount(banco=banco, numero_cuenta=numero_cuenta, alias=alias, moneda=moneda))
+    cbu_limpio = _cbu_valido(cbu)
+    if cbu_limpio is False:
+        cuentas = db.scalars(select(BankAccount).order_by(BankAccount.id)).all()
+        return templates.TemplateResponse(
+            request, "cuentas.html", {"user": user, "cuentas": cuentas, "error": ERROR_CBU}, status_code=400
+        )
+    db.add(BankAccount(banco=banco, numero_cuenta=numero_cuenta.strip(), cbu=cbu_limpio, alias=alias, moneda=moneda))
     db.commit()
     return RedirectResponse(volver_a(request, "/config/cuentas"), status_code=303)
 
@@ -551,16 +570,23 @@ def editar_cuenta_submit(
     cuenta_id: int,
     request: Request,
     banco: str = Form(...),
-    numero_cuenta: str = Form(...),
+    numero_cuenta: str = Form(""),
+    cbu: str = Form(""),
     alias: str = Form(...),
     moneda: str = Form("ARS"),
     db: Session = Depends(get_db),
     user: PanelUser = Depends(require_admin),
 ):
     cuenta = obtener_o_redirigir(db, BankAccount, cuenta_id, "/config/cuentas")
+    cbu_limpio = _cbu_valido(cbu)
+    if cbu_limpio is False:
+        return templates.TemplateResponse(
+            request, "editar_cuenta.html", {"user": user, "cuenta": cuenta, "error": ERROR_CBU}, status_code=400
+        )
 
     cuenta.banco = banco
-    cuenta.numero_cuenta = numero_cuenta
+    cuenta.numero_cuenta = numero_cuenta.strip()
+    cuenta.cbu = cbu_limpio
     cuenta.alias = alias
     cuenta.moneda = moneda
     db.commit()

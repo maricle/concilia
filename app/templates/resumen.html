@@ -127,7 +127,7 @@
               {% for mov in ultimos_movimientos %}
               {% set ref = (("Factura " if mov.factura_o_cuenta_tipo.value == "factura" else "Cuenta ") + mov.factura_o_cuenta_numero) if mov.factura_o_cuenta_numero else "sin ref." %}
               <tr>
-                <td class="text-nowrap">{{ mov.fecha_subida.strftime("%d/%m %H:%M") }}</td>
+                <td class="text-nowrap">{{ mov.fecha_alta.strftime("%d/%m %H:%M") }}</td>
                 <td>{{ mov.operador.nombre }}</td>
                 <td>{{ ref }} - {{ "$" + "{:,.2f}".format(mov.monto).replace(",", "_").replace(".", ",").replace("_", ".") if mov.monto is not none else "monto no detectado" }}</td>
                 <td>

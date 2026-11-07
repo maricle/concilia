@@ -16,7 +16,12 @@
       </div>
       <div class="form-group">
         <label>Numero de cuenta</label>
-        <input type="text" class="form-control" name="numero_cuenta" value="{{ cuenta.numero_cuenta }}" required>
+        <input type="text" class="form-control" name="numero_cuenta" value="{{ cuenta.numero_cuenta or '' }}" placeholder="Como figura en el banco">
+      </div>
+      <div class="form-group">
+        <label>CBU/CVU</label>
+        <input type="text" class="form-control" name="cbu" value="{{ cuenta.cbu or '' }}" inputmode="numeric" placeholder="22 digitos">
+        <small class="form-text text-muted">El numero de cuenta, el CBU/CVU y el alias se usan para reconocer en cada comprobante a que cuenta fue la transferencia.</small>
       </div>
       <div class="form-group">
         <label>Alias</label>

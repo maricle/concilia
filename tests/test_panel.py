@@ -15,6 +15,7 @@ from app.db import Base
 from app.main import app
 from app.models import (
     BankAccount,
+    FormatoExtracto,
     ImportedStatement,
     Movement,
     Movil,
@@ -107,6 +108,35 @@ def test_create_cuenta_bancaria():
     with test_session() as session:
         cuenta = session.query(BankAccount).filter_by(numero_cuenta="123-456").one()
         assert cuenta.alias == "Cuenta principal"
+
+
+def test_cuenta_bancaria_con_numero_de_cuenta_y_cbu():
+    client, test_session = _client_with_admin()
+    client.post("/login", data={"email": "admin@concilia.test", "password": "secreta123"})
+
+    invalido = client.post(
+        "/config/cuentas",
+        data={"banco": "Galicia", "numero_cuenta": "4019441-7 077-2", "cbu": "0070 0771 2000", "alias": "g"},
+    )
+    assert invalido.status_code == 400
+    assert "El CBU/CVU tiene que tener 22 digitos." in invalido.text
+
+    client.post(
+        "/config/cuentas",
+        data={"banco": "Galicia", "numero_cuenta": "4019441-7 077-2", "cbu": "0070 0771 2000 0014 1943 91", "alias": "g"},
+    )
+    client.post("/config/cuentas/1/editar", data={"banco": "Galicia", "numero_cuenta": "", "cbu": "", "alias": "g"})
+    with test_session() as session:
+        assert session.query(BankAccount).count() == 1
+
+    client.post(
+        "/config/cuentas/1/editar",
+        data={"banco": "Galicia", "numero_cuenta": "4019441-7 077-2", "cbu": "0070077120000014194391", "alias": "g"},
+    )
+    with test_session() as session:
+        cuenta = session.get(BankAccount, 1)
+        assert (cuenta.numero_cuenta, cuenta.cbu) == ("4019441-7 077-2", "0070077120000014194391")
+    assert "0070077120000014194391" in client.get("/config/cuentas").text
 
 
 def test_editar_operador_updates_fields():
@@ -205,7 +235,7 @@ def test_movimientos_list_shows_only_confirmed():
     assert "OP-BORRADOR" not in response.text
 
 
-def test_comprobantes_no_muestra_columna_fecha_subida():
+def test_comprobantes_no_muestra_columna_fecha_alta():
     client, test_session = _client_with_admin()
     with test_session() as session:
         session.add(Operator(nombre="Ana", whatsapp_numero="111"))
@@ -501,7 +531,6 @@ def test_extraer_datos_comprobante_completa_los_campos_y_matchea_cuenta(monkeypa
         monto=Decimal("13462.76"),
         fecha_transaccion=datetime(2026, 9, 21, 12, 6),
         numero_operacion="PDX4OGNY4LZDL14Q20L6EY",
-        banco_emisor="Naranja X",
         cuenta_receptora="0070077120000014194391",
         titular="Liliana Desiree Moray Dacunda",
     )
@@ -518,9 +547,12 @@ def test_extraer_datos_comprobante_completa_los_campos_y_matchea_cuenta(monkeypa
     assert data["monto"] == "13462.76"
     assert data["fecha_transaccion"] == "2026-09-21T12:06"
     assert data["numero_operacion"] == "PDX4OGNY4LZDL14Q20L6EY"
-    assert data["banco_emisor"] == "Naranja X"
+    assert "banco_emisor" not in data
+    assert data["fecha_no_leida"] is False
     assert data["titular"] == "Liliana Desiree Moray Dacunda"
     assert data["cuenta_bancaria_id"] == 1
+    assert data["cuenta_receptora"] == "0070077120000014194391"
+    assert data["cuenta_bancaria"] == "galicia.demonte (Galicia)"
 
 
 def test_extraer_datos_comprobante_no_legible_devuelve_error(monkeypatch):
@@ -633,6 +665,7 @@ def test_editar_movimiento_updates_fields():
                 fecha_transaccion=datetime(2026, 8, 24),
                 numero_operacion="OP-1",
                 banco_emisor="Banco Viejo",
+                fecha_no_leida=True,
                 cuenta_receptora_extraida="CBU-leido-del-comprobante",
                 estado_registro=RecordState.CONFIRMADO,
             )
@@ -646,7 +679,6 @@ def test_editar_movimiento_updates_fields():
             "fecha_transaccion": "2026-08-20T00:00",
             "monto": "650.50",
             "numero_operacion": "OP-1-CORREGIDO",
-            "banco_emisor": "Banco Nuevo",
             "cuenta_bancaria_id": "1",
             "titular": "Juan Perez",
             "factura_o_cuenta_tipo": "factura",
@@ -660,7 +692,8 @@ def test_editar_movimiento_updates_fields():
         movimiento = session.get(Movement, 1)
         assert movimiento.numero_operacion == "OP-1-CORREGIDO"
         assert movimiento.monto == Decimal("650.50")
-        assert movimiento.banco_emisor == "Banco Nuevo"
+        assert movimiento.banco_emisor == "Banco Viejo"  # ya no se edita, pero no se borra
+        assert movimiento.fecha_no_leida is False  # guardar desde Editar la da por revisada
         assert movimiento.cuenta_bancaria_id == 1
         # el texto crudo leido del comprobante es solo referencia, no se toca
         # desde este formulario -- lo que el admin corrige es cuenta_bancaria_id.
@@ -1349,6 +1382,9 @@ def test_resumen_bancos_del_dia_muestra_estado_conciliado():
         session.commit()
 
     client.post("/login", data={"email": "admin@concilia.test", "password": "secreta123"})
+    with test_session() as session:
+        session.add(FormatoExtracto(banco="Nacion", col_fecha="Fecha", col_monto="Importe", col_referencia="Referencia"))
+        session.commit()
 
     csv_contenido = f"Fecha,Importe,Descripcion,Referencia\n{hoy_argentina().isoformat()},500.00,Transferencia,OP-HOY\n"
     client.post(
@@ -1601,7 +1637,7 @@ def test_listado_de_comprobantes_paginado():
                     monto=Decimal("10"),
                     numero_operacion=f"OP-PAG-{i:02d}",
                     fecha_transaccion=datetime(2026, 8, 24),
-                    fecha_subida=datetime(2026, 8, 24, 8, 0) + timedelta(minutes=i),
+                    fecha_alta=datetime(2026, 8, 24, 8, 0) + timedelta(minutes=i),
                     estado_registro=RecordState.CONFIRMADO,
                 )
             )
@@ -1698,7 +1734,7 @@ def test_exportar_respeta_el_dia_elegido():
 
     export = client.get("/comprobantes/exportar", params={"fecha": hoy_argentina().isoformat()})
     hoja = load_workbook(io.BytesIO(export.content)).active
-    numeros = {fila[7] for fila in hoja.iter_rows(min_row=2, values_only=True)}
+    numeros = {fila[9] for fila in hoja.iter_rows(min_row=2, values_only=True)}
 
     assert "OP-HOY" in str(numeros) and "OP-AYER" not in str(numeros)
 

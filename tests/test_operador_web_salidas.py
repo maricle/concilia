@@ -54,16 +54,16 @@ def teardown_function():
     app.dependency_overrides.clear()
 
 
-def test_iniciar_salida_pide_el_movil_solo_si_la_salida_no_esta_abierta():
+def test_iniciar_salida_pide_numero_y_movil_de_entrada():
     client, fabrica = _cliente()
 
     formulario = client.get("/m/salida/iniciar").text
-    assert 'name="numero"' in formulario and 'name="movil_id"' not in formulario
+    assert 'name="numero"' in formulario and 'name="movil_id"' in formulario
 
-    pide_movil = client.post("/m/salida/iniciar", data={"numero": "5"})
-    assert pide_movil.status_code == 200
-    assert "La Salida Nº 5 no está abierta. Elegí el móvil para iniciarla." in pide_movil.text
-    assert 'name="movil_id"' in pide_movil.text and 'value="5"' in pide_movil.text
+    sin_movil = client.post("/m/salida/iniciar", data={"numero": "5"})
+    assert sin_movil.status_code == 400
+    assert "Elegí el móvil." in sin_movil.text and "no está abierta" not in sin_movil.text
+    assert 'value="5"' in sin_movil.text
 
     respuesta = client.post("/m/salida/iniciar", data={"numero": "5", "movil_id": "1"})
 
@@ -92,15 +92,16 @@ def test_movil_0_de_la_sala_funciona_igual():
         assert db.query(Reparto).one().movil_id == 3
 
 
-def test_se_suma_a_la_salida_abierta_con_solo_el_numero():
+def test_si_la_salida_ya_esta_abierta_en_el_movil_avisa_y_lo_suma():
     client, fabrica = _cliente()
     with fabrica() as db:
         servicios.crear_salida(db, db.get(Operator, 2), db.get(Movil, 1), 3)
         db.commit()
 
-    respuesta = client.post("/m/salida/iniciar", data={"numero": "3"})
+    respuesta = client.post("/m/salida/iniciar", data={"numero": "3", "movil_id": "1"})
 
-    assert "Te sumaste a la Salida Nº 3" in respuesta.text and "Móvil M-01." in respuesta.text
+    assert "Te sumaste a la Salida Nº 3" in respuesta.text
+    assert "La salida ya estaba abierta en el móvil M-01." in respuesta.text
     with fabrica() as db:
         assert db.query(Reparto).count() == 1
         assert db.query(RepartoOperador).count() == 2
@@ -125,7 +126,7 @@ def test_con_otra_salida_abierta_pregunta_cerrarla_o_continuar():
     client, fabrica = _cliente()
     client.post("/m/salida/iniciar", data={"numero": "5", "movil_id": "1"})
 
-    mismo_movil = client.post("/m/salida/iniciar", data={"numero": "5"})
+    mismo_movil = client.post("/m/salida/iniciar", data={"numero": "5", "movil_id": "1"})
     assert "Ya estás en la Salida Nº 5" in mismo_movil.text
     assert "Ya tenés la Salida Nº 5 abierta" in client.get("/m/salida/iniciar").text
 
@@ -141,6 +142,20 @@ def test_con_otra_salida_abierta_pregunta_cerrarla_o_continuar():
     with fabrica() as db:
         primera, segunda = db.query(Reparto).order_by(Reparto.id).all()
         assert primera.hora_fin is not None and segunda.hora_fin is None
+
+
+def test_salida_abierta_en_otro_movil_avisa_sin_sumarse():
+    client, fabrica = _cliente()
+    with fabrica() as db:
+        servicios.crear_salida(db, db.get(Operator, 2), db.get(Movil, 1), 3)
+        db.commit()
+
+    respuesta = client.post("/m/salida/iniciar", data={"numero": "3", "movil_id": "2"})
+
+    assert respuesta.status_code == 400
+    assert "La Salida Nº 3 está abierta en el móvil M-01. Revisá el número." in respuesta.text
+    with fabrica() as db:
+        assert db.query(RepartoOperador).count() == 1
 
 
 def test_cerrar_salida_muestra_los_totales_y_cierra_para_todos():

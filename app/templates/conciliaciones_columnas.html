@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}Columnas del extracto - Concilia{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h1 class="h3 mb-0 text-gray-800">Columnas del extracto de {{ cuenta.banco }}</h1>
+  <a href="/conciliaciones?fecha={{ fecha.isoformat() }}&banco={{ cuenta.banco|urlencode }}" class="btn btn-outline-secondary btn-sm"><i class="fas fa-arrow-left mr-1"></i>Cancelar</a>
+</div>
+
+{% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
+{% if aviso %}<div class="alert alert-warning">{{ aviso }}</div>{% endif %}
+
+<div class="card shadow mb-4">
+  <div class="card-body">
+    <p class="mb-3">
+      {% if primera_vez %}
+      Es la primera vez que se importa un extracto de <strong>{{ cuenta.banco }}</strong>.
+      {% endif %}
+      Indicá en qué columna del archivo está cada dato. Queda guardado para las próximas importaciones de {{ cuenta.banco }}.
+      El titular y el CUIT/CUIL de quien transfiere ayudan a emparejar los comprobantes.
+    </p>
+    <form method="post" action="/conciliaciones/importar/columnas">
+      <input type="hidden" name="archivo_id" value="{{ archivo_id }}">
+      <input type="hidden" name="cuenta_bancaria_id" value="{{ cuenta.id }}">
+      <input type="hidden" name="fecha" value="{{ fecha.isoformat() }}">
+      <div class="form-row">
+        {% for campo, etiqueta, obligatorio in campos %}
+        {% set elegida = elegidas[campo] %}
+        <div class="form-group col-md-4">
+          <label for="col_{{ campo }}">{{ etiqueta }}{% if obligatorio %} *{% endif %}</label>
+          <select class="form-control" id="col_{{ campo }}" name="col_{{ campo }}"{% if obligatorio %} required{% endif %}>
+            <option value="">{{ "Elegí la columna" if obligatorio else "No está en el extracto" }}</option>
+            {% for encabezado in encabezados %}
+            <option value="{{ encabezado }}"{% if elegida and encabezado|lower == elegida|lower %} selected{% endif %}>{{ encabezado }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        {% endfor %}
+      </div>
+      <button type="submit" class="btn btn-primary">Guardar columnas e importar</button>
+    </form>
+  </div>
+</div>
+
+<div class="card shadow mb-4">
+  <div class="card-header py-3"><h6 class="m-0 font-weight-bold text-primary">Primeras filas del archivo</h6></div>
+  <div class="card-body">
+    <div class="table-responsive">
+      <table class="table table-bordered table-sm small mb-0">
+        <thead><tr>{% for encabezado in encabezados_tabla %}<th class="text-nowrap">{{ encabezado }}</th>{% endfor %}</tr></thead>
+        <tbody>
+          {% for fila in ejemplos %}
+          <tr>{% for celda in fila %}<td class="text-nowrap">{{ celda }}</td>{% endfor %}</tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

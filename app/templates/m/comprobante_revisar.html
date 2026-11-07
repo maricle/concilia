@@ -5,11 +5,11 @@
 {% if error %}<p class="m-error" role="alert">{{ error }}</p>{% endif %}
 <div class="m-tarjeta">
   <div>Monto: <strong>{{ borrador|monto_comprobante }}</strong></div>
-  <div>Fecha: {{ borrador.fecha_transaccion|fecha_comprobante }}</div>
+  <div>Fecha: {{ borrador.fecha_transaccion|fecha_comprobante }}{% if borrador.fecha_no_leida %} <small>(no figura en el comprobante, se usa la de recepción)</small>{% endif %}</div>
   <div>Cuenta receptora: {{ borrador.cuenta_bancaria.alias if borrador.cuenta_bancaria else "no identificada" }}</div>
   <div>Operación: {{ borrador.numero_operacion or "no detectada" }}</div>
-  {% if borrador.banco_emisor %}<div>Banco emisor: {{ borrador.banco_emisor }}</div>{% endif %}
   {% if borrador.titular %}<div>Emisor: {{ borrador.titular }}</div>{% endif %}
+  {% if borrador.cuit %}<div>CUIT/CUIL: {{ formato_cuit(borrador.cuit) }}</div>{% endif %}
 </div>
 <p class="m-ayuda">Si algún dato está mal, descartalo y sacá otra foto.</p>
 <form method="post" action="/m/comprobante/{{ borrador.id }}/registrar" class="m-form">

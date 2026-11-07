@@ -13,6 +13,7 @@ from app.main import app
 from app.models import (
     BankAccount,
     CierreDiario,
+    FormatoExtracto,
     ImportedStatement,
     Movement,
     Movil,
@@ -42,6 +43,18 @@ def _client_with_admin():
         session.add(PanelUser(nombre="Admin", email="admin@concilia.test", password_hash=hash_password("secreta123")))
         session.add(BankAccount(banco="Nacion", numero_cuenta="1", alias="Principal"))
         session.add(Operator(nombre="Ana", whatsapp_numero="111"))
+        # Columnas ya elegidas para los extractos de estos tests (la pantalla para
+        # elegirlas se prueba aparte, en test_conciliaciones_columnas.py).
+        for banco in ("Nacion", "Galicia"):
+            session.add(
+                FormatoExtracto(
+                    banco=banco,
+                    col_fecha="Fecha",
+                    col_monto="Importe",
+                    col_descripcion="Descripcion",
+                    col_referencia="Referencia",
+                )
+            )
         session.commit()
 
     return TestClient(app), test_session
@@ -100,7 +113,7 @@ def test_importar_resumen_reconciles_matching_movement():
 
 
 def test_importar_resumen_with_bad_file_shows_error():
-    client, _ = _client_with_admin()
+    client, test_session = _client_with_admin()
     _login(client)
 
     response = client.post(
@@ -108,8 +121,11 @@ def test_importar_resumen_with_bad_file_shows_error():
         data={"cuenta_bancaria_id": "1", "fecha": "2026-08-24"},
         files={"archivo": ("resumen.csv", "Descripcion,Referencia\nAlgo,OP-1\n", "text/csv")},
     )
-    assert response.status_code == 400
-    assert "columnas de fecha y monto" in response.text
+    # Sin las columnas guardadas para el banco, pide elegirlas de nuevo y no importa nada.
+    assert "Este archivo no tiene las columnas que se usan para Nacion (Fecha y Importe)" in response.text
+    assert 'name="col_fecha"' in response.text
+    with test_session() as session:
+        assert session.query(ImportedStatement).count() == 0
 
 
 def test_importar_resumen_omite_lineas_duplicadas_de_otro_resumen():
