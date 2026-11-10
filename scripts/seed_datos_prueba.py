@@ -22,8 +22,8 @@ from app.models import (
     Movil,
     Operator,
     PanelUser,
-    RecordState,
     ReconciliationState,
+    RecordState,
     Reparto,
     RepartoOperador,
 )
@@ -71,14 +71,14 @@ def main() -> None:
             BankAccount,
             {"alias": "empresa.mp.prueba"},
             banco="Mercado Pago",
-            numero_cuenta="0000003100045397444527",
+            cbu="0000003100045397444527",
         )
         cuenta_galicia = _get_or_create(
             session,
             BankAccount,
             {"alias": "empresa.galicia.prueba"},
             banco="Galicia",
-            numero_cuenta="0070077120000014194391",
+            cbu="0070077120000014194391",
         )
 
         session.commit()

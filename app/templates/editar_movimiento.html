@@ -1,19 +1,23 @@
 {% extends "base.html" %}
 {% block title %}Editar comprobante - Concilia{% endblock %}
 {% block content %}
-<h1 class="h3 mb-4 text-gray-800">Editar comprobante</h1>
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h1 class="h3 mb-0 text-gray-800">Editar comprobante</h1>
+  <a href="{{ volver_a(request, '/comprobantes') }}" class="btn btn-outline-secondary btn-sm"><i class="fas fa-arrow-left mr-1"></i>Volver al listado</a>
+</div>
 
 <div class="row">
   <div class="col-lg-6 mb-4">
     <div class="card shadow h-100">
       <div class="card-body">
         {% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
-        <p class="text-muted small">Fecha de creacion: {{ movimiento.fecha_subida.strftime("%Y-%m-%d %H:%M") }}</p>
-        <form method="post" action="/comprobantes/{{ movimiento.id }}/editar">
+        <p class="text-muted small">Fecha de alta: {{ movimiento.fecha_alta.strftime("%Y-%m-%d %H:%M") }}</p>
+        <form method="post" action="{{ url_actual(request) }}">
           <div class="form-row">
             <div class="form-group col-md-6">
               <label>Fecha y hora de transaccion</label>
               <input type="datetime-local" class="form-control" name="fecha_transaccion" value="{{ movimiento.fecha_transaccion.strftime('%Y-%m-%dT%H:%M') if movimiento.fecha_transaccion else '' }}" required>
+              {% if movimiento.fecha_no_leida %}<small class="form-text text-warning">El comprobante no mostraba la fecha: se cargo la de recepcion. Revisala; al guardar deja de figurar como no leida.</small>{% endif %}
             </div>
             <div class="form-group col-md-6">
               <label>Monto</label>
@@ -44,17 +48,17 @@
               </select>
             </div>
             {% if movimiento.cuenta_receptora_extraida %}
-            <small class="form-text text-muted">CBU/CVU/alias leido del comprobante: {{ movimiento.cuenta_receptora_extraida }}</small>
+            <small class="form-text text-muted">Destino leido del comprobante: {{ movimiento.cuenta_receptora_extraida }}</small>
             {% endif %}
           </div>
           <div class="form-row">
             <div class="form-group col-md-6">
-              <label>Titular / Emisor</label>
+              <label>Cliente que transfiere (titular)</label>
               <input type="text" class="form-control" name="titular" value="{{ movimiento.titular or '' }}">
             </div>
             <div class="form-group col-md-6">
-              <label>Banco emisor</label>
-              <input type="text" class="form-control" name="banco_emisor" value="{{ movimiento.banco_emisor or '' }}">
+              <label>CUIT/CUIL del cliente</label>
+              <input type="text" class="form-control" name="cuit" inputmode="numeric" placeholder="20-12345678-9" value="{{ formato_cuit(movimiento.cuit) if movimiento.cuit else '' }}">
             </div>
           </div>
           <div class="form-row">
@@ -72,6 +76,7 @@
             </div>
           </div>
           <button type="submit" class="btn btn-primary">Guardar cambios</button>
+          <a href="{{ volver_a(request, '/comprobantes') }}" class="btn btn-outline-secondary">Cancelar</a>
         </form>
       </div>
     </div>

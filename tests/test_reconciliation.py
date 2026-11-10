@@ -9,15 +9,24 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.db import Base
-from app.models import BankAccount, ImportedStatement, Movement, Operator, RecordState, ReconciliationState, StatementLine, StatementLineState
+from app.models import (
+    BankAccount,
+    ImportedStatement,
+    Movement,
+    Operator,
+    ReconciliationState,
+    RecordState,
+    StatementLine,
+    StatementLineState,
+)
 from app.reconciliation import StatementParseError, match_statement, parse_csv, parse_xlsx
 
 
 def test_parse_csv_with_spanish_decimal_comma():
     contenido = (
-        "Fecha,Importe,Descripcion,Referencia\n"
-        "24/08/2026,\"1.234,56\",Transferencia recibida,OP-1\n"
-    ).encode("utf-8")
+        b"Fecha,Importe,Descripcion,Referencia\n"
+        b"24/08/2026,\"1.234,56\",Transferencia recibida,OP-1\n"
+    )
 
     filas = parse_csv(contenido)
 
@@ -28,7 +37,7 @@ def test_parse_csv_with_spanish_decimal_comma():
 
 
 def test_parse_csv_missing_required_columns_raises():
-    contenido = "Descripcion,Referencia\nAlgo,OP-1\n".encode("utf-8")
+    contenido = b"Descripcion,Referencia\nAlgo,OP-1\n"
 
     with pytest.raises(StatementParseError):
         parse_csv(contenido)
@@ -40,7 +49,7 @@ def test_parse_csv_mercado_pago_format():
         "NÚMERO DE IDENTIFICACIÓN DEL PAGADOR,PAGADOR\n"
         "174085816489,127782.00,2026-08-21T18:16:29.000-04:00,Casa Central,20149811118,"
         "DON JUAN Pesca Camping\n"
-    ).encode("utf-8")
+    ).encode()
 
     filas = parse_csv(contenido)
 
@@ -49,7 +58,8 @@ def test_parse_csv_mercado_pago_format():
     assert fila.referencia == "174085816489"
     assert fila.monto == Decimal("127782.00")
     assert fila.fecha == datetime(2026, 8, 21)
-    assert fila.descripcion == "DON JUAN Pesca Camping"
+    assert fila.titular == "DON JUAN Pesca Camping"
+    assert fila.cuit == "20149811118"
 
 
 def test_parse_xlsx_reads_header_and_rows():
@@ -82,14 +92,14 @@ def _crear_movimiento(db, **overrides) -> Movement:
         operador = Operator(nombre="Ana", whatsapp_numero="111")
         db.add(operador)
         db.flush()
-    defaults = dict(
-        operador_id=operador.id,
-        fecha_transaccion=datetime(2026, 8, 24),
-        monto=Decimal("500.00"),
-        numero_operacion="OP-1",
-        estado_registro=RecordState.CONFIRMADO,
-        estado_conciliacion=ReconciliationState.PENDIENTE,
-    )
+    defaults = {
+        "operador_id": operador.id,
+        "fecha_transaccion": datetime(2026, 8, 24),
+        "monto": Decimal("500.00"),
+        "numero_operacion": "OP-1",
+        "estado_registro": RecordState.CONFIRMADO,
+        "estado_conciliacion": ReconciliationState.PENDIENTE,
+    }
     defaults.update(overrides)
     movimiento = Movement(**defaults)
     db.add(movimiento)
@@ -107,13 +117,13 @@ def _crear_resumen_y_linea(db, cuenta_id, **overrides) -> tuple[ImportedStatemen
     )
     db.add(resumen)
     db.flush()
-    defaults = dict(
-        resumen_id=resumen.id,
-        resumen=resumen,
-        fecha=datetime(2026, 8, 24),
-        monto=Decimal("500.00"),
-        referencia="OP-1",
-    )
+    defaults = {
+        "resumen_id": resumen.id,
+        "resumen": resumen,
+        "fecha": datetime(2026, 8, 24),
+        "monto": Decimal("500.00"),
+        "referencia": "OP-1",
+    }
     defaults.update(overrides)
     linea = StatementLine(**defaults)
     db.add(linea)

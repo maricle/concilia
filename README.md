@@ -4,13 +4,13 @@ Backend de conciliacion bancaria via WhatsApp.
 
 ## Estado actual
 
-Fase 1: webhook de Meta, validacion de operadores, maquina de estados conversacional, extraccion de comprobantes con Claude (vision para imagenes, lectura nativa de PDF) y persistencia de movimientos. El envio de respuestas reales por WhatsApp (API de Meta) todavia no esta conectado; el canal en uso real es Telegram (ver mas abajo).
+Fase 1: dos canales de carga en paralelo, WhatsApp Business API (Meta) y Telegram, ambos con la misma maquina de estados conversacional, extraccion de comprobantes con Claude (vision para imagenes, lectura nativa de PDF) y persistencia de movimientos. Un operador puede empezar un comprobante por un canal y seguirlo por el otro sin perder el estado (la clave interna de la conversacion es el numero de telefono del operador, no algo especifico de cada canal).
 
 Fase 2 (panel de administracion): completa. Login de usuarios de panel con gestion CRUD propia (`/config/usuarios` — alta, edicion, desactivacion, no se puede auto-desactivar), alta/edicion de operadores (`/config/operadores`), alta/edicion de cuentas bancarias (`/config/cuentas`), listado de comprobantes confirmados con filtros, edicion, eliminacion, orden por columna (clickeando el encabezado) y exportacion a CSV respetando filtros y orden (`/comprobantes`), y dashboard "Resumen" con KPIs (comprobantes, monto total, conciliados, pendientes, con diferencia), grafico de actividad de los ultimos 14 dias, tabla por operador y panel de "Ultimos movimientos", con filtros por fecha/operador/cuenta y export a CSV (`/resumen`). Rediseño visual completo sobre la base de SB Admin 2 (paleta, tipografia, sidebar fijo con toggle) en `app/static/css/custom.css`.
 
 Fase 3 (conciliacion bancaria): desde `/conciliaciones` el administrador importa el resumen de cuenta del dia (CSV o XLSX) de una cuenta bancaria. El motor de matching (`app/reconciliation.py`) empareja automaticamente cada linea del resumen contra los movimientos confirmados y no conciliados, usando monto exacto, fecha (tolerancia de 1 dia) y numero de operacion/referencia cuando esta disponible en ambos lados: un unico candidato por monto+fecha (o por referencia) queda **Conciliado**; un candidato con la misma referencia pero monto distinto queda **Con diferencia**; sin candidato o con varios candidatos ambiguos, la linea y el movimiento quedan **Pendientes** para revision manual. Desde la misma pantalla el administrador resuelve a mano lo que no concilio automaticamente: emparejar una linea contra un movimiento pendiente, marcar una linea del resumen como "no corresponde" (por ejemplo, un deposito ajeno a la operacion), volver a cargar un resumen actualizado sin duplicar lineas ya importadas ("Volver a revisar"), reintentar el emparejamiento automatico sin resubir archivo ("Reintentar conciliacion"), o editar un movimiento sin conciliar. Parsers de resumen bancario soportados por ahora: CSV y XLSX, con columnas identificadas por nombre (Fecha/Importe/Descripcion/Referencia u equivalentes); PDF queda pendiente. La carga manual de comprobantes desde el panel (seccion 4.1 del spec funcional) tambien queda pendiente.
 
-El canal real en uso es **Telegram** (`POST /telegram/webhook`), que reutiliza la misma maquina de estados y tiene la extraccion con Claude conectada (modelo Haiku 4.5 con fallback a Sonnet 5 si no logra leer el monto). Los archivos de comprobante recibidos por ese canal se guardan directo en Postgres (`app/storage.py`, tabla `comprobantes_archivo`) — no es el storage S3/R2 definido en el spec tecnico, pero al ser archivos chicos (fotos/PDFs de comprobantes) alcanza sin depender de un servicio externo.
+**WhatsApp** (`POST /webhook`, Meta Cloud API) y **Telegram** (`POST /telegram/webhook`) estan ambos conectados de punta a punta: bajan la imagen/PDF, corren la extraccion con Claude (modelo Haiku 4.5 con fallback a Sonnet 5 si no logra leer el monto), y mandan la respuesta/botones de vuelta por el mismo canal por el que llego el mensaje. En WhatsApp el "from" del mensaje ya es el telefono real del operador, asi que no hace falta un paso de "vincular numero" como en Telegram (donde el chat_id es opaco); en ambos casos se matchea contra `Operator.whatsapp_numero` comparando los ultimos 10 digitos, para tolerar el "9" de movil o el codigo de pais. Los archivos de comprobante recibidos por cualquiera de los dos canales se guardan directo en Postgres (`app/storage.py`, tabla `comprobantes_archivo`) — no es el storage S3/R2 definido en el spec tecnico, pero al ser archivos chicos (fotos/PDFs de comprobantes) alcanza sin depender de un servicio externo.
 
 El panel esta publicado en produccion (Railway) bajo el dominio propio `conciliadm.klebadev.com`, con certificado HTTPS renovado automaticamente (Let's Encrypt via Railway).
 
@@ -54,6 +54,14 @@ Volver a correrlo con el mismo email actualiza el nombre y la contrasena de ese 
 4. Da de alta un operador desde `/config/operadores` con su numero de telefono real (sin codigo de pais, ej. `3794579133`). No hace falta el `chat_id` de Telegram: la primera vez que el operador le escribe al bot desde un chat sin vincular, el bot le pide que comparta su numero con el boton nativo de Telegram, y lo vincula solo si coincide con el numero cargado.
 5. Mandale al bot una foto o PDF de un comprobante: Claude extrae los datos y el bot te pide que confirmes, indiques la cuenta/factura, y confirmes el registro final — igual que el flujo funcional descripto en el spec.
 
+### Probar con WhatsApp
+
+1. Crea una app en [Meta for Developers](https://developers.facebook.com/) con el producto WhatsApp, y anota el **numero de telefono de prueba** (o el numero real, ya verificado) y su **Phone Number ID**.
+2. Completa en `.env`: `WA_ACCESS_TOKEN` (token de acceso temporal o permanente del panel de WhatsApp de la app), `WA_PHONE_ID` (el Phone Number ID), `META_VERIFY_TOKEN` (cualquier string que elijas vos) y `META_APP_SECRET` (App Secret de la app, para validar la firma del webhook).
+3. Expone tu servidor local (por ejemplo con `ngrok http 8000`) y suscribi el webhook desde el panel de la app (WhatsApp → Configuration → Webhook): URL `https://<tu-url-publica>/webhook`, verify token el mismo valor que pusiste en `META_VERIFY_TOKEN`, y suscribite al campo `messages`.
+4. Da de alta un operador desde `/config/operadores` con su numero de telefono real (sin codigo de pais, ej. `3794579133`). A diferencia de Telegram, WhatsApp no necesita ningun paso de vincular numero: el "from" del mensaje ya es el telefono real, asi que el primer mensaje ya se procesa (si el numero no esta registrado, el bot avisa que no esta habilitado).
+5. Mandale al bot una foto o PDF de un comprobante desde WhatsApp: mismo flujo que por Telegram (los botones de Si/No y Factura/Cuenta se ven como botones nativos de WhatsApp).
+
 ## Ejecutar
 
 ```powershell
@@ -80,5 +88,10 @@ También se aceptan URLs con los esquemas `postgres://` y `postgresql://`; la ap
 ## Tests
 
 ```powershell
+python -m pip install -e ".[dev]"
 pytest
+ruff check app tests scripts
+coverage run -m pytest; coverage report
 ```
+
+`tests/conftest.py` fuerza una base SQLite temporal y credenciales de prueba antes de importar la app: la suite nunca usa el `DATABASE_URL` ni los tokens del `.env`, así que se puede correr aunque el `.env` apunte a producción.

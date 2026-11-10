@@ -1,0 +1,27 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Instalar dependencias
+        run: python -m pip install -e ".[dev]"
+
+      - name: Lint
+        run: ruff check app tests scripts
+
+      # tests/conftest.py fuerza una base SQLite temporal y credenciales de
+      # prueba: la suite no necesita ningun secreto del repositorio.
+      - name: Tests
+        run: coverage run -m pytest -q && coverage report

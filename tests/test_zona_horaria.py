@@ -1,10 +1,10 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from app.zona_horaria import ahora_argentina, hoy_argentina
 
 
 def test_ahora_argentina_es_utc_menos_3():
-    real_utc = datetime.now(timezone.utc)
+    real_utc = datetime.now(UTC)
     resultado = ahora_argentina()
 
     assert resultado.tzinfo is None  # naive, para comparar con las columnas existentes

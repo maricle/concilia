@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="text-center mt-5">
+  <i class="fas fa-lock fa-3x text-gray-400 mb-3"></i>
+  <h1 class="h4 text-gray-800">No tenes permiso para ver esta pantalla</h1>
+  <p class="text-muted">Tu rol ({{ user.rol }}) no tiene acceso a esta seccion. Si lo necesitas, pedile a un administrador que lo cambie.</p>
+  <a href="/resumen" class="btn btn-primary">Volver al resumen</a>
+</div>
+{% endblock %}

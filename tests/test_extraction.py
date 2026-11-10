@@ -39,7 +39,7 @@ def test_build_tool_leaves_cuenta_receptora_freeform():
     # cuenta_receptora siempre se transcribe en texto libre -- restringirla a un
     # enum de aliases registrados hacia que Claude tuviera que comparar CBUs de 22
     # digitos a ojo contra esa lista, y en la practica fallaba con comprobantes
-    # reales. El matching se resuelve despues en Python (_find_cuenta_bancaria).
+    # reales. El matching se resuelve despues en Python (buscar_cuenta_bancaria).
     tool = _build_tool()
     assert "enum" not in tool["input_schema"]["properties"]["cuenta_receptora"]
 
@@ -145,6 +145,15 @@ class _FakeMessages:
         return _FakeResponse(content=[_FakeBlock(type="tool_use", input=resultado)])
 
 
+@pytest.fixture(autouse=True)
+def _cliente_anthropic_nuevo_en_cada_test():
+    # extraction reutiliza un unico cliente por proceso; cada test inyecta su
+    # propio cliente falso, asi que hay que olvidar el anterior.
+    extraction._cliente_anthropic.cache_clear()
+    yield
+    extraction._cliente_anthropic.cache_clear()
+
+
 class _FakeAnthropic:
     def __init__(self, responses: list[dict | None]):
         self.messages = _FakeMessages(responses)
@@ -162,6 +171,7 @@ def test_extract_transfer_retries_with_sonnet_when_haiku_misses_monto(monkeypatc
     assert transfer.numero_operacion == "OP-999"
     assert transfer.monto == Decimal("500")
     assert transfer.fecha_transaccion == datetime(2026, 8, 24)
+    assert transfer.fecha_no_leida is False
 
 
 def test_extract_transfer_gives_up_when_both_models_miss_monto(monkeypatch):
@@ -185,6 +195,7 @@ def test_extract_transfer_registers_with_missing_fecha_and_numero_operacion(monk
     assert transfer.monto == Decimal("500")
     assert transfer.numero_operacion is None
     assert antes - timedelta(seconds=5) <= transfer.fecha_transaccion <= despues + timedelta(seconds=5)
+    assert transfer.fecha_no_leida is True  # se usa la de recepcion, marcada para revisar
 
 
 def test_extract_transfer_returns_cuenta_receptora_verbatim(monkeypatch):
@@ -279,3 +290,21 @@ def test_extract_transfer_retries_with_sonnet_when_haiku_truncates_cuenta_recept
     assert transfer is not None
     assert transfer.cuenta_receptora == "0000003100051586023938"
     assert len(fake_client.messages.calls) == 2
+
+
+def test_extract_transfer_guarda_el_cuit_solo_si_es_valido(monkeypatch):
+    con_cuit = {"monto": 500, "titular": "Juan Perez", "cuit": "20-12345678-6"}
+    cuit_mal_leido = {"monto": 500, "titular": "Juan Perez", "cuit": "20-12345678-9"}
+    monkeypatch.setattr(extraction, "Anthropic", lambda api_key: _FakeAnthropic([con_cuit]))
+    assert extract_transfer("image/jpeg", b"fake-bytes").cuit == "20123456786"
+
+    extraction._cliente_anthropic.cache_clear()
+    monkeypatch.setattr(extraction, "Anthropic", lambda api_key: _FakeAnthropic([cuit_mal_leido]))
+    assert extract_transfer("image/jpeg", b"fake-bytes").cuit is None
+
+
+def test_few_shot_titular_es_quien_envia():
+    # El titular (y su CUIT) es siempre el de origen, nunca la empresa que recibe.
+    for ejemplo in extraction._FEW_SHOT_EXAMPLES:
+        assert "Empresa Ejemplo" not in (ejemplo["salida_esperada"]["titular"] or "")
+        assert "cuit" in ejemplo["salida_esperada"]
