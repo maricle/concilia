@@ -187,14 +187,16 @@ def _pantalla_revision(
     request: Request, db: Session, operador: Operator, borrador: Movement, *, error: str | None = None,
     tipo: str | None = None, numero: str | None = None, numero_salida: str = "", pedir_movil: bool = False,
 ):
-    salida = servicios.reparto_abierto_del_operador(db, operador.id)
-    pedir_movil = salida is None and pedir_movil
+    administrativo = servicios.es_administrativo(operador)
+    salida = None if administrativo else servicios.reparto_abierto_del_operador(db, operador.id)
+    pedir_movil = salida is None and pedir_movil and not administrativo
     return templates.TemplateResponse(
         request,
         "m/comprobante_revisar.html",
         {
             "operador": operador,
             "borrador": borrador,
+            "administrativo": administrativo,
             "salida": salida,
             "pedir_movil": pedir_movil,
             "moviles": moviles_activos(db) if pedir_movil else [],
@@ -239,7 +241,7 @@ async def registrar(
         conversacion = _conversacion_bloqueada(db, operador)
         borrador = _mi_borrador_o_404(db, operador, movimiento_id)
         borrador.factura_o_cuenta_tipo, borrador.factura_o_cuenta_numero = factura_cuenta
-        if servicios.reparto_abierto_del_operador(db, operador.id) is not None:
+        if servicios.es_administrativo(operador) or servicios.reparto_abierto_del_operador(db, operador.id) is not None:
             resultado = servicios.registrar(db, operador, conversacion, borrador)
         else:
             resultado = _registrar_resolviendo_la_salida(db, operador, conversacion, borrador, numero_salida, movil_id)

@@ -412,7 +412,7 @@ class ConversationService:
 
     def _texto_registrado(self, resultado: servicios.Registrado) -> str:
         corto = self._resumen_corto(resultado.movimiento)
-        if resultado.salida == servicios.SalidaUsada.PROPIA:
+        if resultado.salida in (servicios.SalidaUsada.PROPIA, servicios.SalidaUsada.SIN_SALIDA):
             return f"Comprobante registrado correctamente.\n{corto}"
         numero = resultado.reparto.numero_reparto
         if resultado.salida == servicios.SalidaUsada.NUEVA:
@@ -459,6 +459,8 @@ class ConversationService:
         conversation: WhatsAppConversation,
         comando: IniciarRepartoComando | CerrarRepartoComando,
     ) -> str:
+        if servicios.es_administrativo(operator):
+            return servicios.ADMINISTRATIVO_SIN_SALIDAS_TEXTO
         if isinstance(comando, IniciarRepartoComando):
             if comando.movil_numero is None or comando.numero_reparto is None:
                 reparto_propio = servicios.reparto_abierto_del_operador(self.session, operator.id)

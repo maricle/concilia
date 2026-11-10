@@ -44,8 +44,14 @@ def _resultado(request: Request, operador: Operator, titulo: str, detalle: str =
     )
 
 
+def _administrativo(request: Request, operador: Operator):
+    return _resultado(request, operador, "Sin salidas", servicios.ADMINISTRATIVO_SIN_SALIDAS_TEXTO)
+
+
 @router.get("/m/salida/iniciar")
 def iniciar_form(request: Request, operador: Operator = Depends(require_operator), db: Session = Depends(get_db)):
+    if servicios.es_administrativo(operador):
+        return _administrativo(request, operador)
     abierta = servicios.reparto_abierto_del_operador(db, operador.id)
     if abierta is not None:
         return templates.TemplateResponse(
@@ -63,6 +69,8 @@ async def iniciar(
     operador: Operator = Depends(require_operator),
     db: Session = Depends(get_db),
 ):
+    if servicios.es_administrativo(operador):
+        return _administrativo(request, operador)
     numero = numero.strip()
     if not numero.isdigit():
         return _formulario(
@@ -123,6 +131,8 @@ def _lineas_totales(db: Session, reparto) -> list[str]:
 
 @router.get("/m/salida/cerrar")
 def cerrar_form(request: Request, operador: Operator = Depends(require_operator), db: Session = Depends(get_db)):
+    if servicios.es_administrativo(operador):
+        return _administrativo(request, operador)
     abierta = servicios.reparto_abierto_del_operador(db, operador.id)
     if abierta is None:
         return RedirectResponse("/m/", status_code=303)

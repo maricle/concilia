@@ -403,14 +403,27 @@ class SalidaUsada(StrEnum):
     PROPIA = "propia"  # la salida que el operador ya tenia abierta
     EXISTENTE = "existente"  # se sumo a una salida abierta (ej. la de un companero)
     NUEVA = "nueva"  # se abrio una salida nueva para registrarlo
+    SIN_SALIDA = "sin_salida"  # operador administrativo: no reparte, va sin salida ni movil
 
 
 @dataclass
 class Registrado:
     movimiento: Movement
-    reparto: Reparto
-    movil: Movil
+    reparto: Reparto | None
+    movil: Movil | None
     salida: SalidaUsada
+
+
+TIPO_ADMINISTRATIVO = "Administrativo"
+ADMINISTRATIVO_SIN_SALIDAS_TEXTO = (
+    "Los usuarios de administracion no inician ni cierran salidas: mandá el comprobante y se registra sin salida."
+)
+
+
+def es_administrativo(operador: Operator) -> bool:
+    """Los operadores de tipo Administrativo no reparten: cargan comprobantes
+    sin salida ni movil, y no inician ni cierran salidas."""
+    return (operador.tipo or "").strip().lower() == TIPO_ADMINISTRATIVO.lower()
 
 
 @dataclass
@@ -431,10 +444,15 @@ class MovilNoDisponible:
 
 
 def _confirmar(
-    session: Session, conversacion: WhatsAppConversation, movimiento: Movement, reparto: Reparto, movil: Movil, salida: SalidaUsada
+    session: Session,
+    conversacion: WhatsAppConversation,
+    movimiento: Movement,
+    reparto: Reparto | None,
+    movil: Movil | None,
+    salida: SalidaUsada,
 ) -> Registrado:
-    movimiento.movil_id = movil.id
-    movimiento.reparto_id = reparto.id
+    movimiento.movil_id = movil.id if movil is not None else None
+    movimiento.reparto_id = reparto.id if reparto is not None else None
     movimiento.estado_registro = RecordState.CONFIRMADO
     conversacion.movimiento_borrador_id = None
     conversacion.numero_reparto_pendiente = None
@@ -449,7 +467,10 @@ def registrar(
 ) -> Registrado | SinSalidaAbierta:
     """Confirma el borrador (con tipo y numero de factura/cuenta ya cargados) en
     la salida abierta del operador. Sin salida abierta, deja la conversacion
-    esperando el numero de salida."""
+    esperando el numero de salida. Un administrativo registra siempre sin
+    salida ni movil."""
+    if es_administrativo(operador):
+        return _confirmar(session, conversacion, movimiento, None, None, SalidaUsada.SIN_SALIDA)
     reparto = reparto_abierto_del_operador(session, operador.id)
     if reparto is None:
         conversacion.estado = ConversationState.ESPERANDO_NUMERO_REPARTO_NUEVO

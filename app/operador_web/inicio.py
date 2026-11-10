@@ -18,5 +18,10 @@ def inicio(request: Request, operador: Operator = Depends(require_operator), db:
     return templates.TemplateResponse(
         request,
         "m/inicio.html",
-        {"operador": operador, "salida": salida, "borrador": borrador_del_operador(db, operador)},
+        {
+            "operador": operador,
+            "salida": salida,
+            "borrador": borrador_del_operador(db, operador),
+            "administrativo": servicios.es_administrativo(operador),
+        },
     )

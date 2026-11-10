@@ -1,6 +1,7 @@
 {% extends "m/base.html" %}
 {% block content %}
 <h1>Hola, {{ operador.nombre }}</h1>
+{% if not administrativo %}
 <div class="m-tarjeta">
   {% if salida %}
   <div>Salida Nº <strong>{{ salida.numero_reparto }}</strong> abierta desde las {{ salida.hora_inicio.strftime("%H:%M") }} (móvil {{ salida.movil.numero }})</div>
@@ -8,6 +9,7 @@
   <div>Sin salida abierta</div>
   {% endif %}
 </div>
+{% endif %}
 {% if borrador %}
 <div class="m-aviso">
   <strong>Tenés un movimiento pendiente</strong>
@@ -20,7 +22,9 @@
 {% else %}
 <a href="/m/comprobante/nuevo" class="m-boton m-boton-grande">Cargar comprobante</a>
 {% endif %}
-{% if salida %}
+{% if administrativo %}
+{# Administracion no reparte: carga comprobantes sin salida ni movil. #}
+{% elif salida %}
 <a href="/m/salida/cerrar" class="m-boton-secundario">Cerrar salida</a>
 {% else %}
 <a href="/m/salida/iniciar" class="m-boton-secundario">Iniciar salida</a>

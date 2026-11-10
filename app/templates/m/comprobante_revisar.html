@@ -20,7 +20,9 @@
   </fieldset>
   <label for="numero">Número</label>
   <input id="numero" name="numero" type="text" inputmode="numeric" required value="{{ numero }}" autocomplete="off">
-  {% if salida %}
+  {% if administrativo %}
+  {# Administracion: se registra sin salida ni movil. #}
+  {% elif salida %}
   <p class="m-tarjeta">Salida Nº <strong>{{ salida.numero_reparto }}</strong> (móvil {{ salida.movil.numero }})</p>
   {% else %}
   <label for="numero_salida">Número de salida</label>
