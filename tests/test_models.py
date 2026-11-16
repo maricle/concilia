@@ -32,3 +32,22 @@ def test_operador_y_movil_se_referencian_mutuamente():
 
     assert db.get(Operator, operador.id).movil.numero == "M-01"
     assert db.get(Movil, movil.id).responsable.nombre == "Ana"
+
+
+def test_ensure_indexes_agrega_indices_nuevos_a_tablas_existentes(monkeypatch):
+    # create_all no agrega indices a una tabla que ya existe: sin esto, los
+    # indices nuevos de models.py nunca llegarian a produccion.
+    from sqlalchemy import create_engine, inspect, text
+
+    from app import db
+
+    engine = create_engine("sqlite://")
+    with engine.begin() as conn:
+        conn.execute(text("CREATE TABLE lineas_resumen (id INTEGER PRIMARY KEY, resumen_id INTEGER, movimiento_id INTEGER)"))
+    monkeypatch.setattr(db, "engine", engine)
+
+    db._ensure_indexes()
+    db._ensure_indexes()  # idempotente
+
+    indices = {i["name"] for i in inspect(engine).get_indexes("lineas_resumen")}
+    assert {"ix_lineas_resumen_resumen_id", "ix_lineas_resumen_movimiento_id"} <= indices

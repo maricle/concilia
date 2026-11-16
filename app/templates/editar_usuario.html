@@ -1,12 +1,15 @@
 {% extends "base.html" %}
 {% block title %}Editar usuario - Concilia{% endblock %}
 {% block content %}
-<h1 class="h3 mb-4 text-gray-800">Editar usuario</h1>
+<div class="d-flex justify-content-between align-items-center mb-4" style="max-width: 500px;">
+  <h1 class="h3 mb-0 text-gray-800">Editar usuario</h1>
+  <a href="{{ volver_a(request, '/config/usuarios') }}" class="btn btn-outline-secondary btn-sm"><i class="fas fa-arrow-left mr-1"></i>Volver al listado</a>
+</div>
 
 <div class="card shadow mb-4" style="max-width: 500px;">
   <div class="card-body">
     {% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
-    <form method="post" action="/config/usuarios/{{ usuario.id }}/editar">
+    <form method="post" action="{{ url_actual(request) }}">
       <div class="form-group">
         <label>Nombre</label>
         <input type="text" class="form-control" name="nombre" value="{{ usuario.nombre }}" required>
@@ -17,13 +20,18 @@
       </div>
       <div class="form-group">
         <label>Rol</label>
-        <input type="text" class="form-control" name="rol" value="{{ usuario.rol }}">
+        <select class="form-control" name="rol">
+          {% for rol in ["Administrador", "Contador", "Recaudador"] %}
+          <option value="{{ rol }}"{{ " selected" if rol == usuario.rol }}>{{ rol }}</option>
+          {% endfor %}
+        </select>
       </div>
       <div class="form-group">
         <label>Nueva contrasena</label>
         <input type="password" class="form-control" name="password" minlength="8" placeholder="Dejar en blanco para no cambiarla">
       </div>
       <button type="submit" class="btn btn-primary">Guardar cambios</button>
+      <a href="{{ volver_a(request, '/config/usuarios') }}" class="btn btn-outline-secondary">Cancelar</a>
     </form>
   </div>
 </div>

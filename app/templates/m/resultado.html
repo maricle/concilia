@@ -1,0 +1,7 @@
+{% extends "m/base.html" %}
+{% block content %}
+<h1>{{ titulo }}</h1>
+{% if detalle %}<p class="m-ayuda">{{ detalle }}</p>{% endif %}
+{% if lineas %}<div class="m-tarjeta">{% for linea in lineas %}<div>{{ linea }}</div>{% endfor %}</div>{% endif %}
+<a href="/m/" class="m-boton">Volver al inicio</a>
+{% endblock %}

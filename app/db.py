@@ -17,9 +17,14 @@ def _engine_url(database_url: str) -> str:
     return database_url
 
 
+_ES_SQLITE = get_settings().database_url.startswith("sqlite")
+
 engine = create_engine(
     _engine_url(get_settings().database_url),
-    connect_args={"check_same_thread": False} if get_settings().database_url.startswith("sqlite") else {},
+    connect_args={"check_same_thread": False} if _ES_SQLITE else {},
+    # Postgres de Railway corta las conexiones inactivas: sin pre_ping, el primer
+    # pedido despues de un rato sin uso falla con "server closed the connection".
+    pool_pre_ping=not _ES_SQLITE,
 )
 SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
 
@@ -50,6 +55,19 @@ def _ensure_enum_values() -> None:
                     conn.execute(text(f"ALTER TYPE {columna.type.name} ADD VALUE IF NOT EXISTS '{valor}'"))
 
 
+def _ensure_indexes() -> None:
+    """create_all() crea los indices de las tablas nuevas, pero no agrega un indice
+    nuevo a una tabla que ya existe. Sin Alembic, esto los crea en el arranque
+    (checkfirst: los que ya estan no se tocan)."""
+    tablas_existentes = set(inspect(engine).get_table_names())
+    for tabla in Base.metadata.tables.values():
+        if tabla.name not in tablas_existentes:
+            continue
+        for indice in tabla.indexes:
+            indice.create(engine, checkfirst=True)
+
+
 def create_tables() -> None:
     Base.metadata.create_all(engine)
     _ensure_enum_values()
+    _ensure_indexes()

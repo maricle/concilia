@@ -1,0 +1,22 @@
+{% extends "m/base.html" %}
+{% block title %}Mis comprobantes - Concilia{% endblock %}
+{% block content %}
+<h1>Mis comprobantes</h1>
+<form method="get" action="/m/comprobantes" class="m-fila-fecha">
+  <a class="m-boton-chico" href="/m/comprobantes?fecha={{ (dia - timedelta(days=1)).isoformat() }}" aria-label="Día anterior">&lsaquo;</a>
+  <input type="date" name="fecha" value="{{ dia.isoformat() }}" aria-label="Día">
+  <button type="submit" class="m-boton-chico">Ver</button>
+  <a class="m-boton-chico" href="/m/comprobantes?fecha={{ (dia + timedelta(days=1)).isoformat() }}" aria-label="Día siguiente">&rsaquo;</a>
+</form>
+<div class="m-tarjeta m-total">Total del día: <strong>{{ total }}</strong> ({{ movimientos|length }} comprobante{{ "s" if movimientos|length != 1 }})</div>
+{% for m in movimientos %}
+<div class="m-tarjeta">
+  <div class="m-fila"><strong>{{ m|monto_comprobante }}</strong><span>{{ m.fecha_transaccion.strftime("%H:%M") if m.fecha_transaccion and (m.fecha_transaccion.hour or m.fecha_transaccion.minute) else "" }}</span></div>
+  <div>{{ "Factura" if m.factura_o_cuenta_tipo == TipoIdentificador.FACTURA else "Cuenta" }}: {{ m.factura_o_cuenta_numero or "-" }}</div>
+  <div class="m-estado m-estado-{{ m.estado_conciliacion.value }}">{{ ESTADOS[m.estado_conciliacion.value] }}</div>
+</div>
+{% else %}
+<p class="m-ayuda">No registraste comprobantes este día.</p>
+{% endfor %}
+<a href="/m/" class="m-link-bloque">Volver al inicio</a>
+{% endblock %}

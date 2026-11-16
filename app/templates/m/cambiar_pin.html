@@ -1,0 +1,20 @@
+{% extends "m/base.html" %}
+{% block title %}Cambiar PIN - Concilia{% endblock %}
+{% block content %}
+<h1>{{ "Elegí tu PIN" if operador.pin_temporal else "Cambiar PIN" }}</h1>
+{% if operador.pin_temporal %}
+<p class="m-ayuda">Estás usando el PIN que te dio el administrador. Elegí uno nuevo de 6 números para seguir.</p>
+{% endif %}
+{% if error %}<p class="m-error" role="alert">{{ error }}</p>{% endif %}
+<form method="post" action="/m/cambiar-pin" class="m-form">
+  {% if not operador.pin_temporal %}
+  <label for="pin_actual">PIN actual</label>
+  <input id="pin_actual" name="pin_actual" type="password" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="current-password" required>
+  {% endif %}
+  <label for="pin_nuevo">PIN nuevo</label>
+  <input id="pin_nuevo" name="pin_nuevo" type="password" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="new-password" required>
+  <label for="pin_repetido">Repetí el PIN nuevo</label>
+  <input id="pin_repetido" name="pin_repetido" type="password" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="new-password" required>
+  <button type="submit" class="m-boton">Guardar PIN</button>
+</form>
+{% endblock %}

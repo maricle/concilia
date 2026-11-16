@@ -1,0 +1,1034 @@
+{
+  "foto_sin_texto_tipo_y_numero_juntos": {
+    "transcripcion": [
+      {
+        "operador": "5491111111111",
+        "entrada": "[foto OP-1]",
+        "respuesta": "Monto: $15000.00\nFecha: 2026-10-02 14:35\nCuenta receptora: empresa.mp\nOperacion: OP-1\nEmisor: Juan Perez\nFactura/cuenta: pendiente\n\nSi los datos estan bien, elegi si vas a cargar un numero de factura o un numero de cuenta del cliente. Si no, descartalo.\nTip: la proxima vez manda el comprobante con el texto \"F 12345\" o \"C 12345\" y te ahorras este paso.\n\nIndica el tipo y numero de comprobante (ej: F 12345 o C 987).",
+        "teclado": "tipo_factura_cuenta",
+        "estado": "esperando_tipo_factura_cuenta",
+        "notificaciones": []
+      },
+      {
+        "operador": "5491111111111",
+        "entrada": "F 12345",
+        "respuesta": "Comprobante registrado correctamente.\nFactura: 12345 · $15000.00",
+        "teclado": null,
+        "estado": "esperando_comprobante",
+        "notificaciones": []
+      }
+    ],
+    "movimientos": [
+      {
+        "numero_operacion": "OP-1",
+        "estado_registro": "confirmado",
+        "factura_o_cuenta": "factura:12345",
+        "cuenta_bancaria_id": 1,
+        "movil_id": 1,
+        "reparto_id": 1,
+        "origen": "whatsapp"
+      }
+    ],
+    "repartos": [
+      {
+        "id": 1,
+        "numero": 5,
+        "movil_id": 1,
+        "cerrado": false,
+        "operadores": [
+          1
+        ]
+      }
+    ],
+    "operadores": {
+      "Ana": {
+        "movil_id": null
+      },
+      "Beto": {
+        "movil_id": null
+      }
+    }
+  },
+  "foto_sin_texto_con_botones": {
+    "transcripcion": [
+      {
+        "operador": "5491111111111",
+        "entrada": "[foto OP-1]",
+        "respuesta": "Monto: $15000.00\nFecha: 2026-10-02 14:35\nCuenta receptora: empresa.mp\nOperacion: OP-1\nEmisor: Juan Perez\nFactura/cuenta: pendiente\n\nSi los datos estan bien, elegi si vas a cargar un numero de factura o un numero de cuenta del cliente. Si no, descartalo.\nTip: la proxima vez manda el comprobante con el texto \"F 12345\" o \"C 12345\" y te ahorras este paso.\n\nIndica el tipo y numero de comprobante (ej: F 12345 o C 987).",
+        "teclado": "tipo_factura_cuenta",
+        "estado": "esperando_tipo_factura_cuenta",
+        "notificaciones": []
+      },
+      {
+        "operador": "5491111111111",
+        "entrada": "hola",
+        "respuesta": "Respondé 'factura' o 'cuenta' para indicar que numero vas a cargar.",
+        "teclado": "tipo_factura_cuenta",
+        "estado": "esperando_tipo_factura_cuenta",
+        "notificaciones": []
+      },
+      {
+        "operador": "5491111111111",
+        "entrada": "factura",
+        "respuesta": "Indica el numero de factura del cliente asociado a este pago.",
+        "teclado": "descartar",
+        "estado": "esperando_numero_factura_cuenta",
+        "notificaciones": []
+      },
+      {
+        "operador": "5491111111111",
+        "entrada": "12345",
+        "respuesta": "Comprobante registrado correctamente.\nFactura: 12345 · $15000.00",
+        "teclado": null,
+        "estado": "esperando_comprobante",
+        "notificaciones": []
+      }
+    ],
+    "movimientos": [
+      {
+        "numero_operacion": "OP-1",
+        "estado_registro": "confirmado",
+        "factura_o_cuenta": "factura:12345",
+        "cuenta_bancaria_id": 1,
+        "movil_id": 1,
+        "reparto_id": 1,
+        "origen": "whatsapp"
+      }
+    ],
+    "repartos": [
+      {
+        "id": 1,
+        "numero": 5,
+        "movil_id": 1,
+        "cerrado": false,
+        "operadores": [
+          1
+        ]
+      }
+    ],
+    "operadores": {
+      "Ana": {
+        "movil_id": null
+      },
+      "Beto": {
+        "movil_id": null
+      }
+    }
+  },
+  "foto_con_caption_y_si": {
+    "transcripcion": [
+      {
+        "operador": "5491111111111",
+        "entrada": "[foto OP-1 + 'c 987']",
+        "respuesta": "Monto: $15000.00\nFecha: 2026-10-02 14:35\nCuenta receptora: empresa.mp\nOperacion: OP-1\nEmisor: Juan Perez\nFactura/cuenta: Cuenta: 987\n\n¿Registro el comprobante? Respondé SI o NO.",
+        "teclado": "si_no",
+        "estado": "esperando_confirmacion_final",
+        "notificaciones": []
+      },
+      {
+        "operador": "5491111111111",
+        "entrada": "tal vez",
+        "respuesta": "Responde SI para registrar el comprobante o NO para descartarlo.",
+        "teclado": "si_no",
+        "estado": "esperando_confirmacion_final",
+        "notificaciones": []
+      },
+      {
+        "operador": "5491111111111",
+        "entrada": "si",
+        "respuesta": "Comprobante registrado correctamente.\nCuenta: 987 · $15000.00",
+        "teclado": null,
+        "estado": "esperando_comprobante",
+        "notificaciones": []
+      }
+    ],
+    "movimientos": [
+      {
+        "numero_operacion": "OP-1",
+        "estado_registro": "confirmado",
+        "factura_o_cuenta": "cuenta:987",
+        "cuenta_bancaria_id": 1,
+        "movil_id": 1,
+        "reparto_id": 1,
+        "origen": "whatsapp"
+      }
+    ],
+    "repartos": [
+      {
+        "id": 1,
+        "numero": 5,
+        "movil_id": 1,
+        "cerrado": false,
+        "operadores": [
+          1
+        ]
+      }
+    ],
+    "operadores": {
+      "Ana": {
+        "movil_id": null
+      },
+      "Beto": {
+        "movil_id": null
+      }
+    }
+  },
+  "sin_salida_numero_no_abierto_pide_movil": {
+    "transcripcion": [
+      {
+        "operador": "5491111111111",
+        "entrada": "[foto OP-1 + 'F 1']",
+        "respuesta": "Monto: $15000.00\nFecha: 2026-10-02 14:35\nCuenta receptora: empresa.mp\nOperacion: OP-1\nEmisor: Juan Perez\nFactura/cuenta: Factura: 1\n\n¿Registro el comprobante? Respondé SI o NO.",
+        "teclado": "si_no",
+        "estado": "esperando_confirmacion_final",
+        "notificaciones": []
+      },
+      {
+        "operador": "5491111111111",
+        "entrada": "si",
+        "respuesta": "No tenes una salida abierta. Indica el numero de salida para registrar el comprobante.",
+        "teclado": "descartar",
+        "estado": "esperando_numero_reparto_nuevo",
+        "notificaciones": []
+      },
+      {
+        "operador": "5491111111111",
+        "entrada": "siete",
+        "respuesta": "Ese no es un numero de salida valido. Respondé solo con el numero.",
+        "teclado": "descartar",
+        "estado": "esperando_numero_reparto_nuevo",
+        "notificaciones": []
+      },
+      {
+        "operador": "5491111111111",
+        "entrada": "7",
+        "respuesta": "La Salida Nº 7 no esta abierta. ¿En que movil la vas a iniciar? Respondé con el numero del movil.",
+        "teclado": "descartar",
+        "estado": "esperando_movil",
+        "notificaciones": []
+      },
+      {
+        "operador": "5491111111111",
+        "entrada": "M-01",
+        "respuesta": "Comprobante registrado correctamente. Se inicio la Salida Nº 7 en el movil M-01.\nFactura: 1 · $15000.00",
+        "teclado": null,
+        "estado": "esperando_comprobante",
+        "notificaciones": []
+      }
+    ],
+    "movimientos": [
+      {
+        "numero_operacion": "OP-1",
+        "estado_registro": "confirmado",
+        "factura_o_cuenta": "factura:1",
+        "cuenta_bancaria_id": 1,
+        "movil_id": 1,
+        "reparto_id": 1,
+        "origen": "whatsapp"
+      }
+    ],
+    "repartos": [
+      {
+        "id": 1,
+        "numero": 7,
+        "movil_id": 1,
+        "cerrado": false,
+        "operadores": [
+          1
+        ]
+      }
+    ],
+    "operadores": {
+      "Ana": {
+        "movil_id": null
+      },
+      "Beto": {
+        "movil_id": null
+      }
+    }
+  },
+  "sin_salida_sin_movil_pide_movil": {
+    "transcripcion": [
+      {
+        "operador": "5491111111111",
+        "entrada": "[foto OP-1]",
+        "respuesta": "Monto: $15000.00\nFecha: 2026-10-02 14:35\nCuenta receptora: empresa.mp\nOperacion: OP-1\nEmisor: Juan Perez\nFactura/cuenta: pendiente\n\nSi los datos estan bien, elegi si vas a cargar un numero de factura o un numero de cuenta del cliente. Si no, descartalo.\nTip: la proxima vez manda el comprobante con el texto \"F 12345\" o \"C 12345\" y te ahorras este paso.\n\nIndica el tipo y numero de comprobante (ej: F 12345 o C 987).",
+        "teclado": "tipo_factura_cuenta",
+        "estado": "esperando_tipo_factura_cuenta",
+        "notificaciones": []
+      },
+      {
+        "operador": "5491111111111",
+        "entrada": "F 1",
+        "respuesta": "No tenes una salida abierta. Indica el numero de salida para registrar el comprobante.",
+        "teclado": "descartar",
+        "estado": "esperando_numero_reparto_nuevo",
+        "notificaciones": []
+      },
+      {
+        "operador": "5491111111111",
+        "entrada": "8",
+        "respuesta": "La Salida Nº 8 no esta abierta. ¿En que movil la vas a iniciar? Respondé con el numero del movil.",
+        "teclado": "descartar",
+        "estado": "esperando_movil",
+        "notificaciones": []
+      },
+      {
+        "operador": "5491111111111",
+        "entrada": "M-99",
+        "respuesta": "No encontramos un movil activo con el numero M-99. Respondé con el numero correcto.",
+        "teclado": "descartar",
+        "estado": "esperando_movil",
+        "notificaciones": []
+      },
+      {
+        "operador": "5491111111111",
+        "entrada": "m01",
+        "respuesta": "Comprobante registrado correctamente. Se inicio la Salida Nº 8 en el movil M-01.\nFactura: 1 · $15000.00",
+        "teclado": null,
+        "estado": "esperando_comprobante",
+        "notificaciones": []
+      }
+    ],
+    "movimientos": [
+      {
+        "numero_operacion": "OP-1",
+        "estado_registro": "confirmado",
+        "factura_o_cuenta": "factura:1",
+        "cuenta_bancaria_id": 1,
+        "movil_id": 1,
+        "reparto_id": 1,
+        "origen": "whatsapp"
+      }
+    ],
+    "repartos": [
+      {
+        "id": 1,
+        "numero": 8,
+        "movil_id": 1,
+        "cerrado": false,
+        "operadores": [
+          1
+        ]
+      }
+    ],
+    "operadores": {
+      "Ana": {
+        "movil_id": null
+      },
+      "Beto": {
+        "movil_id": null
+      }
+    }
+  },
+  "sin_salida_se_suma_a_la_del_companero": {
+    "transcripcion": [
+      {
+        "operador": "5491111111111",
+        "entrada": "[foto OP-1 + 'F 1']",
+        "respuesta": "Monto: $15000.00\nFecha: 2026-10-02 14:35\nCuenta receptora: empresa.mp\nOperacion: OP-1\nEmisor: Juan Perez\nFactura/cuenta: Factura: 1\n\n¿Registro el comprobante? Respondé SI o NO.",
+        "teclado": "si_no",
+        "estado": "esperando_confirmacion_final",
+        "notificaciones": []
+      },
+      {
+        "operador": "5491111111111",
+        "entrada": "si",
+        "respuesta": "No tenes una salida abierta. Indica el numero de salida para registrar el comprobante.",
+        "teclado": "descartar",
+        "estado": "esperando_numero_reparto_nuevo",
+        "notificaciones": []
+      },
+      {
+        "operador": "5491111111111",
+        "entrada": "3",
+        "respuesta": "Comprobante registrado correctamente. Salida Nº 3 en el movil M-02.\nFactura: 1 · $15000.00",
+        "teclado": null,
+        "estado": "esperando_comprobante",
+        "notificaciones": []
+      }
+    ],
+    "movimientos": [
+      {
+        "numero_operacion": "OP-1",
+        "estado_registro": "confirmado",
+        "factura_o_cuenta": "factura:1",
+        "cuenta_bancaria_id": 1,
+        "movil_id": 2,
+        "reparto_id": 1,
+        "origen": "whatsapp"
+      }
+    ],
+    "repartos": [
+      {
+        "id": 1,
+        "numero": 3,
+        "movil_id": 2,
+        "cerrado": false,
+        "operadores": [
+          1,
+          2
+        ]
+      }
+    ],
+    "operadores": {
+      "Ana": {
+        "movil_id": null
+      },
+      "Beto": {
+        "movil_id": null
+      }
+    }
+  },
+  "sin_salida_movil_elegido_con_otra_salida": {
+    "transcripcion": [
+      {
+        "operador": "5491111111111",
+        "entrada": "[foto OP-1 + 'F 1']",
+        "respuesta": "Monto: $15000.00\nFecha: 2026-10-02 14:35\nCuenta receptora: empresa.mp\nOperacion: OP-1\nEmisor: Juan Perez\nFactura/cuenta: Factura: 1\n\n¿Registro el comprobante? Respondé SI o NO.",
+        "teclado": "si_no",
+        "estado": "esperando_confirmacion_final",
+        "notificaciones": []
+      },
+      {
+        "operador": "5491111111111",
+        "entrada": "si",
+        "respuesta": "No tenes una salida abierta. Indica el numero de salida para registrar el comprobante.",
+        "teclado": "descartar",
+        "estado": "esperando_numero_reparto_nuevo",
+        "notificaciones": []
+      },
+      {
+        "operador": "5491111111111",
+        "entrada": "9",
+        "respuesta": "La Salida Nº 9 no esta abierta. ¿En que movil la vas a iniciar? Respondé con el numero del movil.",
+        "teclado": "descartar",
+        "estado": "esperando_movil",
+        "notificaciones": []
+      },
+      {
+        "operador": "5491111111111",
+        "entrada": "M-01",
+        "respuesta": "El movil M-01 ya tiene abierta la Salida Nº 4. Si vas en ese movil, indicá ese numero de salida.",
+        "teclado": "descartar",
+        "estado": "esperando_numero_reparto_nuevo",
+        "notificaciones": []
+      },
+      {
+        "operador": "5491111111111",
+        "entrada": "4",
+        "respuesta": "Comprobante registrado correctamente. Salida Nº 4 en el movil M-01.\nFactura: 1 · $15000.00",
+        "teclado": null,
+        "estado": "esperando_comprobante",
+        "notificaciones": []
+      }
+    ],
+    "movimientos": [
+      {
+        "numero_operacion": "OP-1",
+        "estado_registro": "confirmado",
+        "factura_o_cuenta": "factura:1",
+        "cuenta_bancaria_id": 1,
+        "movil_id": 1,
+        "reparto_id": 1,
+        "origen": "whatsapp"
+      }
+    ],
+    "repartos": [
+      {
+        "id": 1,
+        "numero": 4,
+        "movil_id": 1,
+        "cerrado": false,
+        "operadores": [
+          1,
+          2
+        ]
+      }
+    ],
+    "operadores": {
+      "Ana": {
+        "movil_id": null
+      },
+      "Beto": {
+        "movil_id": null
+      }
+    }
+  },
+  "inicio_incompleto_se_suma_a_la_salida_abierta": {
+    "transcripcion": [
+      {
+        "operador": "5491111111111",
+        "entrada": "inicio",
+        "respuesta": "¿Que numero de salida es? Respondé solo con el numero.",
+        "teclado": null,
+        "estado": "esperando_datos_inicio_reparto",
+        "notificaciones": []
+      },
+      {
+        "operador": "5491111111111",
+        "entrada": "3",
+        "respuesta": "Te sumaste a la Salida Nº 3 en el movil M-02.",
+        "teclado": null,
+        "estado": "esperando_comprobante",
+        "notificaciones": []
+      }
+    ],
+    "movimientos": [],
+    "repartos": [
+      {
+        "id": 1,
+        "numero": 3,
+        "movil_id": 2,
+        "cerrado": false,
+        "operadores": [
+          1,
+          2
+        ]
+      }
+    ],
+    "operadores": {
+      "Ana": {
+        "movil_id": null
+      },
+      "Beto": {
+        "movil_id": null
+      }
+    }
+  },
+  "pendientes_y_descartes": {
+    "transcripcion": [
+      {
+        "operador": "5491111111111",
+        "entrada": "[foto OP-1]",
+        "respuesta": "Monto: $15000.00\nFecha: 2026-10-02 14:35\nCuenta receptora: empresa.mp\nOperacion: OP-1\nEmisor: Juan Perez\nFactura/cuenta: pendiente\n\nSi los datos estan bien, elegi si vas a cargar un numero de factura o un numero de cuenta del cliente. Si no, descartalo.\nTip: la proxima vez manda el comprobante con el texto \"F 12345\" o \"C 12345\" y te ahorras este paso.\n\nIndica el tipo y numero de comprobante (ej: F 12345 o C 987).",
+        "teclado": "tipo_factura_cuenta",
+        "estado": "esperando_tipo_factura_cuenta",
+        "notificaciones": []
+      },
+      {
+        "operador": "5491111111111",
+        "entrada": "[otra foto, con algo pendiente]",
+        "respuesta": "Tenes movimientos pendientes. Indica el tipo y numero de comprobante (ej: F 12345) o descartalo.",
+        "teclado": "tipo_factura_cuenta",
+        "estado": "esperando_tipo_factura_cuenta",
+        "notificaciones": []
+      },
+      {
+        "operador": "5491111111111",
+        "entrada": "inicio movil M-01 salida nro 5",
+        "respuesta": "Todavia tenes un comprobante pendiente de confirmar. Termina o cancela esa carga antes de iniciar/cerrar una salida.",
+        "teclado": "tipo_factura_cuenta",
+        "estado": "esperando_tipo_factura_cuenta",
+        "notificaciones": []
+      },
+      {
+        "operador": "5491111111111",
+        "entrada": "descartar",
+        "respuesta": "Registro descartado. Puedes reenviar el comprobante.",
+        "teclado": null,
+        "estado": "esperando_comprobante",
+        "notificaciones": []
+      },
+      {
+        "operador": "5491111111111",
+        "entrada": "[foto OP-2]",
+        "respuesta": "Monto: $15000.00\nFecha: 2026-10-02 14:35\nCuenta receptora: empresa.mp\nOperacion: OP-2\nEmisor: Juan Perez\nFactura/cuenta: pendiente\n\nSi los datos estan bien, elegi si vas a cargar un numero de factura o un numero de cuenta del cliente. Si no, descartalo.\nTip: la proxima vez manda el comprobante con el texto \"F 12345\" o \"C 12345\" y te ahorras este paso.\n\nIndica el tipo y numero de comprobante (ej: F 12345 o C 987).",
+        "teclado": "tipo_factura_cuenta",
+        "estado": "esperando_tipo_factura_cuenta",
+        "notificaciones": []
+      },
+      {
+        "operador": "5491111111111",
+        "entrada": "cuenta",
+        "respuesta": "Indica el numero de cuenta del cliente asociado a este pago.",
+        "teclado": "descartar",
+        "estado": "esperando_numero_factura_cuenta",
+        "notificaciones": []
+      },
+      {
+        "operador": "5491111111111",
+        "entrada": "[otra foto, con algo pendiente]",
+        "respuesta": "Tenes movimientos pendientes. Indica el numero de cuenta o descartalo.",
+        "teclado": "descartar",
+        "estado": "esperando_numero_factura_cuenta",
+        "notificaciones": []
+      },
+      {
+        "operador": "5491111111111",
+        "entrada": "no",
+        "respuesta": "Registro descartado. Puedes reenviar el comprobante.",
+        "teclado": null,
+        "estado": "esperando_comprobante",
+        "notificaciones": []
+      },
+      {
+        "operador": "5491111111111",
+        "entrada": "[foto OP-3 + 'F 9']",
+        "respuesta": "Monto: $15000.00\nFecha: 2026-10-02 14:35\nCuenta receptora: empresa.mp\nOperacion: OP-3\nEmisor: Juan Perez\nFactura/cuenta: Factura: 9\n\n¿Registro el comprobante? Respondé SI o NO.",
+        "teclado": "si_no",
+        "estado": "esperando_confirmacion_final",
+        "notificaciones": []
+      },
+      {
+        "operador": "5491111111111",
+        "entrada": "[otra foto, con algo pendiente]",
+        "respuesta": "Tenes movimientos pendientes. Factura: 9 · $15000.00. ¿Lo registro? Respondé SI, o NO para descartarlo.",
+        "teclado": "si_no",
+        "estado": "esperando_confirmacion_final",
+        "notificaciones": []
+      },
+      {
+        "operador": "5491111111111",
+        "entrada": "cancelar",
+        "respuesta": "Registro descartado. Puedes reenviar el comprobante.",
+        "teclado": null,
+        "estado": "esperando_comprobante",
+        "notificaciones": []
+      },
+      {
+        "operador": "5491111111111",
+        "entrada": "[foto OP-4 + 'F 9']",
+        "respuesta": "Monto: $15000.00\nFecha: 2026-10-02 14:35\nCuenta receptora: empresa.mp\nOperacion: OP-4\nEmisor: Juan Perez\nFactura/cuenta: Factura: 9\n\n¿Registro el comprobante? Respondé SI o NO.",
+        "teclado": "si_no",
+        "estado": "esperando_confirmacion_final",
+        "notificaciones": []
+      },
+      {
+        "operador": "5491111111111",
+        "entrada": "si",
+        "respuesta": "No tenes una salida abierta. Indica el numero de salida para registrar el comprobante.",
+        "teclado": "descartar",
+        "estado": "esperando_numero_reparto_nuevo",
+        "notificaciones": []
+      },
+      {
+        "operador": "5491111111111",
+        "entrada": "[otra foto, con algo pendiente]",
+        "respuesta": "Tenes movimientos pendientes. Indica el numero de salida o descartalo.",
+        "teclado": "descartar",
+        "estado": "esperando_numero_reparto_nuevo",
+        "notificaciones": []
+      },
+      {
+        "operador": "5491111111111",
+        "entrada": "descartar",
+        "respuesta": "Registro descartado. Puedes reenviar el comprobante.",
+        "teclado": null,
+        "estado": "esperando_comprobante",
+        "notificaciones": []
+      }
+    ],
+    "movimientos": [],
+    "repartos": [],
+    "operadores": {
+      "Ana": {
+        "movil_id": null
+      },
+      "Beto": {
+        "movil_id": null
+      }
+    }
+  },
+  "duplicado_y_cuenta_no_identificada": {
+    "transcripcion": [
+      {
+        "operador": "5491111111111",
+        "entrada": "[foto OP-DUP]",
+        "respuesta": "Ya existe un comprobante con ese numero de operacion.",
+        "teclado": null,
+        "estado": null,
+        "notificaciones": []
+      },
+      {
+        "operador": "5491111111111",
+        "entrada": "[foto OP-X + 'F 1']",
+        "respuesta": "Monto: $15000.00\nFecha: 2026-10-02 14:35\nCuenta receptora: no detectada\nOperacion: OP-X\nEmisor: Juan Perez\nFactura/cuenta: Factura: 1\n\n¿Registro el comprobante? Respondé SI o NO.",
+        "teclado": "si_no",
+        "estado": "esperando_confirmacion_final",
+        "notificaciones": []
+      },
+      {
+        "operador": "5491111111111",
+        "entrada": "si",
+        "respuesta": "Comprobante registrado correctamente.\nFactura: 1 · $15000.00",
+        "teclado": null,
+        "estado": "esperando_comprobante",
+        "notificaciones": []
+      }
+    ],
+    "movimientos": [
+      {
+        "numero_operacion": "OP-DUP",
+        "estado_registro": "pendiente_confirmacion",
+        "factura_o_cuenta": "None:None",
+        "cuenta_bancaria_id": null,
+        "movil_id": null,
+        "reparto_id": null,
+        "origen": "whatsapp"
+      },
+      {
+        "numero_operacion": "OP-X",
+        "estado_registro": "confirmado",
+        "factura_o_cuenta": "factura:1",
+        "cuenta_bancaria_id": null,
+        "movil_id": 1,
+        "reparto_id": 1,
+        "origen": "whatsapp"
+      }
+    ],
+    "repartos": [
+      {
+        "id": 1,
+        "numero": 5,
+        "movil_id": 1,
+        "cerrado": false,
+        "operadores": [
+          1
+        ]
+      }
+    ],
+    "operadores": {
+      "Ana": {
+        "movil_id": null
+      },
+      "Beto": {
+        "movil_id": null
+      }
+    }
+  },
+  "sin_cuentas_cargadas": {
+    "transcripcion": [
+      {
+        "operador": "5491111111111",
+        "entrada": "[foto OP-1]",
+        "respuesta": "No pudimos identificar a que cuenta bancaria de la empresa corresponde este pago. Reenvia el comprobante, o si el problema persiste contacta al administrador para cargarlo manualmente.",
+        "teclado": null,
+        "estado": null,
+        "notificaciones": []
+      }
+    ],
+    "movimientos": [],
+    "repartos": [],
+    "operadores": {
+      "Ana": {
+        "movil_id": null
+      },
+      "Beto": {
+        "movil_id": null
+      }
+    }
+  },
+  "salidas_inicio_cierre_y_companeros": {
+    "transcripcion": [
+      {
+        "operador": "5491111111111",
+        "entrada": "inicio movil M-01 salida nro 5",
+        "respuesta": "Vas a iniciar la Salida Nº 5 en el movil M-01. Respondé SI para confirmar o NO para cancelar.",
+        "teclado": "si_no",
+        "estado": "esperando_confirmacion_inicio_reparto",
+        "notificaciones": []
+      },
+      {
+        "operador": "5491111111111",
+        "entrada": "quizas",
+        "respuesta": "Respondé SI para confirmar el inicio de la salida o NO para cancelarlo.",
+        "teclado": "si_no",
+        "estado": "esperando_confirmacion_inicio_reparto",
+        "notificaciones": []
+      },
+      {
+        "operador": "5491111111111",
+        "entrada": "si",
+        "respuesta": "Salida Nº 5 iniciada en el movil M-01.",
+        "teclado": null,
+        "estado": "esperando_comprobante",
+        "notificaciones": []
+      },
+      {
+        "operador": "5491111111111",
+        "entrada": "inicio movil M-01 salida nro 5",
+        "respuesta": "Ya estas asociado a la Salida Nº 5 en el movil M-01.",
+        "teclado": null,
+        "estado": "esperando_comprobante",
+        "notificaciones": []
+      },
+      {
+        "operador": "5491122222222",
+        "entrada": "inicio",
+        "respuesta": "¿Que numero de salida es? Respondé solo con el numero.",
+        "teclado": null,
+        "estado": "esperando_datos_inicio_reparto",
+        "notificaciones": []
+      },
+      {
+        "operador": "5491122222222",
+        "entrada": "cinco",
+        "respuesta": "Ese no es un numero de salida valido. Respondé solo con el numero.",
+        "teclado": null,
+        "estado": "esperando_datos_inicio_reparto",
+        "notificaciones": []
+      },
+      {
+        "operador": "5491122222222",
+        "entrada": "5",
+        "respuesta": "Te sumaste a la Salida Nº 5 en el movil M-01.",
+        "teclado": null,
+        "estado": "esperando_comprobante",
+        "notificaciones": []
+      },
+      {
+        "operador": "5491122222222",
+        "entrada": "M-01",
+        "respuesta": "Envia una imagen o PDF del comprobante de transferencia.",
+        "teclado": null,
+        "estado": "esperando_comprobante",
+        "notificaciones": []
+      },
+      {
+        "operador": "5491111111111",
+        "entrada": "[foto OP-1 + 'F 1']",
+        "respuesta": "Monto: $15000.00\nFecha: 2026-10-02 14:35\nCuenta receptora: empresa.mp\nOperacion: OP-1\nEmisor: Juan Perez\nFactura/cuenta: Factura: 1\n\n¿Registro el comprobante? Respondé SI o NO.",
+        "teclado": "si_no",
+        "estado": "esperando_confirmacion_final",
+        "notificaciones": []
+      },
+      {
+        "operador": "5491111111111",
+        "entrada": "si",
+        "respuesta": "Comprobante registrado correctamente.\nFactura: 1 · $15000.00",
+        "teclado": null,
+        "estado": "esperando_comprobante",
+        "notificaciones": []
+      },
+      {
+        "operador": "5491122222222",
+        "entrada": "[foto OP-2 + 'C 2']",
+        "respuesta": "Monto: $8000.00\nFecha: 2026-10-02 14:35\nCuenta receptora: empresa.galicia\nOperacion: OP-2\nEmisor: Juan Perez\nFactura/cuenta: Cuenta: 2\n\n¿Registro el comprobante? Respondé SI o NO.",
+        "teclado": "si_no",
+        "estado": "esperando_confirmacion_final",
+        "notificaciones": []
+      },
+      {
+        "operador": "5491122222222",
+        "entrada": "si",
+        "respuesta": "Comprobante registrado correctamente.\nCuenta: 2 · $8000.00",
+        "teclado": null,
+        "estado": "esperando_comprobante",
+        "notificaciones": []
+      },
+      {
+        "operador": "5491111111111",
+        "entrada": "inicio movil M-02 salida nro 6",
+        "respuesta": "Ya tenes una salida abierta (Nº 5). Responde 'cerrar' para cerrarla y arrancar la nueva, o 'continuar' para seguir con la que ya esta abierta.",
+        "teclado": null,
+        "estado": "esperando_decision_reparto_abierto",
+        "notificaciones": []
+      },
+      {
+        "operador": "5491111111111",
+        "entrada": "otra cosa",
+        "respuesta": "Responde 'cerrar' para cerrar la salida abierta y arrancar la nueva, o 'continuar' para seguir con la que ya esta abierta.",
+        "teclado": null,
+        "estado": "esperando_decision_reparto_abierto",
+        "notificaciones": []
+      },
+      {
+        "operador": "5491111111111",
+        "entrada": "continuar",
+        "respuesta": "Seguis con la salida que ya estaba abierta.",
+        "teclado": null,
+        "estado": "esperando_comprobante",
+        "notificaciones": []
+      },
+      {
+        "operador": "5491111111111",
+        "entrada": "inicio movil M-02 salida nro 6",
+        "respuesta": "Ya tenes una salida abierta (Nº 5). Responde 'cerrar' para cerrarla y arrancar la nueva, o 'continuar' para seguir con la que ya esta abierta.",
+        "teclado": null,
+        "estado": "esperando_decision_reparto_abierto",
+        "notificaciones": []
+      },
+      {
+        "operador": "5491111111111",
+        "entrada": "cerrar",
+        "respuesta": "Salida anterior cerrada. Salida Nº 6 iniciada en el movil M-02.",
+        "teclado": null,
+        "estado": "esperando_comprobante",
+        "notificaciones": [
+          [
+            "5491122222222",
+            "La Salida Nº 5 en el movil M-01 fue cerrada por Ana.\n\nCierre Salida Nº 5\nGalicia: $8.000,00\nMercado Pago: $15.000,00"
+          ]
+        ]
+      },
+      {
+        "operador": "5491111111111",
+        "entrada": "cerrar",
+        "respuesta": "Salida Nº 6 cerrada.\n\nCierre Salida Nº 6\nSin comprobantes registrados.",
+        "teclado": null,
+        "estado": "esperando_comprobante",
+        "notificaciones": []
+      },
+      {
+        "operador": "5491122222222",
+        "entrada": "fin",
+        "respuesta": "No tenes ninguna salida abierta para cerrar.",
+        "teclado": null,
+        "estado": "esperando_comprobante",
+        "notificaciones": []
+      },
+      {
+        "operador": "5491122222222",
+        "entrada": "cerrar",
+        "respuesta": "No tenes ninguna salida abierta para cerrar.",
+        "teclado": null,
+        "estado": "esperando_comprobante",
+        "notificaciones": []
+      }
+    ],
+    "movimientos": [
+      {
+        "numero_operacion": "OP-1",
+        "estado_registro": "confirmado",
+        "factura_o_cuenta": "factura:1",
+        "cuenta_bancaria_id": 1,
+        "movil_id": 1,
+        "reparto_id": 1,
+        "origen": "whatsapp"
+      },
+      {
+        "numero_operacion": "OP-2",
+        "estado_registro": "confirmado",
+        "factura_o_cuenta": "cuenta:2",
+        "cuenta_bancaria_id": 2,
+        "movil_id": 1,
+        "reparto_id": 1,
+        "origen": "whatsapp"
+      }
+    ],
+    "repartos": [
+      {
+        "id": 1,
+        "numero": 5,
+        "movil_id": 1,
+        "cerrado": true,
+        "operadores": [
+          1,
+          2
+        ]
+      },
+      {
+        "id": 2,
+        "numero": 6,
+        "movil_id": 2,
+        "cerrado": true,
+        "operadores": [
+          1
+        ]
+      }
+    ],
+    "operadores": {
+      "Ana": {
+        "movil_id": null
+      },
+      "Beto": {
+        "movil_id": null
+      }
+    }
+  },
+  "salida_cancelada_y_comandos_bloqueados": {
+    "transcripcion": [
+      {
+        "operador": "5491111111111",
+        "entrada": "inicio movil M-01 salida nro 5",
+        "respuesta": "Vas a iniciar la Salida Nº 5 en el movil M-01. Respondé SI para confirmar o NO para cancelar.",
+        "teclado": "si_no",
+        "estado": "esperando_confirmacion_inicio_reparto",
+        "notificaciones": []
+      },
+      {
+        "operador": "5491111111111",
+        "entrada": "no",
+        "respuesta": "Inicio de salida cancelado.",
+        "teclado": null,
+        "estado": "esperando_comprobante",
+        "notificaciones": []
+      },
+      {
+        "operador": "5491111111111",
+        "entrada": "inicio movil M-77 salida nro 5",
+        "respuesta": "No encontramos un movil activo con el numero M-77.",
+        "teclado": null,
+        "estado": "esperando_comprobante",
+        "notificaciones": []
+      },
+      {
+        "operador": "5491111111111",
+        "entrada": "[foto OP-1]",
+        "respuesta": "Monto: $15000.00\nFecha: 2026-10-02 14:35\nCuenta receptora: empresa.mp\nOperacion: OP-1\nEmisor: Juan Perez\nFactura/cuenta: pendiente\n\nSi los datos estan bien, elegi si vas a cargar un numero de factura o un numero de cuenta del cliente. Si no, descartalo.\nTip: la proxima vez manda el comprobante con el texto \"F 12345\" o \"C 12345\" y te ahorras este paso.\n\nIndica el tipo y numero de comprobante (ej: F 12345 o C 987).",
+        "teclado": "tipo_factura_cuenta",
+        "estado": "esperando_tipo_factura_cuenta",
+        "notificaciones": []
+      },
+      {
+        "operador": "5491111111111",
+        "entrada": "cerrar",
+        "respuesta": "Todavia tenes un comprobante pendiente de confirmar. Termina o cancela esa carga antes de iniciar/cerrar una salida.",
+        "teclado": "tipo_factura_cuenta",
+        "estado": "esperando_tipo_factura_cuenta",
+        "notificaciones": []
+      },
+      {
+        "operador": "5491111111111",
+        "entrada": "hola",
+        "respuesta": "Respondé 'factura' o 'cuenta' para indicar que numero vas a cargar.",
+        "teclado": "tipo_factura_cuenta",
+        "estado": "esperando_tipo_factura_cuenta",
+        "notificaciones": []
+      }
+    ],
+    "movimientos": [
+      {
+        "numero_operacion": "OP-1",
+        "estado_registro": "pendiente_confirmacion",
+        "factura_o_cuenta": "None:None",
+        "cuenta_bancaria_id": 1,
+        "movil_id": null,
+        "reparto_id": null,
+        "origen": "whatsapp"
+      }
+    ],
+    "repartos": [],
+    "operadores": {
+      "Ana": {
+        "movil_id": null
+      },
+      "Beto": {
+        "movil_id": null
+      }
+    }
+  },
+  "numero_no_habilitado": {
+    "transcripcion": [
+      {
+        "operador": "5490000000000",
+        "entrada": "hola",
+        "respuesta": "Este numero no esta habilitado para registrar comprobantes.",
+        "teclado": null,
+        "estado": null,
+        "notificaciones": []
+      }
+    ],
+    "movimientos": [],
+    "repartos": [],
+    "operadores": {
+      "Ana": {
+        "movil_id": null
+      },
+      "Beto": {
+        "movil_id": null
+      }
+    }
+  }
+}

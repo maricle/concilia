@@ -2,7 +2,20 @@ from datetime import date, datetime
 from decimal import Decimal
 from enum import StrEnum
 
-from sqlalchemy import Date, DateTime, ForeignKey, Index, Integer, LargeBinary, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import (
+    Boolean,
+    Date,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    LargeBinary,
+    Numeric,
+    String,
+    Text,
+    UniqueConstraint,
+    false,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .db import Base
@@ -52,6 +65,9 @@ class Operator(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     nombre: Mapped[str] = mapped_column(String(150))
     whatsapp_numero: Mapped[str] = mapped_column(String(30), unique=True, index=True)
+    # Opcional, solo digitos (ver normalizar_dni). Sirve para entrar a /m con DNI
+    # en vez de celular. Columna agregada con ALTER TABLE manual (sin Alembic).
+    dni: Mapped[str | None] = mapped_column(String(20), unique=True, index=True)
     telegram_chat_id: Mapped[str | None] = mapped_column(String(30), unique=True, index=True)
     tipo: Mapped[str] = mapped_column(String(50), default="Reparto")
     activo: Mapped[bool] = mapped_column(default=True)
@@ -65,13 +81,44 @@ class Operator(Base):
 
     movil: Mapped["Movil | None"] = relationship(foreign_keys=[movil_id])
 
+    # Acceso a la interfaz web de operadores (/m). Columnas agregadas con ALTER
+    # TABLE manual (sin Alembic). El PIN se guarda solo hasheado (bcrypt).
+    web_habilitado: Mapped[bool] = mapped_column(default=False)
+    pin_hash: Mapped[str | None] = mapped_column(String(255))
+    # PIN generado por un administrador: hay que cambiarlo en el primer ingreso.
+    pin_temporal: Mapped[bool] = mapped_column(default=False)
+    intentos_fallidos: Mapped[int] = mapped_column(default=0)
+    bloqueado_hasta: Mapped[datetime | None] = mapped_column(DateTime)
+
+
+class SesionOperador(Base):
+    """Sesion de un operador en la interfaz web. El token vive en claro solo en
+    la cookie del celular; aca se guarda su hash, asi una copia de la base no
+    alcanza para entrar."""
+
+    __tablename__ = "sesiones_operador"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    operador_id: Mapped[int] = mapped_column(ForeignKey("operadores.id"), index=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    creada_en: Mapped[datetime] = mapped_column(DateTime, default=ahora_argentina)
+    ultimo_uso: Mapped[datetime] = mapped_column(DateTime, default=ahora_argentina)
+    expira_en: Mapped[datetime] = mapped_column(DateTime)
+    user_agent: Mapped[str | None] = mapped_column(String(255))
+    revocada: Mapped[bool] = mapped_column(default=False)
+
+    operador: Mapped[Operator] = relationship()
+
 
 class BankAccount(Base):
     __tablename__ = "cuentas_bancarias"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     banco: Mapped[str] = mapped_column(String(120))
-    numero_cuenta: Mapped[str] = mapped_column(String(60))
+    # Numero de cuenta tal como lo informa el banco (ej. "4019441-7 077-2"). Puede
+    # quedar vacio; las cuentas cargadas antes de existir `cbu` tenian aca el CBU.
+    numero_cuenta: Mapped[str] = mapped_column(String(60), default="")
+    cbu: Mapped[str | None] = mapped_column(String(22))  # CBU o CVU, 22 digitos
     moneda: Mapped[str] = mapped_column(String(10), default="ARS")
     alias: Mapped[str] = mapped_column(String(120))
 
@@ -81,17 +128,26 @@ class Movement(Base):
     __table_args__ = (
         UniqueConstraint("numero_operacion", name="uq_movimiento_operacion"),
         Index("ix_movimientos_movil_fecha_transaccion", "movil_id", "fecha_transaccion"),
+        # Conciliaciones y resumen filtran confirmados por dia, y por cuenta y dia.
+        Index("ix_movimientos_estado_fecha_transaccion", "estado_registro", "fecha_transaccion"),
+        Index("ix_movimientos_cuenta_fecha_transaccion", "cuenta_bancaria_id", "fecha_transaccion"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    operador_id: Mapped[int] = mapped_column(ForeignKey("operadores.id"))
+    operador_id: Mapped[int] = mapped_column(ForeignKey("operadores.id"), index=True)
     fecha_transaccion: Mapped[datetime | None] = mapped_column(DateTime)
-    fecha_subida: Mapped[datetime] = mapped_column(DateTime, default=ahora_argentina)
+    # El comprobante no mostraba la fecha: fecha_transaccion es la de recepcion y
+    # queda marcado para que un administrador la revise antes de conciliar.
+    fecha_no_leida: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
+    # Orden por defecto del listado de comprobantes.
+    fecha_alta: Mapped[datetime] = mapped_column(DateTime, default=ahora_argentina, index=True)
     monto: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
     banco_emisor: Mapped[str | None] = mapped_column(String(120))
     cuenta_receptora_extraida: Mapped[str | None] = mapped_column(String(150))
     numero_operacion: Mapped[str | None] = mapped_column(String(120), index=True)
     titular: Mapped[str | None] = mapped_column(String(150))
+    # CUIT/CUIL de quien paga (titular de la cuenta de origen), solo digitos.
+    cuit: Mapped[str | None] = mapped_column(String(11))
     factura_o_cuenta_tipo: Mapped[TipoIdentificador | None] = mapped_column(default=None)
     factura_o_cuenta_numero: Mapped[str | None] = mapped_column(String(150))
     cuenta_bancaria_id: Mapped[int | None] = mapped_column(ForeignKey("cuentas_bancarias.id"))
@@ -148,8 +204,19 @@ class Reparto(Base):
     numero_reparto: Mapped[int] = mapped_column(Integer)
     comentarios: Mapped[str | None] = mapped_column(String(500))
     creado_en: Mapped[datetime] = mapped_column(DateTime, default=ahora_argentina)
+    # Quien la abrio: un operador (chat o web) o un administrador desde el panel.
+    # Columnas agregadas con ALTER TABLE manual (sin Alembic); las salidas
+    # anteriores se completaron con el primer operador asociado.
+    abierta_por_operador_id: Mapped[int | None] = mapped_column(ForeignKey("operadores.id"))
+    abierta_por_usuario_id: Mapped[int | None] = mapped_column(ForeignKey("usuarios_panel.id"))
+    # Ultima reapertura desde el panel (solo administradores).
+    reabierta_por_usuario_id: Mapped[int | None] = mapped_column(ForeignKey("usuarios_panel.id"))
+    reabierta_en: Mapped[datetime | None] = mapped_column(DateTime)
 
     movil: Mapped[Movil] = relationship()
+    abierta_por_operador: Mapped["Operator | None"] = relationship(foreign_keys=[abierta_por_operador_id])
+    abierta_por_usuario: Mapped["PanelUser | None"] = relationship(foreign_keys=[abierta_por_usuario_id])
+    reabierta_por_usuario: Mapped["PanelUser | None"] = relationship(foreign_keys=[reabierta_por_usuario_id])
 
 
 class RepartoOperador(Base):
@@ -188,6 +255,7 @@ class ComprobanteArchivo(Base):
 
 class ImportedStatement(Base):
     __tablename__ = "resumenes_importados"
+    __table_args__ = (Index("ix_resumenes_importados_cuenta_fecha", "cuenta_bancaria_id", "fecha"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     cuenta_bancaria_id: Mapped[int] = mapped_column(ForeignKey("cuentas_bancarias.id"))
@@ -209,16 +277,38 @@ class StatementLine(Base):
     __tablename__ = "lineas_resumen"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    resumen_id: Mapped[int] = mapped_column(ForeignKey("resumenes_importados.id"))
+    resumen_id: Mapped[int] = mapped_column(ForeignKey("resumenes_importados.id"), index=True)
     fecha: Mapped[datetime] = mapped_column(DateTime)
     monto: Mapped[Decimal] = mapped_column(Numeric(14, 2))
     descripcion: Mapped[str | None] = mapped_column(String(255))
     referencia: Mapped[str | None] = mapped_column(String(120))
-    movimiento_id: Mapped[int | None] = mapped_column(ForeignKey("movimientos.id"))
+    # Quien hizo la transferencia, segun el banco (ver FormatoExtracto).
+    titular: Mapped[str | None] = mapped_column(String(150))
+    cuit: Mapped[str | None] = mapped_column(String(11))
+    movimiento_id: Mapped[int | None] = mapped_column(ForeignKey("movimientos.id"), index=True)
     estado: Mapped[StatementLineState] = mapped_column(default=StatementLineState.PENDIENTE)
 
     resumen: Mapped[ImportedStatement] = relationship()
     movimiento: Mapped[Movement | None] = relationship()
+
+
+class FormatoExtracto(Base):
+    """Que columna del extracto de cada banco tiene cada dato. Se completa la
+    primera vez que se importa un extracto de ese banco (el administrador elige las
+    columnas) y se reutiliza en las siguientes importaciones."""
+
+    __tablename__ = "formatos_extracto"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    banco: Mapped[str] = mapped_column(String(120), unique=True)
+    col_fecha: Mapped[str] = mapped_column(String(120))
+    col_monto: Mapped[str] = mapped_column(String(120))
+    col_descripcion: Mapped[str | None] = mapped_column(String(120))
+    col_referencia: Mapped[str | None] = mapped_column(String(120))
+    col_titular: Mapped[str | None] = mapped_column(String(120))
+    col_cuit: Mapped[str | None] = mapped_column(String(120))
+    actualizado_en: Mapped[datetime] = mapped_column(DateTime, default=ahora_argentina, onupdate=ahora_argentina)
+    actualizado_por_id: Mapped[int | None] = mapped_column(ForeignKey("usuarios_panel.id"))
 
 
 class PanelUser(Base):

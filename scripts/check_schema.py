@@ -18,8 +18,8 @@ import sys
 
 from sqlalchemy import Enum, inspect
 
-from app.db import Base, engine
 from app import models  # noqa: F401  (importa todos los modelos para poblar Base.metadata)
+from app.db import Base, engine
 
 
 def _enums_reales(inspector) -> dict[str, set[str]]:

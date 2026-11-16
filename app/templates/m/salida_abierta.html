@@ -1,0 +1,17 @@
+{% extends "m/base.html" %}
+{% block title %}Salida abierta - Concilia{% endblock %}
+{% block content %}
+<h1>Ya tenés la Salida Nº {{ abierta.numero_reparto }} abierta</h1>
+<p class="m-ayuda">Móvil {{ abierta.movil.numero }}, desde las {{ abierta.hora_inicio.strftime("%H:%M") }}.</p>
+{% if numero %}
+<form method="post" action="/m/salida/iniciar">
+  <input type="hidden" name="numero" value="{{ numero }}">
+  <input type="hidden" name="movil_id" value="{{ movil_id }}">
+  <button type="submit" name="decision" value="cerrar" class="m-boton">Cerrarla y empezar la Nº {{ numero }}</button>
+  <button type="submit" name="decision" value="continuar" class="m-boton-secundario">Continuar con la Nº {{ abierta.numero_reparto }}</button>
+</form>
+{% else %}
+<a href="/m/salida/cerrar" class="m-boton">Cerrarla</a>
+<a href="/m/" class="m-boton-secundario">Continuar con esa</a>
+{% endif %}
+{% endblock %}

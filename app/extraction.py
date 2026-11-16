@@ -1,5 +1,6 @@
 import base64
-from datetime import datetime
+import logging
+from datetime import datetime, timedelta
 from decimal import Decimal
 from functools import lru_cache
 from pathlib import Path
@@ -7,12 +8,15 @@ from pathlib import Path
 from anthropic import Anthropic
 
 from .config import get_settings
-from .conversation import ExtractedTransfer
+from .cuit import normalizar_cuit
 from .numeros import parse_monto_ar
-from .zona_horaria import ahora_argentina
+from .servicios import ExtractedTransfer
+from .zona_horaria import ahora_argentina, hoy_argentina
 
 HAIKU_MODEL = "claude-haiku-4-5-20251001"
 SONNET_MODEL = "claude-sonnet-5"
+
+logger = logging.getLogger(__name__)
 
 _FEW_SHOT_DIR = Path(__file__).parent / "few_shot"
 
@@ -28,9 +32,9 @@ _FEW_SHOT_EXAMPLES = [
             "monto": "8750",
             "fecha_transaccion": "2026-03-12",
             "numero_operacion": None,
-            "banco_emisor": "Mercado Pago",
             "cuenta_receptora": None,
-            "titular": "Empresa Ejemplo Sociedad Anonima",
+            "titular": "Juan Ignacio Fernandez",
+            "cuit": "20-11222333-4",
         },
     },
     {
@@ -45,9 +49,9 @@ _FEW_SHOT_EXAMPLES = [
             "monto": "36.396,31",
             "fecha_transaccion": "2026-09-09 12:39",
             "numero_operacion": None,
-            "banco_emisor": "Mercado Pago",
             "cuenta_receptora": None,
             "titular": None,
+            "cuit": None,
         },
     },
     {
@@ -63,9 +67,9 @@ _FEW_SHOT_EXAMPLES = [
             "monto": "12.500,00",
             "fecha_transaccion": None,
             "numero_operacion": "111222333444",
-            "banco_emisor": "Mercado Pago",
             "cuenta_receptora": "0000000000000000000002",
             "titular": "Juan Perez",
+            "cuit": "20-12345678-9",
         },
     },
 ]
@@ -73,7 +77,7 @@ _FEW_SHOT_EXAMPLES = [
 def _build_tool() -> dict:
     """Arma el schema de la herramienta de extraccion. cuenta_receptora siempre se
     transcribe en texto libre (CBU, CVU o alias, tal como figura en el comprobante)
-    -- el matching contra las cuentas bancarias registradas (_find_cuenta_bancaria
+    -- el matching contra las cuentas bancarias registradas (buscar_cuenta_bancaria
     en conversation.py) se hace despues en Python por texto/digitos, no le pedimos
     a Claude que elija entre una lista de aliases comparando CBUs de 22 digitos a
     ojo, porque en la practica falla seguido (confirmado con comprobantes reales
@@ -96,6 +100,11 @@ def _build_tool() -> dict:
             "Transcribi el CBU, CVU o alias exactamente como figura en el comprobante (todos los digitos, "
             "sin espacios ni separadores propios); no intentes adivinar a que cuenta registrada "
             "corresponde, eso se resuelve despues por otro lado. "
+            "Si el destino no tiene CBU/CVU ni alias pero si un NUMERO DE CUENTA (ej. 'CC $ 4019441-7 "
+            "077-2', 'Caja de ahorro 123-456789/0'), transcribi ese numero de cuenta tal como figura. "
+            "Si el numero aparece parcialmente oculto o recortado (ej. '***4391', 'CBU ...14194391', "
+            "'0070****4391'), transcribilo con los asteriscos o puntos tal como se ven, sin completar ni "
+            "inventar los digitos que faltan. "
             "Si es un CBU o CVU numerico (no un alias), en Argentina estos numeros tienen SIEMPRE "
             "exactamente 22 digitos -- contalos antes de responder para asegurarte de no haber salteado "
             "ni agregado ninguno. Es comun que se superpongan a una marca de agua o decoracion del "
@@ -129,7 +138,11 @@ def _build_tool() -> dict:
                     "type": ["string", "null"],
                     "description": (
                         "Fecha de la operacion. Si el comprobante tambien muestra la hora, devolvela en formato "
-                        "'YYYY-MM-DD HH:MM' (24 horas); si solo hay fecha, devolve 'YYYY-MM-DD'."
+                        "'YYYY-MM-DD HH:MM' (24 horas); si solo hay fecha, devolve 'YYYY-MM-DD'. Los comprobantes "
+                        "argentinos escriben la fecha como dia/mes/año (ej. '05/11/2026' es 5 de noviembre), nunca "
+                        "mes/dia. La transferencia ya se hizo, asi que la fecha nunca es posterior a hoy "
+                        f"({hoy_argentina().isoformat()}): si lo que lees da una fecha futura, volve a mirar el "
+                        "comprobante; si no la podes leer con confianza, null."
                     ),
                 },
                 "numero_operacion": {
@@ -142,10 +155,6 @@ def _build_tool() -> dict:
                         "expliques por que falta, no describas el comprobante, simplemente null."
                     ),
                 },
-                "banco_emisor": {
-                    "type": ["string", "null"],
-                    "description": "Banco desde el que se hizo la transferencia",
-                },
                 "cuenta_receptora": cuenta_receptora_schema,
                 "titular": {
                     "type": ["string", "null"],
@@ -157,6 +166,15 @@ def _build_tool() -> dict:
                         "siempre la PRIMERA (arriba), nunca la segunda. Nunca el nombre de la empresa que "
                         "recibe el pago: la cuenta receptora siempre es una de las cuentas de la empresa "
                         "(ver cuenta_receptora), asi que su titular nunca va aca."
+                    ),
+                },
+                "cuit": {
+                    "type": ["string", "null"],
+                    "description": (
+                        "CUIT o CUIL de quien ENVIA el dinero (el mismo titular de origen), tal como figura "
+                        "(11 digitos, por ejemplo '20-12345678-9'). Misma regla que titular para distinguir "
+                        "origen de destino: nunca el CUIT de quien recibe. Si no figura o no se lee con "
+                        "confianza, null."
                     ),
                 },
             },
@@ -195,9 +213,7 @@ def _es_numero_operacion_valido(valor: object) -> bool:
     normalizado = valor.strip()
     if len(normalizado.split()) >= 3:
         return False
-    if normalizado.isdigit() and len(normalizado) >= 20:
-        return False
-    return True
+    return not (normalizado.isdigit() and len(normalizado) >= 20)
 
 
 def _content_block(content_type: str, data: bytes) -> dict:
@@ -301,46 +317,72 @@ def _cuenta_receptora_parece_incompleta(valor: object) -> bool:
     if not _es_valor_valido(valor):
         return False
     normalizado = valor.strip()
-    return normalizado.isdigit() and len(normalizado) != _LONGITUD_CBU_CVU
+    # Un numero de cuenta (mas corto) es valido: solo se reintenta cuando el largo
+    # sugiere un CBU/CVU con digitos de mas o de menos.
+    return normalizado.isdigit() and abs(len(normalizado) - _LONGITUD_CBU_CVU) in (1, 2, 3)
 
 
 _FORMATOS_FECHA_TRANSACCION = ("%Y-%m-%d %H:%M", "%Y-%m-%dT%H:%M", "%Y-%m-%d")
+# Margen para relojes apenas adelantados (el del celular o el del banco).
+_TOLERANCIA_FECHA_FUTURA = timedelta(minutes=10)
 
 
-def _parse_fecha_o_actual(valor: object) -> datetime:
+def es_fecha_futura(fecha: datetime | None) -> bool:
+    """Un comprobante es de una transferencia ya hecha: una fecha posterior a
+    ahora (hora argentina) es una lectura equivocada, no un dato posible."""
+    return fecha is not None and fecha > ahora_argentina() + _TOLERANCIA_FECHA_FUTURA
+
+
+def _parse_fecha(valor: object) -> datetime | None:
     if _es_valor_valido(valor):
         for formato in _FORMATOS_FECHA_TRANSACCION:
             try:
                 return datetime.strptime(valor.strip(), formato)
             except ValueError:
                 continue
-    return ahora_argentina()
+    return None
+
+
+@lru_cache(maxsize=1)
+def _cliente_anthropic(api_key: str) -> Anthropic:
+    """Un solo cliente por proceso: reutiliza las conexiones HTTP a la API en vez
+    de abrir una nueva (handshake TLS incluido) en cada comprobante."""
+    return Anthropic(api_key=api_key)
 
 
 def extract_transfer(content_type: str, data: bytes) -> ExtractedTransfer | None:
     """Interpreta un comprobante con Claude. Devuelve None si no se pudo leer el monto
     con confianza (el unico dato que bloquea el registro). cuenta_receptora se
     transcribe en texto libre (CBU/CVU/alias); el matching contra las cuentas
-    bancarias registradas se hace en Python (ver _find_cuenta_bancaria en
+    bancarias registradas se hace en Python (ver buscar_cuenta_bancaria en
     conversation.py)."""
-    client = Anthropic(api_key=get_settings().anthropic_api_key)
+    client = _cliente_anthropic(get_settings().anthropic_api_key)
     tool = _build_tool()
 
     result = _call_model(client, HAIKU_MODEL, content_type, data, tool)
-    if not _has_minimum_fields(result) or _cuenta_receptora_parece_incompleta(
-        result.get("cuenta_receptora") if result else None
+    if (
+        not _has_minimum_fields(result)
+        or _cuenta_receptora_parece_incompleta(result.get("cuenta_receptora") if result else None)
+        or es_fecha_futura(_parse_fecha(result.get("fecha_transaccion") if result else None))
     ):
         result = _call_model(client, SONNET_MODEL, content_type, data, tool)
     if not _has_minimum_fields(result):
         return None
 
     numero_operacion = result.get("numero_operacion")
+    # Sin fecha en el comprobante, o con una fecha futura (mal leida aun despues
+    # de reintentar), se usa la de recepcion, marcada para revisar.
+    fecha = _parse_fecha(result.get("fecha_transaccion"))
+    if es_fecha_futura(fecha):
+        logger.warning("Fecha futura leida del comprobante, se descarta: %s", fecha)
+        fecha = None
 
     return ExtractedTransfer(
         monto=_parse_monto(result.get("monto")),
-        fecha_transaccion=_parse_fecha_o_actual(result.get("fecha_transaccion")),
+        fecha_transaccion=fecha or ahora_argentina(),
         numero_operacion=numero_operacion if _es_numero_operacion_valido(numero_operacion) else None,
-        banco_emisor=result.get("banco_emisor"),
         cuenta_receptora=result.get("cuenta_receptora"),
         titular=result.get("titular"),
+        cuit=normalizar_cuit(result.get("cuit")),
+        fecha_no_leida=fecha is None,
     )

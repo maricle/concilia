@@ -90,7 +90,7 @@
         <div class="kpi-card">
           <div class="kpi-top">
             <span class="kpi-label">Comprobantes</span>
-            <span class="kpi-icon acc"><i class="fas fa-file-invoice-dollar"></i></span>
+            <img class="kpi-icon-img" src="/static/img/icons/01_comprobantes.svg" alt="">
           </div>
           <div class="kpi-value" id="kpi-comprobantes">{{ panel.cantidad_comprobantes }}</div>
           <div class="kpi-foot">en {{ panel.cantidad_salidas }} salida{{ "s" if panel.cantidad_salidas != 1 }}</div>
@@ -109,7 +109,7 @@
         <div class="kpi-card">
           <div class="kpi-top">
             <span class="kpi-label">Total banco</span>
-            <span class="kpi-icon acc"><i class="fas fa-university"></i></span>
+            <img class="kpi-icon-img" src="/static/img/icons/04_bancos_en_uso.svg" alt="">
           </div>
           <div class="kpi-value" id="kpi-banco">{{ monto_ars(panel.total_banco) }}</div>
         </div>
@@ -172,12 +172,19 @@
               <tr>
                 <td>{{ m.fecha_hora }}</td>
                 <td>{{ m.comprobante }}</td>
-                <td>{{ m.titular }}</td>
+                <td>{{ m.titular }}{% if m.cuit %}<div class="small text-muted text-nowrap">CUIT {{ m.cuit }}</div>{% endif %}</td>
                 <td class="num">{{ monto_ars(m.monto) }}</td>
                 <td>{{ m.reparto_label }}</td>
                 <td>{{ badge_estado_movimiento(m.estado) }}</td>
                 <td class="text-nowrap">
-                  <a href="/comprobantes/{{ m.id }}/editar" class="btn btn-sm btn-outline-primary" title="Editar"><i class="fas fa-pencil-alt"></i></a>
+                  <a href="/comprobantes/{{ m.id }}/editar?volver={{ url_actual(request)|urlencode }}" class="btn btn-sm btn-outline-primary" title="Editar"><i class="fas fa-pencil-alt"></i></a>
+                  {% if m.estado == "con_diferencia" %}
+                  <form method="post" action="/conciliaciones/movimientos/{{ m.id }}/aceptar" class="d-inline">
+                    <input type="hidden" name="fecha" value="{{ fecha.isoformat() }}">
+                    <input type="hidden" name="banco" value="{{ banco_seleccionado }}">
+                    <button type="submit" class="btn btn-sm btn-outline-success" title="Aceptar diferencia (queda conciliado manualmente)"><i class="fas fa-check"></i></button>
+                  </form>
+                  {% endif %}
                 </td>
               </tr>
               {% else %}
@@ -320,13 +327,14 @@
     <div class="table-responsive">
       <table class="table table-bordered table-sm small mb-0" width="100%" cellspacing="0" id="tabla-lineas-pendientes">
         <thead>
-          <tr><th>Fecha</th><th class="num">Monto</th><th>Descripcion</th><th>Referencia</th><th>Emparejar</th><th></th></tr>
+          <tr><th>Fecha</th><th class="num">Monto</th><th>Titular / CUIT</th><th>Descripcion</th><th>Referencia</th><th>Emparejar</th><th></th></tr>
         </thead>
         <tbody>
           {% for linea in lineas_pendientes %}
           <tr data-fecha="{{ linea.fecha.strftime("%Y-%m-%d") }}" data-monto="{{ linea.monto }}">
             <td>{{ linea.fecha.strftime("%Y-%m-%d") }}</td>
             <td class="num">{{ monto_ars(linea.monto) }}</td>
+            <td>{{ linea.titular or "-" }}{% if linea.cuit %}<div class="small text-muted text-nowrap">CUIT {{ formato_cuit(linea.cuit) }}</div>{% endif %}</td>
             <td>{{ linea.descripcion or "-" }}</td>
             <td>{{ linea.referencia or "-" }}</td>
             <td>
@@ -351,7 +359,7 @@
             </td>
           </tr>
           {% else %}
-          <tr><td colspan="6">No hay lineas de resumen pendientes de conciliar para este banco/dia.</td></tr>
+          <tr><td colspan="7">No hay lineas de resumen pendientes de conciliar para este banco/dia.</td></tr>
           {% endfor %}
         </tbody>
       </table>
@@ -393,6 +401,11 @@
             <input type="file" class="form-control-file" name="archivo" accept=".csv,.xlsx" required style="display:none;" id="input-archivo-resumen">
             <div id="nombre-archivo-resumen" class="small font-weight-bold mt-2"></div>
           </div>
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" name="elegir_columnas" value="1" id="check-elegir-columnas">
+            <label class="form-check-label small" for="check-elegir-columnas">Revisar a qué columna del extracto corresponde cada dato</label>
+          </div>
+          <div class="small text-muted mt-1">La primera vez que se importa un extracto de un banco se piden siempre.</div>
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-outline-secondary" data-dismiss="modal">Cancelar</button>

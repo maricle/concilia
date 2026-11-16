@@ -1,0 +1,14 @@
+{% extends "m/base.html" %}
+{% block title %}Cerrar salida - Concilia{% endblock %}
+{% block content %}
+<h1>Cerrar la Salida Nº {{ abierta.numero_reparto }}</h1>
+<p class="m-ayuda">Móvil {{ abierta.movil.numero }}, desde las {{ abierta.hora_inicio.strftime("%H:%M") }}. Se cierra para todos los que van en el móvil.</p>
+<div class="m-tarjeta">
+  <strong>Cobrado hasta ahora</strong>
+  {% for linea in lineas %}<div>{{ linea }}</div>{% endfor %}
+</div>
+<form method="post" action="/m/salida/cerrar">
+  <button type="submit" class="m-boton">Cerrar salida</button>
+</form>
+<a href="/m/" class="m-boton-secundario">No, volver</a>
+{% endblock %}

@@ -1,21 +1,28 @@
 import logging
-import re
 from typing import Any
 
 import httpx
 from fastapi import APIRouter, Header, HTTPException, Request
-from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from .canales import (
+    PEDIR_COMPROBANTE_TEXTO,
+    Respuesta,
+    Teclado,
+    buscar_operador_por_telefono,
+    procesar_comprobante,
+    recordatorio_de_pendiente,
+    responder_texto,
+    turno_de,
+    ultimos_digitos,
+)
 from .config import get_settings
-from .conversation import ConversationService
 from .db import SessionLocal
-from .extraction import extract_transfer
 from .models import Operator
-from .storage import save_comprobante_archivo
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 TELEGRAM_API_BASE = "https://api.telegram.org/bot{token}"
 
@@ -30,20 +37,25 @@ SI_NO_MARKUP = {
 }
 
 TIPO_FACTURA_CUENTA_MARKUP = {
-    "inline_keyboard": [[{"text": "Factura", "callback_data": "factura"}, {"text": "Cuenta", "callback_data": "cuenta"}]]
+    "inline_keyboard": [
+        [
+            {"text": "Factura", "callback_data": "factura"},
+            {"text": "Cuenta", "callback_data": "cuenta"},
+            {"text": "Descartar", "callback_data": "descartar"},
+        ]
+    ]
+}
+
+DESCARTAR_MARKUP = {"inline_keyboard": [[{"text": "Descartar", "callback_data": "descartar"}]]}
+MARKUP_POR_TECLADO = {
+    Teclado.SI_NO: SI_NO_MARKUP,
+    Teclado.TIPO_FACTURA_CUENTA: TIPO_FACTURA_CUENTA_MARKUP,
+    Teclado.DESCARTAR: DESCARTAR_MARKUP,
 }
 
 PEDIR_TELEFONO_TEXTO = "Para registrar comprobantes primero compartinos tu numero de telefono con el boton de abajo."
 NUMERO_NO_HABILITADO_TEXTO = "Tu numero no esta habilitado. Contacta al administrador para que te registre."
 NUMERO_VINCULADO_TEXTO = "Numero vinculado correctamente. Ya podes enviar tus comprobantes."
-
-
-def _reply_markup(service: ConversationService, numero: str) -> dict | None:
-    if service.needs_confirmation_keyboard(numero):
-        return SI_NO_MARKUP
-    if service.needs_tipo_keyboard(numero):
-        return TIPO_FACTURA_CUENTA_MARKUP
-    return None
 
 
 def _api_url(method: str) -> str:
@@ -86,7 +98,7 @@ async def _enviar_notificaciones(destinos: list[tuple[str, str]]) -> None:
         try:
             await send_telegram_message(chat_id_destino, mensaje)
         except httpx.HTTPError:
-            logging.exception("No se pudo enviar notificacion a chat_id=%s", chat_id_destino)
+            logger.exception("No se pudo enviar notificacion a chat_id=%s", chat_id_destino)
 
 
 
@@ -101,7 +113,7 @@ async def _answer_callback_query(callback_query_id: str) -> None:
         )
         response.raise_for_status()
     except httpx.HTTPError:
-        logging.exception("No se pudo confirmar el callback_query a Telegram; se continua igual.")
+        logger.exception("No se pudo confirmar el callback_query a Telegram; se continua igual.")
 
 
 async def _download_telegram_file(file_id: str) -> tuple[bytes, str]:
@@ -125,33 +137,15 @@ def _find_operator_by_chat_id(session: Session, chat_id: str) -> Operator | None
     )
 
 
-def _ultimos_digitos(numero: str, cantidad: int = 10) -> str | None:
-    digitos = re.sub(r"\D", "", numero)
-    if len(digitos) < cantidad:
-        return None
-    return digitos[-cantidad:]
-
-
 def _find_operator_by_phone(session: Session, phone_number: str) -> Operator | None:
-    """Compara solo los ultimos 10 digitos: en Argentina el "9" de movil, el codigo de
-    pais y el formato varian segun quien cargo el numero, pero los ultimos 10 digitos
-    (el numero local) son siempre los mismos de un lado y del otro."""
-    clave = _ultimos_digitos(phone_number)
-    if clave is None:
-        return None
-    candidatos = session.scalars(
-        select(Operator).where(Operator.activo.is_(True), Operator.telegram_chat_id.is_(None))
-    ).all()
-    for operador in candidatos:
-        if _ultimos_digitos(operador.whatsapp_numero) == clave:
-            return operador
-    logging.warning(
-        "Contacto de Telegram sin operador coincidente: telefono=%r ultimos_digitos=%r candidatos=%r",
-        phone_number,
-        clave,
-        [_ultimos_digitos(o.whatsapp_numero) for o in candidatos],
-    )
-    return None
+    operador = buscar_operador_por_telefono(session, phone_number, solo_sin_telegram=True)
+    if operador is None:
+        logger.warning(
+            "Contacto de Telegram sin operador coincidente: telefono=%r ultimos_digitos=%r",
+            phone_number,
+            ultimos_digitos(phone_number),
+        )
+    return operador
 
 
 async def _resolve_operator_numero(chat_id: str, message: dict[str, Any]) -> str | None:
@@ -177,6 +171,14 @@ async def _resolve_operator_numero(chat_id: str, message: dict[str, Any]) -> str
     return None
 
 
+async def _responder(chat_id: str, respuesta: Respuesta) -> None:
+    await send_telegram_message(chat_id, respuesta.texto, reply_markup=MARKUP_POR_TECLADO.get(respuesta.teclado))
+    if respuesta.notificaciones:
+        with SessionLocal() as session:
+            destinos = _resolver_chat_ids(session, respuesta.notificaciones)
+        await _enviar_notificaciones(destinos)
+
+
 @router.post("/telegram/webhook")
 async def receive_telegram_update(
     request: Request,
@@ -195,13 +197,8 @@ async def receive_telegram_update(
         numero = await _resolve_operator_numero(chat_id, callback_query)
         if numero is None:
             return {"status": "ignored"}
-        with SessionLocal() as session:
-            service = ConversationService(session)
-            reply = service.handle_text(numero, callback_query.get("data", ""))
-            markup = _reply_markup(service, numero)
-            destinos = _resolver_chat_ids(session, service.pop_notificaciones())
-        await send_telegram_message(chat_id, reply, reply_markup=markup)
-        await _enviar_notificaciones(destinos)
+        async with turno_de(numero):
+            await _responder(chat_id, responder_texto(numero, callback_query.get("data", "")))
         return {"status": "accepted"}
 
     message = update.get("message")
@@ -209,72 +206,44 @@ async def receive_telegram_update(
         return {"status": "ignored"}
 
     chat_id = str(message["chat"]["id"])
-
     numero = await _resolve_operator_numero(chat_id, message)
     if numero is None:
         return {"status": "ignored"}
+    async with turno_de(numero):
+        return await _procesar_mensaje(chat_id, numero, message)
 
+
+async def _procesar_mensaje(chat_id: str, numero: str, message: dict[str, Any]) -> dict[str, str]:
     if "text" in message:
-        with SessionLocal() as session:
-            service = ConversationService(session)
-            reply = service.handle_text(numero, message["text"])
-            markup = _reply_markup(service, numero)
-            destinos = _resolver_chat_ids(session, service.pop_notificaciones())
-        await send_telegram_message(chat_id, reply, reply_markup=markup)
-        await _enviar_notificaciones(destinos)
+        await _responder(chat_id, responder_texto(numero, message["text"]))
         return {"status": "accepted"}
 
-    with SessionLocal() as session:
-        service = ConversationService(session)
-        pendiente = service.pending_prompt(numero)
-        markup = _reply_markup(service, numero)
+    pendiente = recordatorio_de_pendiente(numero)
     if pendiente is not None:
-        await send_telegram_message(chat_id, pendiente, reply_markup=markup)
+        await _responder(chat_id, pendiente)
         return {"status": "ignored"}
 
-    file_id = None
-    file_name = "comprobante"
-    content_type = "application/octet-stream"
     if "photo" in message:
         file_id = message["photo"][-1]["file_id"]
-        file_name = f"{file_id}.jpg"
+        nombre_archivo = f"{file_id}.jpg"
         content_type = "image/jpeg"
     elif "document" in message:
-        document = message["document"]
-        file_id = document["file_id"]
-        file_name = document.get("file_name", file_name)
-        content_type = document.get("mime_type", content_type)
-
-    if file_id is None:
-        await send_telegram_message(chat_id, "Envia una imagen o PDF del comprobante de transferencia.")
+        file_id = message["document"]["file_id"]
+        nombre_archivo = message["document"].get("file_name", "comprobante")
+        content_type = message["document"].get("mime_type", "application/octet-stream")
+    else:
+        await send_telegram_message(chat_id, PEDIR_COMPROBANTE_TEXTO)
         return {"status": "ignored"}
 
-    contenido, _ = await _download_telegram_file(file_id)
-    # extract_transfer llama a la API de Claude de forma sincrona (varios segundos,
-    # mas si hace fallback a Sonnet); correrla directo en el handler async bloquearia
-    # el unico event loop del proceso y congelaria a todos los demas operadores
-    # mientras tanto, asi que se delega a un thread del pool.
-    transfer = await run_in_threadpool(extract_transfer, content_type, contenido)
-    if transfer is None:
-        await send_telegram_message(
-            chat_id,
-            "No pude leer el comprobante. Reenvialo con mejor calidad o ingresa los datos manualmente.",
-        )
-        return {"status": "accepted"}
+    async def descargar() -> tuple[bytes, str]:
+        # Telegram devuelve la ruta del archivo, no su tipo: se usa el del mensaje.
+        contenido, _ = await _download_telegram_file(file_id)
+        return contenido, content_type
 
-    archivo_id = None
-    try:
-        archivo_id = save_comprobante_archivo(
-            nombre_archivo=file_name,
-            content_type=content_type,
-            contenido=contenido,
-        )
-    except Exception:
-        logging.exception("No se pudo guardar el archivo del comprobante; se continua sin bloquear el registro.")
-
-    with SessionLocal() as session:
-        service = ConversationService(session)
-        reply = service.start_transfer(numero, transfer, archivo_id)
-        markup = _reply_markup(service, numero)
-    await send_telegram_message(chat_id, reply, reply_markup=markup)
+    # Siempre 200, aun si falla la extraccion: con un 500 Telegram reintenta la
+    # misma entrega una y otra vez.
+    respuesta = await procesar_comprobante(
+        numero, descargar, nombre_archivo=nombre_archivo, caption=message.get("caption")
+    )
+    await _responder(chat_id, respuesta)
     return {"status": "accepted"}

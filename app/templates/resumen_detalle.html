@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+{% block title %}Resumen {{ resumen.cuenta_bancaria.banco }} {{ resumen.fecha.strftime("%Y-%m-%d") }} - Concilia{% endblock %}
+{% macro monto_ars(valor) %}{% if valor is none %}-{% else %}${{ "{:,.2f}".format(valor|float).replace(",", "_").replace(".", ",").replace("_", ".") }}{% endif %}{% endmacro %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center flex-wrap mb-3" style="gap: .5rem;">
+  <h1 class="h3 mb-0 text-gray-800">Resumen de {{ resumen.cuenta_bancaria.banco }} ({{ resumen.cuenta_bancaria.alias }}) — {{ resumen.fecha.strftime("%Y-%m-%d") }}</h1>
+  <div class="d-flex flex-wrap" style="gap: .5rem;">
+    <a href="/conciliaciones?resumen_id={{ resumen.id }}" class="btn btn-primary btn-sm"><i class="fas fa-link mr-1"></i>Conciliar en Conciliaciones</a>
+    <a href="{{ volver_a(request, '/conciliaciones/resumenes') }}" class="btn btn-outline-secondary btn-sm"><i class="fas fa-arrow-left mr-1"></i>Volver al listado</a>
+  </div>
+</div>
+<p class="text-muted small mb-3">
+  Archivo: {{ resumen.archivo_nombre }} · cargado el {{ resumen.fecha_importacion.strftime("%Y-%m-%d %H:%M") }} · {{ total }} registro{{ "s" if total != 1 }}
+</p>
+
+{% if mensaje %}<div class="alert alert-success">{{ mensaje }}</div>{% endif %}
+{% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
+{% if dia_cerrado %}
+<div class="alert alert-warning">El dia {{ resumen.fecha.strftime("%Y-%m-%d") }} esta cerrado: para quitar conciliaciones hay que reabrirlo desde Conciliaciones ("Ver resumen del dia").</div>
+{% endif %}
+
+<div class="mb-3 d-flex flex-wrap" style="gap: .5rem;">
+  {% set base = "/conciliaciones/resumenes/" ~ resumen.id %}
+  {% set volver_param = request.query_params.get("volver", "") %}
+  <a href="{{ base }}?{{ {'volver': volver_param}|urlencode }}" class="btn btn-sm {{ 'btn-primary' if not estado else 'btn-outline-primary' }}">Todos ({{ total }})</a>
+  {% for clave, etiqueta in filtros.items() %}
+  <a href="{{ base }}?{{ {'estado': clave, 'volver': volver_param}|urlencode }}" class="btn btn-sm {{ 'btn-primary' if estado == clave else 'btn-outline-primary' }}">{{ etiqueta }} ({{ conteos[clave] }})</a>
+  {% endfor %}
+</div>
+
+<div class="card shadow mb-4">
+  <div class="card-body">
+    <div class="table-responsive">
+      <table class="table table-bordered table-sm small mb-0" width="100%" cellspacing="0">
+        <thead>
+          <tr>
+            <th>Fecha</th><th class="text-right">Monto</th><th>N. operacion</th><th>Titular / CUIT</th>
+            <th>Descripcion</th><th>Estado</th><th>Comprobante conciliado</th><th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for linea in lineas %}
+          {% set grupo = grupos[linea.id] %}
+          <tr>
+            <td class="text-nowrap">{{ linea.fecha.strftime("%Y-%m-%d") }}</td>
+            <td class="text-right text-nowrap">{{ monto_ars(linea.monto) }}</td>
+            <td>{{ linea.referencia or "-" }}</td>
+            <td>
+              {{ linea.titular or "-" }}
+              {% if linea.cuit %}<div class="text-muted">{{ formato_cuit(linea.cuit) }}</div>{% endif %}
+            </td>
+            <td>{{ linea.descripcion or "-" }}</td>
+            <td class="text-nowrap">
+              {% if grupo == "pendientes" %}
+              <span class="badge-pill-estado badge-pill-pendiente">Sin conciliar</span>
+              {% elif grupo == "no_corresponde" %}
+              <span class="badge-pill-estado badge-pill-inactivo">No corresponde</span>
+              {% elif grupo == "a_revisar" %}
+              <span class="badge-pill-estado badge-pill-diferencia">Con diferencia</span>
+              {% elif linea.movimiento and linea.movimiento.estado_conciliacion.value == "conciliado_manualmente" %}
+              <span class="badge-pill-estado badge-pill-conciliado">Conciliada a mano</span>
+              {% else %}
+              <span class="badge-pill-estado badge-pill-conciliado">Conciliada</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if linea.movimiento %}
+              {% set m = linea.movimiento %}
+              <a href="/comprobantes/{{ m.id }}/editar?volver={{ aqui|urlencode }}">{{ monto_ars(m.monto) }} · {{ m.operador.nombre }}</a>
+              <div class="text-muted">
+                {{ m.fecha_transaccion|fecha_transaccion }}{% if m.numero_operacion %} · Op. {{ m.numero_operacion }}{% endif %}
+                {% if m.titular %}<br>{{ m.titular }}{% endif %}
+              </div>
+              {% else %}
+              <span class="text-muted">-</span>
+              {% endif %}
+            </td>
+            <td class="text-nowrap">
+              {% if not dia_cerrado %}
+              {% if linea.estado.value == "conciliada" %}
+              <form method="post" action="/conciliaciones/lineas/{{ linea.id }}/quitar-conciliacion?volver={{ aqui|urlencode }}" onsubmit="return confirm('¿Quitar la conciliacion? La linea del banco y el comprobante quedan sin conciliar, para volver a conciliarlos desde Conciliaciones.');">
+                <button type="submit" class="btn btn-sm btn-outline-danger" title="Quitar la conciliacion"><i class="fas fa-unlink mr-1"></i>Quitar conciliacion</button>
+              </form>
+              {% elif linea.estado.value == "no_corresponde" %}
+              <form method="post" action="/conciliaciones/lineas/{{ linea.id }}/volver-a-pendiente?volver={{ aqui|urlencode }}">
+                <button type="submit" class="btn btn-sm btn-outline-secondary" title="Volver a sin conciliar"><i class="fas fa-undo mr-1"></i>Volver a sin conciliar</button>
+              </form>
+              {% endif %}
+              {% endif %}
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="8">{{ "No hay registros con este estado." if estado else "Este resumen no tiene registros." }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -7,3 +7,5 @@ __pycache__/
 concilia_backup*.sql
 *.egg-info/
 comprobantes test/
+.coverage
+htmlcov/
