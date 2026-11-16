@@ -43,7 +43,15 @@ from ..reconciliation import (
 )
 from ..storage import get_comprobante_archivo, save_comprobante_archivo
 from ..zona_horaria import hoy_argentina
-from .comun import del_dia, get_db, require_admin, respuesta_xlsx, templates, volver_a
+from .comun import (
+    del_dia,
+    get_db,
+    obtener_o_redirigir,
+    require_admin,
+    respuesta_xlsx,
+    templates,
+    volver_a,
+)
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -1185,3 +1193,125 @@ def marcar_linea_no_corresponde(
         linea.estado = StatementLineState.NO_CORRESPONDE
         db.commit()
     return _volver_a_conciliaciones(fecha, banco, resumen_id)
+
+
+# ----------------------------------------------------------- detalle del resumen
+
+_FILTROS_LINEAS = {
+    "conciliadas": "Conciliadas",
+    "a_revisar": "Con diferencia",
+    "pendientes": "Sin conciliar",
+    "no_corresponde": "No corresponde",
+}
+
+
+def _grupo_de_linea(linea: StatementLine) -> str:
+    """Mismo criterio que _conteos_por_resumen, para que los numeros del
+    listado y los de esta pantalla coincidan."""
+    if linea.estado == StatementLineState.PENDIENTE:
+        return "pendientes"
+    if linea.estado == StatementLineState.NO_CORRESPONDE:
+        return "no_corresponde"
+    if linea.movimiento is not None and linea.movimiento.estado_conciliacion == ReconciliationState.CON_DIFERENCIA:
+        return "a_revisar"
+    return "conciliadas"
+
+
+@router.get("/conciliaciones/resumenes/{resumen_id}")
+def ver_resumen(
+    resumen_id: int,
+    request: Request,
+    estado: str = "",
+    mensaje: str = "",
+    error: str = "",
+    db: Session = Depends(get_db),
+    user: PanelUser = Depends(require_admin),
+):
+    """Todas las lineas importadas de un resumen (conciliadas o no), para revisar
+    y corregir: quitar una conciliacion equivocada o volver a pendiente una linea
+    marcada "no corresponde", y despues conciliarla desde Conciliaciones."""
+    resumen = obtener_o_redirigir(db, ImportedStatement, resumen_id, "/conciliaciones/resumenes")
+    lineas = db.scalars(
+        select(StatementLine)
+        .where(StatementLine.resumen_id == resumen_id)
+        .options(selectinload(StatementLine.movimiento).selectinload(Movement.operador))
+        .order_by(StatementLine.fecha, StatementLine.id)
+    ).all()
+    grupos = {linea.id: _grupo_de_linea(linea) for linea in lineas}
+    conteos = dict.fromkeys(_FILTROS_LINEAS, 0)
+    for grupo in grupos.values():
+        conteos[grupo] += 1
+    if estado in _FILTROS_LINEAS:
+        lineas = [linea for linea in lineas if grupos[linea.id] == estado]
+    return templates.TemplateResponse(
+        request,
+        "resumen_detalle.html",
+        {
+            "user": user,
+            "resumen": resumen,
+            "lineas": lineas,
+            "grupos": grupos,
+            "conteos": conteos,
+            "total": sum(conteos.values()),
+            "filtros": _FILTROS_LINEAS,
+            "estado": estado if estado in _FILTROS_LINEAS else "",
+            "dia_cerrado": _cierre_del_dia(db, resumen.fecha.date()) is not None,
+            "mensaje": mensaje,
+            "error": error,
+            # Esta misma pantalla sin el aviso, para volver aca despues de una accion.
+            "aqui": request.url.path + "?" + urlencode(
+                [(k, v) for k, v in request.query_params.multi_items() if k not in ("mensaje", "error")]
+            ),
+        },
+    )
+
+
+def _volver_al_resumen(request: Request, linea: StatementLine | None, **aviso: str) -> RedirectResponse:
+    destino = volver_a(request, f"/conciliaciones/resumenes/{linea.resumen_id}" if linea else "/conciliaciones/resumenes")
+    if aviso:
+        destino = f"{destino}{'&' if '?' in destino else '?'}{urlencode(aviso)}"
+    return RedirectResponse(destino, status_code=303)
+
+
+@router.post("/conciliaciones/lineas/{linea_id}/quitar-conciliacion")
+def quitar_conciliacion(
+    linea_id: int, request: Request, db: Session = Depends(get_db), user: PanelUser = Depends(require_admin)
+):
+    """Deshace la conciliacion de una linea del banco: la linea vuelve a Sin
+    conciliar y el comprobante a Pendiente, para emparejarlos de nuevo (a mano)
+    desde Conciliaciones. La cuenta asignada al comprobante no se toca."""
+    linea = db.get(StatementLine, linea_id)
+    if linea is None or linea.estado != StatementLineState.CONCILIADA:
+        return _volver_al_resumen(request, linea)
+    movimiento = linea.movimiento
+    dias = {linea.fecha.date()}
+    if movimiento is not None and movimiento.fecha_transaccion is not None:
+        dias.add(movimiento.fecha_transaccion.date())
+    for dia in sorted(dias):
+        error = _dia_cerrado_error(db, dia)
+        if error:
+            return _volver_al_resumen(request, linea, error=error)
+    if movimiento is not None:
+        movimiento.estado_conciliacion = ReconciliationState.PENDIENTE
+    linea.movimiento_id = None
+    linea.estado = StatementLineState.PENDIENTE
+    db.commit()
+    return _volver_al_resumen(
+        request, linea, mensaje="Se quito la conciliacion. La linea y el comprobante quedaron sin conciliar."
+    )
+
+
+@router.post("/conciliaciones/lineas/{linea_id}/volver-a-pendiente")
+def linea_volver_a_pendiente(
+    linea_id: int, request: Request, db: Session = Depends(get_db), user: PanelUser = Depends(require_admin)
+):
+    """Una linea marcada "No corresponde" por error vuelve a Sin conciliar."""
+    linea = db.get(StatementLine, linea_id)
+    if linea is None or linea.estado != StatementLineState.NO_CORRESPONDE:
+        return _volver_al_resumen(request, linea)
+    error = _dia_cerrado_error(db, linea.fecha.date())
+    if error:
+        return _volver_al_resumen(request, linea, error=error)
+    linea.estado = StatementLineState.PENDIENTE
+    db.commit()
+    return _volver_al_resumen(request, linea, mensaje="La linea volvio a quedar sin conciliar.")

@@ -1,5 +1,6 @@
 import base64
-from datetime import datetime
+import logging
+from datetime import datetime, timedelta
 from decimal import Decimal
 from functools import lru_cache
 from pathlib import Path
@@ -10,10 +11,12 @@ from .config import get_settings
 from .cuit import normalizar_cuit
 from .numeros import parse_monto_ar
 from .servicios import ExtractedTransfer
-from .zona_horaria import ahora_argentina
+from .zona_horaria import ahora_argentina, hoy_argentina
 
 HAIKU_MODEL = "claude-haiku-4-5-20251001"
 SONNET_MODEL = "claude-sonnet-5"
+
+logger = logging.getLogger(__name__)
 
 _FEW_SHOT_DIR = Path(__file__).parent / "few_shot"
 
@@ -135,7 +138,11 @@ def _build_tool() -> dict:
                     "type": ["string", "null"],
                     "description": (
                         "Fecha de la operacion. Si el comprobante tambien muestra la hora, devolvela en formato "
-                        "'YYYY-MM-DD HH:MM' (24 horas); si solo hay fecha, devolve 'YYYY-MM-DD'."
+                        "'YYYY-MM-DD HH:MM' (24 horas); si solo hay fecha, devolve 'YYYY-MM-DD'. Los comprobantes "
+                        "argentinos escriben la fecha como dia/mes/año (ej. '05/11/2026' es 5 de noviembre), nunca "
+                        "mes/dia. La transferencia ya se hizo, asi que la fecha nunca es posterior a hoy "
+                        f"({hoy_argentina().isoformat()}): si lo que lees da una fecha futura, volve a mirar el "
+                        "comprobante; si no la podes leer con confianza, null."
                     ),
                 },
                 "numero_operacion": {
@@ -316,6 +323,14 @@ def _cuenta_receptora_parece_incompleta(valor: object) -> bool:
 
 
 _FORMATOS_FECHA_TRANSACCION = ("%Y-%m-%d %H:%M", "%Y-%m-%dT%H:%M", "%Y-%m-%d")
+# Margen para relojes apenas adelantados (el del celular o el del banco).
+_TOLERANCIA_FECHA_FUTURA = timedelta(minutes=10)
+
+
+def es_fecha_futura(fecha: datetime | None) -> bool:
+    """Un comprobante es de una transferencia ya hecha: una fecha posterior a
+    ahora (hora argentina) es una lectura equivocada, no un dato posible."""
+    return fecha is not None and fecha > ahora_argentina() + _TOLERANCIA_FECHA_FUTURA
 
 
 def _parse_fecha(valor: object) -> datetime | None:
@@ -345,16 +360,22 @@ def extract_transfer(content_type: str, data: bytes) -> ExtractedTransfer | None
     tool = _build_tool()
 
     result = _call_model(client, HAIKU_MODEL, content_type, data, tool)
-    if not _has_minimum_fields(result) or _cuenta_receptora_parece_incompleta(
-        result.get("cuenta_receptora") if result else None
+    if (
+        not _has_minimum_fields(result)
+        or _cuenta_receptora_parece_incompleta(result.get("cuenta_receptora") if result else None)
+        or es_fecha_futura(_parse_fecha(result.get("fecha_transaccion") if result else None))
     ):
         result = _call_model(client, SONNET_MODEL, content_type, data, tool)
     if not _has_minimum_fields(result):
         return None
 
     numero_operacion = result.get("numero_operacion")
-    # Sin fecha en el comprobante se usa la de recepcion, marcada para revisar.
+    # Sin fecha en el comprobante, o con una fecha futura (mal leida aun despues
+    # de reintentar), se usa la de recepcion, marcada para revisar.
     fecha = _parse_fecha(result.get("fecha_transaccion"))
+    if es_fecha_futura(fecha):
+        logger.warning("Fecha futura leida del comprobante, se descarta: %s", fecha)
+        fecha = None
 
     return ExtractedTransfer(
         monto=_parse_monto(result.get("monto")),

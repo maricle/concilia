@@ -491,6 +491,27 @@ def test_nuevo_movimiento_crea_comprobante_confirmado():
         assert movimiento.archivo_id is None
 
 
+def test_no_se_puede_cargar_ni_editar_un_comprobante_con_fecha_futura():
+    client, test_session = _client_with_admin()
+    with test_session() as session:
+        session.add(Operator(nombre="Ana", whatsapp_numero="111"))
+        session.add(BankAccount(banco="Nacion", numero_cuenta="1", alias="Principal"))
+        session.commit()
+    client.post("/login", data={"email": "admin@concilia.test", "password": "secreta123"})
+    manana = (hoy_argentina() + timedelta(days=1)).isoformat() + "T10:30"
+    datos = {"operador_id": "1", "cuenta_bancaria_id": "1", "monto": "100", "numero_operacion": "OP-F"}
+
+    alta = client.post("/comprobantes/nuevo", data={**datos, "fecha_transaccion": manana})
+    assert alta.status_code == 400
+    assert "no puede ser posterior a hoy" in alta.text
+
+    client.post("/comprobantes/nuevo", data={**datos, "fecha_transaccion": "2026-08-24T10:30"})
+    edicion = client.post("/comprobantes/1/editar", data={**datos, "fecha_transaccion": manana})
+    assert edicion.status_code == 400
+    with test_session() as session:
+        assert session.get(Movement, 1).fecha_transaccion == datetime(2026, 8, 24, 10, 30)
+
+
 def test_nuevo_movimiento_con_archivo_adjunto(monkeypatch):
     client, test_session = _client_with_admin()
     with test_session() as session:
@@ -1896,3 +1917,35 @@ def test_dni_del_operador_se_guarda_normalizado_y_no_se_repite():
             ("Carla", None),
         ]
     assert "30123456" in client.get("/config/operadores").text
+
+
+def test_editar_comprobante_recorre_uno_por_uno_con_los_filtros_del_listado():
+    client, test_session = _client_with_admin()
+    with test_session() as session:
+        session.add(Operator(nombre="Ana", whatsapp_numero="111"))
+        session.add(BankAccount(banco="Nacion", numero_cuenta="1", alias="Principal"))
+        session.commit()
+        for numero, monto in (("OP-A", "300"), ("OP-B", "100"), ("OP-C", "200"), ("OP-D", "999")):
+            session.add(
+                Movement(
+                    operador_id=1, monto=Decimal(monto), fecha_transaccion=datetime(2026, 8, 24),
+                    numero_operacion=numero, estado_registro=RecordState.CONFIRMADO,
+                    # OP-D no es de la cuenta filtrada: no entra en el recorrido.
+                    cuenta_bancaria_id=None if numero == "OP-D" else 1,
+                )
+            )
+        session.commit()
+    client.post("/login", data={"email": "admin@concilia.test", "password": "secreta123"})
+    volver = "/comprobantes?fecha=todos&banco=1&sort=monto&order=asc"
+
+    # Orden por monto: OP-B (id 2), OP-C (id 3), OP-A (id 1).
+    medio = client.get("/comprobantes/3/editar", params={"volver": volver}).text
+    assert "2 de 3" in medio
+    assert 'href="/comprobantes/2/editar?volver=' in medio and 'href="/comprobantes/1/editar?volver=' in medio
+    assert "/comprobantes/4/editar" not in medio
+
+    primero = client.get("/comprobantes/2/editar", params={"volver": volver}).text
+    assert "1 de 3" in primero and 'id="comprobante-anterior"' not in primero
+
+    # Viniendo de otra pantalla (no del listado de comprobantes) no hay flechas.
+    assert 'id="comprobante-siguiente"' not in client.get("/comprobantes/3/editar", params={"volver": "/repartos"}).text

@@ -3,6 +3,7 @@
 import logging
 from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
+from urllib.parse import parse_qs, urlencode, urlsplit
 
 from fastapi import APIRouter, Depends, Form, Request, UploadFile
 from fastapi.responses import RedirectResponse, Response
@@ -11,7 +12,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from ..conversation import buscar_cuenta_bancaria
 from ..cuit import formato_cuit, normalizar_cuit
-from ..extraction import extract_transfer
+from ..extraction import es_fecha_futura, extract_transfer
 from ..models import (
     BankAccount,
     Movement,
@@ -41,6 +42,7 @@ from .comun import (
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
+ERROR_FECHA_FUTURA = "La fecha de la transferencia no puede ser posterior a hoy."
 ERROR_CUIT = "El CUIT/CUIL no es valido: tiene que tener 11 numeros (ej. 20-12345678-9)."
 
 COMPROBANTES_POR_PAGINA = 50
@@ -81,17 +83,21 @@ def _comprobantes_query(
     order: str = "asc",
     movil_id: str = "",
     dia: date | None = None,
+    solo_ids: bool = False,
 ):
-    query = (
-        select(Movement)
-        .where(Movement.estado_registro == RecordState.CONFIRMADO)
-        .options(
-            selectinload(Movement.operador),
-            selectinload(Movement.cuenta_bancaria),
-            selectinload(Movement.movil),
-            selectinload(Movement.reparto),
+    if solo_ids:
+        query = select(Movement.id).where(Movement.estado_registro == RecordState.CONFIRMADO)
+    else:
+        query = (
+            select(Movement)
+            .where(Movement.estado_registro == RecordState.CONFIRMADO)
+            .options(
+                selectinload(Movement.operador),
+                selectinload(Movement.cuenta_bancaria),
+                selectinload(Movement.movil),
+                selectinload(Movement.reparto),
+            )
         )
-    )
     if banco:
         query = query.where(Movement.cuenta_bancaria_id == int(banco))
     if estado_conciliacion:
@@ -135,7 +141,8 @@ def _comprobantes_query(
         columna_orden = _COLUMNAS_ORDENABLES.get(sort, Movement.fecha_alta)
     descendente = order == "desc" if sort else True  # sin sort explicito, default = fecha_alta desc (como antes)
     orden = columna_orden.desc() if descendente else columna_orden.asc()
-    return query.order_by(orden.nullslast())
+    # El id desempata: mismo orden en cada pagina y al recorrer uno por uno.
+    return query.order_by(orden.nullslast(), Movement.id.desc() if descendente else Movement.id.asc())
 
 
 @router.get("/comprobantes")
@@ -379,6 +386,8 @@ async def nuevo_movimiento_submit(
         nuevo_monto = Decimal(monto)
     except (ValueError, InvalidOperation):
         return _reformar("Fecha o monto invalido.")
+    if es_fecha_futura(nueva_fecha):
+        return _reformar(ERROR_FECHA_FUTURA)
     if cuit.strip() and normalizar_cuit(cuit) is None:
         return _reformar(ERROR_CUIT)
 
@@ -419,8 +428,56 @@ def editar_movimiento_form(
     movimiento = obtener_o_redirigir(db, Movement, movimiento_id, "/comprobantes")
     cuentas = db.scalars(select(BankAccount).order_by(BankAccount.id)).all()
     return templates.TemplateResponse(
-        request, "editar_movimiento.html", {"user": user, "movimiento": movimiento, "cuentas": cuentas, "error": None}
+        request,
+        "editar_movimiento.html",
+        {
+            "user": user,
+            "movimiento": movimiento,
+            "cuentas": cuentas,
+            "error": None,
+            "navegacion": _navegacion(db, volver_a(request, "/comprobantes"), movimiento_id),
+        },
     )
+
+
+def _navegacion(db: Session, volver: str, movimiento_id: int) -> dict | None:
+    """Anterior y siguiente del comprobante dentro del listado del que se vino
+    (mismos filtros, dia y orden que viajan en `volver`), para recorrerlos uno
+    por uno sin volver al listado. None si no se vino del listado de
+    comprobantes o si este comprobante ya no esta en esa vista."""
+    partes = urlsplit(volver)
+    if partes.path != "/comprobantes":
+        return None
+    p = {clave: valores[-1] for clave, valores in parse_qs(partes.query).items()}
+    rango = any(p.get(c) for c in ("fecha_transaccion_desde", "fecha_transaccion_hasta", "fecha_alta_desde", "fecha_alta_hasta"))
+    try:
+        ids = db.scalars(
+            _comprobantes_query(
+                p.get("banco", ""), p.get("estado_conciliacion", ""), p.get("operador_id", ""),
+                p.get("fecha_transaccion_desde", ""), p.get("fecha_transaccion_hasta", ""),
+                p.get("fecha_alta_desde", ""), p.get("fecha_alta_hasta", ""), p.get("q", ""),
+                p.get("sort", ""), p.get("order", "asc"), p.get("movil_id", ""),
+                _dia_seleccionado(p.get("fecha", ""), rango),
+                solo_ids=True,
+            )
+        ).all()
+    except ValueError:  # filtros armados a mano en la URL
+        return None
+    if movimiento_id not in ids:
+        return None
+    posicion = ids.index(movimiento_id)
+
+    def enlace(indice: int) -> str | None:
+        if 0 <= indice < len(ids):
+            return f"/comprobantes/{ids[indice]}/editar?{urlencode({'volver': volver})}"
+        return None
+
+    return {
+        "anterior": enlace(posicion - 1),
+        "siguiente": enlace(posicion + 1),
+        "posicion": posicion + 1,
+        "total": len(ids),
+    }
 
 
 @router.post("/comprobantes/{movimiento_id}/editar")
@@ -449,6 +506,13 @@ def editar_movimiento_submit(
             request,
             "editar_movimiento.html",
             {"user": user, "movimiento": movimiento, "cuentas": cuentas, "error": "Fecha o monto invalido."},
+            status_code=400,
+        )
+    if es_fecha_futura(nueva_fecha):
+        return templates.TemplateResponse(
+            request,
+            "editar_movimiento.html",
+            {"user": user, "movimiento": movimiento, "cuentas": cuentas, "error": ERROR_FECHA_FUTURA},
             status_code=400,
         )
     if cuit.strip() and normalizar_cuit(cuit) is None:

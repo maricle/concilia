@@ -1,9 +1,26 @@
 {% extends "base.html" %}
 {% block title %}Editar comprobante - Concilia{% endblock %}
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-4">
+<div class="d-flex justify-content-between align-items-center flex-wrap mb-4" style="gap: .5rem;">
   <h1 class="h3 mb-0 text-gray-800">Editar comprobante</h1>
-  <a href="{{ volver_a(request, '/comprobantes') }}" class="btn btn-outline-secondary btn-sm"><i class="fas fa-arrow-left mr-1"></i>Volver al listado</a>
+  <div class="d-flex align-items-center" style="gap: .5rem;">
+    {% if navegacion %}
+    <div class="btn-group btn-group-sm" role="group" aria-label="Recorrer comprobantes">
+      {% if navegacion.anterior %}
+      <a href="{{ navegacion.anterior }}" class="btn btn-outline-secondary nav-comprobante" title="Comprobante anterior (Alt + flecha izquierda)" id="comprobante-anterior"><i class="fas fa-chevron-left"></i></a>
+      {% else %}
+      <span class="btn btn-outline-secondary disabled" aria-disabled="true"><i class="fas fa-chevron-left"></i></span>
+      {% endif %}
+      <span class="btn btn-outline-secondary disabled text-nowrap" style="opacity: 1;">{{ navegacion.posicion }} de {{ navegacion.total }}</span>
+      {% if navegacion.siguiente %}
+      <a href="{{ navegacion.siguiente }}" class="btn btn-outline-secondary nav-comprobante" title="Comprobante siguiente (Alt + flecha derecha)" id="comprobante-siguiente"><i class="fas fa-chevron-right"></i></a>
+      {% else %}
+      <span class="btn btn-outline-secondary disabled" aria-disabled="true"><i class="fas fa-chevron-right"></i></span>
+      {% endif %}
+    </div>
+    {% endif %}
+    <a href="{{ volver_a(request, '/comprobantes') }}" class="btn btn-outline-secondary btn-sm"><i class="fas fa-arrow-left mr-1"></i>Volver al listado</a>
+  </div>
 </div>
 
 <div class="row">
@@ -102,6 +119,25 @@
   </div>
 </div>
 <script>
+// Recorrer comprobantes: si hay cambios sin guardar, avisa antes de salir.
+(function () {
+  var form = document.querySelector("form[method='post']");
+  var original = form ? new URLSearchParams(new FormData(form)).toString() : "";
+  function hayCambios() {
+    return form && new URLSearchParams(new FormData(form)).toString() !== original;
+  }
+  document.querySelectorAll(".nav-comprobante").forEach(function (enlace) {
+    enlace.addEventListener("click", function (evento) {
+      if (hayCambios() && !confirm("Hay cambios sin guardar en este comprobante. ¿Salir igual?")) evento.preventDefault();
+    });
+  });
+  document.addEventListener("keydown", function (evento) {
+    if (!evento.altKey || (evento.key !== "ArrowLeft" && evento.key !== "ArrowRight")) return;
+    var enlace = document.getElementById(evento.key === "ArrowLeft" ? "comprobante-anterior" : "comprobante-siguiente");
+    if (enlace) { evento.preventDefault(); enlace.click(); }
+  });
+})();
+
 function actualizarIconoCuentaReceptora() {
   var select = document.getElementById("cuenta-receptora-select");
   var chip = document.getElementById("cuenta-receptora-icono");

@@ -59,7 +59,7 @@
               {% endif %}
             </td>
             <td class="text-nowrap">
-              <a href="/conciliaciones?resumen_id={{ resumen.id }}" class="btn btn-sm btn-outline-primary" title="Ver en Conciliaciones"><i class="fas fa-eye"></i></a>
+              <a href="/conciliaciones/resumenes/{{ resumen.id }}?volver={{ url_actual(request)|urlencode }}" class="btn btn-sm btn-outline-primary" title="Ver todos los registros del resumen"><i class="fas fa-eye"></i></a>
               {% if resumen.archivo_id %}
               <a href="/conciliaciones/resumenes/{{ resumen.id }}/descargar" class="btn btn-sm btn-outline-secondary" title="Descargar archivo original"><i class="fas fa-download"></i></a>
               {% endif %}

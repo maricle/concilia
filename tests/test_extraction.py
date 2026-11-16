@@ -308,3 +308,38 @@ def test_few_shot_titular_es_quien_envia():
     for ejemplo in extraction._FEW_SHOT_EXAMPLES:
         assert "Empresa Ejemplo" not in (ejemplo["salida_esperada"]["titular"] or "")
         assert "cuit" in ejemplo["salida_esperada"]
+
+
+def test_fecha_futura_se_vuelve_a_leer_y_si_sigue_futura_queda_como_no_leida(monkeypatch):
+    """Un comprobante es de una transferencia ya hecha: una fecha futura es una
+    lectura equivocada (caso real: dia y mes o el año mal leidos)."""
+    futura = (ahora_argentina() + timedelta(days=40)).strftime("%Y-%m-%d %H:%M")
+    fake_client = _FakeAnthropic([{"monto": 500, "fecha_transaccion": futura}, {"monto": 500, "fecha_transaccion": futura}])
+    monkeypatch.setattr(extraction, "Anthropic", lambda api_key: fake_client)
+
+    transfer = extract_transfer("image/jpeg", b"fake-bytes")
+
+    assert len(fake_client.messages.calls) == 2  # reintento con Sonnet
+    assert transfer.fecha_no_leida is True
+    assert transfer.fecha_transaccion <= ahora_argentina()
+
+
+def test_fecha_futura_corregida_por_el_reintento(monkeypatch):
+    futura = (ahora_argentina() + timedelta(days=40)).strftime("%Y-%m-%d")
+    fake_client = _FakeAnthropic(
+        [{"monto": 500, "fecha_transaccion": futura}, {"monto": 500, "fecha_transaccion": "2026-08-24 10:15"}]
+    )
+    monkeypatch.setattr(extraction, "Anthropic", lambda api_key: fake_client)
+
+    transfer = extract_transfer("image/jpeg", b"fake-bytes")
+
+    assert transfer.fecha_transaccion == datetime(2026, 8, 24, 10, 15)
+    assert transfer.fecha_no_leida is False
+
+
+def test_es_fecha_futura():
+    ahora = ahora_argentina()
+    assert extraction.es_fecha_futura(ahora + timedelta(hours=1))
+    assert not extraction.es_fecha_futura(ahora + timedelta(minutes=5))  # reloj apenas adelantado
+    assert not extraction.es_fecha_futura(ahora.replace(hour=0, minute=0))  # hoy, solo con fecha
+    assert not extraction.es_fecha_futura(None)
